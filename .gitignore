@@ -1,0 +1,7 @@
+.DS_Store
+.npm-cache/
+node_modules/
+
+.context/chat/
+.context/history/
+.context/sandbox/
