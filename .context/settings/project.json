@@ -1,9 +1,0 @@
-{
-  "project_name": "",
-  "primary_language": "",
-  "test_command": "npm run smoke-test",
-  "onboarded": false,
-  "history_max_sessions": 100,
-  "seen_threshold": 3,
-  "model_tier": "balanced"
-}
