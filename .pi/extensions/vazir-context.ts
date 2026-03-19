@@ -4,6 +4,7 @@ import { join } from "path";
 
 export default function vazirContext(pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event) => {
+    const agentEvent = event as { systemPrompt?: string };
     const contextMapPath = join(process.cwd(), ".context/memory/context-map.md");
     const agentsPath = join(process.cwd(), "AGENTS.md");
 
@@ -20,7 +21,7 @@ export default function vazirContext(pi: ExtensionAPI) {
 
     if (!cleanContent) return;
 
-    const originalPrompt = event.systemPrompt ?? "";
+    const originalPrompt = agentEvent.systemPrompt ?? "";
 
     return {
       systemPrompt: originalPrompt
