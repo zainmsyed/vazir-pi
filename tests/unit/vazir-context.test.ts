@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildInjectedSystemPrompt, stripHtmlComments } from "../../.pi/extensions/vazir-context";
+import { buildInjectedSystemPrompt, stripHtmlComments } from "../../.pi/extensions/vazir-context.ts";
 
 test("stripHtmlComments removes HTML comments", () => {
   const content = "alpha\n<!-- hidden note -->\nbeta";
