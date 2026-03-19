@@ -1,5 +1,6 @@
 declare const process: {
   cwd(): string;
+  chdir(directory: string): void;
 };
 
 declare module "fs" {
@@ -7,10 +8,15 @@ declare module "fs" {
   export function readFileSync(path: string, encoding: "utf-8"): string;
   export function mkdirSync(path: string, options?: { recursive?: boolean }): void;
   export function writeFileSync(path: string, data: string, encoding: "utf-8"): void;
+  export function copyFileSync(src: string, dest: string): void;
+  export function renameSync(oldPath: string, newPath: string): void;
+  export function readdirSync(path: string, options: { withFileTypes: true }): Array<{ name: string; isDirectory(): boolean }>;
+  export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
 }
 
 declare module "path" {
   export function join(...parts: string[]): string;
+  export function dirname(path: string): string;
 }
 
 declare module "@mariozechner/pi-coding-agent" {
@@ -29,7 +35,7 @@ declare module "@mariozechner/pi-coding-agent" {
   export interface ExtensionAPI {
     on(
       eventName: string,
-      handler: (event: AgentStartEvent, ctx: CommandContext) => Promise<{ systemPrompt: string } | void> | { systemPrompt: string } | void,
+      handler: (event: unknown, ctx: CommandContext) => unknown,
     ): void;
     registerCommand(
       name: string,
