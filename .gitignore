@@ -1,9 +1,19 @@
 .DS_Store
 .npm-cache/
 node_modules/
-.context/
+
+# JJ metadata
+.jj/
+
+# Pi-coding-agent internals
+.context
+.comtext/
 .context/chat/
 .context/history/
 .context/sandbox/
+
+# Vazir transient data (checkpoints are session-scoped)
+.context/checkpoints/
+
 AGENTS.md
 AGENTS.MD
