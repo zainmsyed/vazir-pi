@@ -120,18 +120,20 @@ every agent turn is a new checkpoint in the JJ operation log
 user happy → /reset → jj describe -m "add refresh token" → jj git push
       ↓ OR ↓
 user runs /reject
-      ↓
+  ↓
 "What went wrong?" → rule saved to system.md
-      ↓
+  ↓
+"Retry?" → resend original prompt + rejection reason
+  ↓ NO
 "Restore checkpoint?"
   "Previous checkpoint" → jj op restore {ops[1].id}  ← pre-selected, instant
   "Choose checkpoint"   → SelectList picker showing user prompts + timestamps
-      ↓
+  ↓
 jj op restore {id} — entire repo state restored, including bash side effects
 No undo/redo cycle possible — every restore is a new forward operation in the log
 widget syncs from jj diff
-      ↓
-"Retry?" → resend original prompt + rejection reason
+  ↓
+rejection reason is re-applied after restore so system.md / learnings keep the rule
 ```
 
 ### Git fallback path
@@ -167,18 +169,20 @@ Unchanged from v3.0 — this is the core thesis and it doesn't change with JJ.
 **Immediate — within the current task:**
 ```
 Agent writes bad code
-      ↓
+  ↓
 /reject "don't touch ValidateToken signature"
-      ↓
+  ↓
 rule written to system.md ## Learned Rules (permanent, injected every session)
 reason appended to learnings/code-review.md (audit trail)
-      ↓
+  ↓
+"Retry?" → pi.sendUserMessage("Previous attempt rejected: [reason]\n\n[original task]")
+  ↓ NO
 "Restore checkpoint?"
   JJ:  "Previous checkpoint" → jj op restore ops[1].id
-       "Choose checkpoint"   → picker showing prompts + timestamps
+   "Choose checkpoint"   → picker showing prompts + timestamps
   Git: file snapshot picker
-      ↓
-"Retry?" → pi.sendUserMessage("Previous attempt rejected: [reason]\n\n[original task]")
+  ↓
+rejection reason is re-applied after restore so system.md / learnings keep the rule
       ↓
 agent reruns with the rule already in system.md — doesn't repeat the mistake
 ```
@@ -234,30 +238,42 @@ Every step runs in order. Nothing is skipped. The checklist below is exactly wha
   "✓ Vazir bootstrap complete
    • context-map.md: [drafted | fill in manually | existing]
    • index.md: N files indexed
-   Next: JJ setup runs now"
+   Next: Git check runs now"
 
-☐ 5. JJ install check
+☐ 5. Git check
+  try: git rev-parse --git-dir
+  NOT a git repo →
+    select: "Yes — initialise git" | "No — I understand, skip git and JJ"
+    "Yes — initialise git" → git init
+       notify "✓ git initialised
+               Remember to add a remote:
+               git remote add origin <url>"
+    "No — I understand, skip git and JJ" →
+       notify "No git — JJ skipped, checkpoints unavailable"
+       done; files are already created
+  IS a git repo → continue
+
+☐ 6. JJ install check
   try: jj --version
   NOT installed →
-    select: "Ask pi to install JJ" | "Show install instructions" | "Skip JJ"
-    "Ask pi to install JJ"  → pi.sendUserMessage(install instructions)
-          continue with git fallback
-    "Show install instructions" → notify URL
-              continue with git fallback
-    "Skip JJ"               → continue without JJ (git fallback)
+    notify:
+      "JJ is not installed. It gives Vazir a full checkpoint history of every agent turn.
+
+       To install:  brew install jj  (macOS)
+                    cargo install jj-cli  (Linux)
+
+       After installing, run:  jj git init --colocate
+       Or just re-run /vazir-init — files are already set up."
+    continue; JJ is optional
   INSTALLED → continue
 
-☐ 6. JJ repo init (only if JJ available)
+☐ 7. JJ repo init (only if git exists and JJ is available)
   try: jj root
   NOT a JJ repo → jj git init --colocate
          jj bookmark track main@origin (or master@origin)
+         add .jj/ to .gitignore if missing
          notify "✓ JJ initialised"
   ALREADY JJ    → notify "JJ already initialised" (skip)
-
-☐ 7. Add .jj/ to .gitignore (only if JJ available)
-  read .gitignore (or create if missing)
-  if ".jj/" not present → append it
-  notify "Added .jj/ to .gitignore"
 
 ☐ 8. Final summary notification
   "✓ Vazir initialised
@@ -271,7 +287,8 @@ Every step runs in order. Nothing is skipped. The checklist below is exactly wha
 - `index.md` is **always** generated (step 2), even if everything else already existed
 - `context-map.md` is **drafted automatically** (step 3) only on first run, never overwritten
 - Steps 1–4 are idempotent — running `/vazir-init` again on an existing project is safe
-- JJ setup is best-effort and always runs after the bootstrap summary, so it cannot block the mandatory files
+- Git is checked only after the files are written, so missing version control never blocks the bootstrap
+- JJ setup only runs after a git repo exists, so JJ failures are explicit and non-blocking
 
 #### `/consolidate` — Manual Consolidation with Preview
 
