@@ -1,7 +1,6 @@
 ---
 name: vazir-base
 description: Vazir baseline constraints — always injected into the system prompt
-automatic: true
 ---
 
 # Vazir Constraints
