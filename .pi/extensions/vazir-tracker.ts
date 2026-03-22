@@ -471,27 +471,46 @@ export default function (pi: ExtensionAPI) {
     description: "Reject the agent's last changes, restore a checkpoint, and optionally retry",
     handler: async (_args, ctx) => {
       const cwd = ctx.cwd;
-
-      // Step 1 — capture reason
-      const reason = await ctx.ui.input(
+      const rejectionReason = await ctx.ui.input(
         "What went wrong?",
         "e.g. never modify the ValidateToken signature",
       );
 
-      if (reason?.trim()) {
-        appendToSystemMd(cwd, reason.trim());
-        appendToLearnings(cwd, reason.trim());
+      const trimmedReason = rejectionReason?.trim() ?? "";
+
+      if (trimmedReason) {
+        appendToSystemMd(cwd, trimmedReason);
+        appendToLearnings(cwd, trimmedReason);
         ctx.ui.notify("Rule saved to system.md — agent will remember this", "info");
       }
 
-      // Step 2 — restore checkpoint
+      const retry = await ctx.ui.confirm(
+        "Retry?",
+        "Resend your last prompt with the rejection reason as context.",
+      );
+
+      if (retry) {
+        const retryPrompt = trimmedReason
+          ? `Previous attempt was rejected: "${trimmedReason}"\n\n${lastUserPrompt}`
+          : lastUserPrompt;
+
+        if (!retryPrompt.trim()) {
+          ctx.ui.notify("No previous prompt found — please retype your task", "warning");
+          return;
+        }
+
+        await pi.sendUserMessage(retryPrompt);
+        return;
+      }
+
+      // No retry: offer checkpoint restore now.
       if (useJJ) {
         // ── JJ path ─────────────────────────────────────────────────
         const ops = jjOpLog(cwd);
 
         if (ops.length > 1) {
           const restoreChoice = await ctx.ui.select(
-            "Restore files?",
+            "Restore checkpoint?",
             [
               "Previous checkpoint — undo last agent turn",
               "Choose checkpoint — pick from history",
@@ -499,11 +518,12 @@ export default function (pi: ExtensionAPI) {
             ],
           );
 
+          let restored = false;
+
           if (restoreChoice === "Previous checkpoint — undo last agent turn") {
             try {
               childProcess.execSync(`jj op restore ${ops[1].id}`, { cwd });
-              syncChanges(cwd);
-              refreshWidget();
+              restored = true;
               ctx.ui.notify(`Restored to previous checkpoint (${ops[1].ago})`, "info");
             } catch (e: any) {
               ctx.ui.notify(`Restore failed: ${e.message}`, "error");
@@ -517,15 +537,22 @@ export default function (pi: ExtensionAPI) {
               const chosen = pickable[labels.indexOf(pick)];
               try {
                 childProcess.execSync(`jj op restore ${chosen.id}`, { cwd });
-                syncChanges(cwd);
-                refreshWidget();
+                restored = true;
                 ctx.ui.notify(`Restored to checkpoint: ${checkpointLabel(chosen)}`, "info");
               } catch (e: any) {
                 ctx.ui.notify(`Restore failed: ${e.message}`, "error");
               }
             }
           }
-          // "Keep current files" — fall through
+
+          if (restored && trimmedReason) {
+            appendToSystemMd(cwd, trimmedReason);
+            appendToLearnings(cwd, trimmedReason);
+          }
+          syncChanges(cwd);
+          refreshWidget();
+        } else {
+          ctx.ui.notify("No checkpoints available to restore", "info");
         }
       } else {
         // ── Git fallback path ────────────────────────────────────────
@@ -533,7 +560,7 @@ export default function (pi: ExtensionAPI) {
 
         if (checkpoints.length > 0) {
           const restoreChoice = await ctx.ui.select(
-            "Restore files?",
+            "Restore checkpoint?",
             [
               "Previous checkpoint — undo last agent turn",
               "Choose checkpoint — pick from list",
@@ -560,27 +587,10 @@ export default function (pi: ExtensionAPI) {
               ctx.ui.notify(`Restored checkpoint #${chosen.n}`, "info");
             }
           }
+        } else {
+          ctx.ui.notify("No checkpoints available to restore", "info");
         }
       }
-
-      // Step 3 — retry
-      const retry = await ctx.ui.confirm(
-        "Retry?",
-        "Resend your last prompt with the rejection reason as context.",
-      );
-
-      if (!retry) return;
-
-      const retryPrompt = reason?.trim()
-        ? `Previous attempt was rejected: "${reason.trim()}"\n\n${lastUserPrompt}`
-        : lastUserPrompt;
-
-      if (!retryPrompt.trim()) {
-        ctx.ui.notify("No previous prompt found — please retype your task", "warning");
-        return;
-      }
-
-      await pi.sendUserMessage(retryPrompt);
     },
   });
 
