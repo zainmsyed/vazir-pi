@@ -5,15 +5,13 @@ node_modules/
 # JJ metadata
 .jj/
 
-# Pi-coding-agent internals
-.context
-.comtext/
+# Pi-coding-agent transient state
 .context/chat/
 .context/history/
 .context/sandbox/
 
 # Vazir transient data (checkpoints are session-scoped)
+.context/
 .context/checkpoints/
-
 AGENTS.md
-AGENTS.MD
+

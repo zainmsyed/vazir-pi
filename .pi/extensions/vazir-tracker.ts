@@ -107,7 +107,12 @@ function syncFromGit(cwd: string) {
       statusMap.set(file, status);
     }
 
-    const statOut = childProcess.execSync("git diff --stat HEAD", { cwd, encoding: "utf-8" }).trim();
+    let statOut = "";
+    try {
+      statOut = childProcess.execSync("git diff --stat HEAD", { cwd, encoding: "utf-8" }).trim();
+    } catch {
+      statOut = "";
+    }
     const statMap = new Map<string, { added: number; removed: number }>();
     for (const line of statOut.split("\n")) {
       const m = line.match(/^\s*(.+?)\s+\|\s+\d+\s+([+-]*)/);
@@ -121,7 +126,7 @@ function syncFromGit(cwd: string) {
     changedFiles.clear();
     for (const [file, status] of statusMap) {
       let added = 0, removed = 0;
-      if (status === "?") {
+      if (status === "?" || (status === "A" && !statMap.has(file))) {
         try {
           added = fs.readFileSync(path.join(cwd, file), "utf-8").split("\n").length;
         } catch { /* ignore */ }
@@ -259,7 +264,7 @@ export default function (pi: ExtensionAPI) {
     useJJ = detectJJ(cwd);
 
     // Extract session ID for git fallback
-    const sessionFile = "";
+    const sessionFile = (ctx.sessionManager as any)?.getSessionFile?.() ?? "";
     const match = sessionFile.match(/_([a-f0-9]+)\.jsonl$/);
     currentSessionId = match ? match[1] : Date.now().toString(16);
 
@@ -575,14 +580,14 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      pi.sendUserMessage(retryPrompt);
+      await pi.sendUserMessage(retryPrompt);
     },
   });
 
   // ── /reset ────────────────────────────────────────────────────────────
 
   pi.registerCommand("reset", {
-    description: "Accept changes — describe the JJ change or clear the git tracker",
+    description: "Describe the current JJ change or clear git fallback checkpoints",
     handler: async (_args, ctx) => {
       if (useJJ) {
         const desc = await ctx.ui.input(
