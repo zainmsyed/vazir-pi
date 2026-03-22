@@ -100,6 +100,7 @@ const AGENTS_MD_TEMPLATE = [
 ].join("\n");
 
 const JJ_DOCS_URL = "https://www.jj-vcs.dev/latest/install-and-setup/";
+const JJ_OVERVIEW_URL = "https://www.jj-vcs.dev/latest/";
 
 let lastUserPrompt = "";
 let useJJ = false;
@@ -156,6 +157,15 @@ function baseName(filePath: string): string {
 function detectJJ(cwd: string): boolean {
   try {
     childProcess.execSync("jj root", { cwd, stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function detectGitRepo(cwd: string): boolean {
+  try {
+    childProcess.execSync("git rev-parse --git-dir", { cwd, stdio: "pipe" });
     return true;
   } catch {
     return false;
@@ -270,12 +280,11 @@ function dedupeLearnedRules(systemMd: string): string {
   return systemMd.replace(/## Learned Rules[\s\S]*$/, learnedSection);
 }
 
-function buildInitSummary(fileStatuses: InitFileStatus[], jjStarted: boolean): string {
-  const jjLine = jjStarted ? "☑ JJ (Jujutsu): active" : "☒ JJ (Jujutsu): Not started";
+function buildInitSummary(fileStatuses: InitFileStatus[], jjLine: string, jjDetailLine: string): string {
   return [
     "Vazir init summary",
     jjLine,
-    `  ↳ Go here to install directions ${JJ_DOCS_URL}`,
+    jjDetailLine,
     "☑ Added files:",
     ...fileStatuses.map(file => `    ${file.present ? "☑" : "☒"} ${file.label}`),
   ].join("\n");
@@ -330,7 +339,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerCommand("vazir-init", {
-    description: "Initialise JJ and bootstrap Vazir context files",
+    description: "Bootstrap Vazir context files, then set up git and JJ when available",
     handler: async (_args: string, ctx: any) => {
       const cwd = ctx.cwd;
 
@@ -356,7 +365,6 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("AGENTS.md created", "info");
       }
 
-      const indexExisted = fs.existsSync(indexPath(cwd));
       const sourceFiles = walkSourceFiles(cwd);
       const indexSummary = writeIndex(cwd, sourceFiles);
       ctx.ui.notify("index.md generated", "info");
@@ -375,49 +383,58 @@ export default function (pi: ExtensionAPI) {
       }
 
       ctx.ui.notify(
-        `Vazir bootstrap complete • context-map.md: ${contextMapStatus} • index.md: ${indexSummary.total} files indexed • JJ setup runs now`,
+        `Vazir bootstrap complete • context-map.md: ${contextMapStatus} • index.md: ${indexSummary.total} files indexed • Git check runs now`,
         "info",
       );
 
-      let jjAvailable = false;
-      try {
-        childProcess.execSync("jj --version", { cwd, stdio: "pipe" });
-        jjAvailable = true;
-      } catch {
+      let jjLine = "☒ JJ (Jujutsu): Not started";
+      let jjDetailLine = `  ↳ Go here to install directions ${JJ_DOCS_URL}`;
+      let gitReady = detectGitRepo(cwd);
+
+      if (!gitReady) {
         const choice = await ctx.ui.select(
-          "JJ (Jujutsu) is not installed. It powers Vazir checkpoints.",
+          "This folder has no git repo. Git is required for version control and JJ checkpoint support. Initialise git here?",
           [
-            "Ask pi to install JJ — continue with git fallback",
-            "Show install instructions — continue with git fallback",
-            "Skip JJ — use git fallback",
+            "Yes — initialise git",
+            "No — I understand, skip git and JJ",
           ],
         );
 
-        if (choice === "Ask pi to install JJ — continue with git fallback") {
-          await pi.sendUserMessage(
-            "Install Jujutsu and then re-run /vazir-init. Directions to install can be found here: https://www.jj-vcs.dev/latest/install-and-setup/",
-          );
-          ctx.ui.notify("JJ install requested — continuing with git fallback so Vazir files are already in place", "info");
-        }
-
-        if (choice === "Show install instructions — continue with git fallback") {
-          ctx.ui.notify("https://jj-vcs.dev/latest/install-and-setup", "info");
-          ctx.ui.notify("Continuing with git fallback so Vazir files are already in place", "info");
-        }
-
-        if (
-          choice !== "Ask pi to install JJ — continue with git fallback" &&
-          choice !== "Show install instructions — continue with git fallback"
-        ) {
-          ctx.ui.notify("Continuing without JJ — git fallback active", "info");
+        if (choice === "Yes — initialise git") {
+          try {
+            childProcess.execSync("git init", { cwd, stdio: "pipe" });
+            gitReady = true;
+            ctx.ui.notify("✓ git initialised\nRemember to add a remote:\ngit remote add origin <url>", "info");
+          } catch (error: any) {
+            ctx.ui.notify(`Git init failed: ${error?.message || String(error)} — JJ skipped`, "warning");
+            jjDetailLine = "  ↳ Git initialisation failed, so JJ was skipped";
+          }
+        } else {
+          ctx.ui.notify("No git — JJ skipped, checkpoints unavailable", "warning");
+          jjDetailLine = "  ↳ Git is not initialised here, so JJ was skipped";
         }
       }
 
-      if (jjAvailable) {
+      let jjAvailable = false;
+      if (gitReady) {
         try {
+          childProcess.execSync("jj --version", { cwd, stdio: "pipe" });
+          jjAvailable = true;
+        } catch {
+          ctx.ui.notify(
+            "JJ is not installed. It gives Vazir a full checkpoint history of every agent turn.\n\nTo install:  brew install jj  (macOS)\n             cargo install jj-cli  (Linux)\n\nAfter installing, run:  jj git init --colocate\nOr just re-run /vazir-init — files are already set up.",
+            "info",
+          );
+        }
+      }
+
+      try {
+        if (jjAvailable) {
           try {
             childProcess.execSync("jj root", { cwd, stdio: "pipe" });
             ctx.ui.notify("JJ already initialised", "info");
+            jjLine = "☑ JJ (Jujutsu): active";
+            jjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
           } catch {
             childProcess.execSync("jj git init --colocate", { cwd, stdio: "pipe" });
             for (const branch of ["main", "master"]) {
@@ -429,6 +446,8 @@ export default function (pi: ExtensionAPI) {
               }
             }
             ctx.ui.notify("JJ initialised", "info");
+            jjLine = "☑ JJ (Jujutsu): active";
+            jjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
           }
 
           const gitignorePath = path.join(cwd, ".gitignore");
@@ -438,9 +457,9 @@ export default function (pi: ExtensionAPI) {
             fs.writeFileSync(gitignorePath, nextGitignore);
             ctx.ui.notify("Added .jj/ to .gitignore", "info");
           }
-        } catch (error: any) {
-          ctx.ui.notify(`JJ setup failed: ${error?.message || String(error)} — continuing with git fallback`, "warning");
         }
+      } catch (error: any) {
+        ctx.ui.notify(`JJ setup failed: ${error?.message || String(error)} — continuing with git fallback`, "warning");
       }
 
       useJJ = jjAvailable && detectJJ(cwd);
@@ -450,7 +469,7 @@ export default function (pi: ExtensionAPI) {
         { label: ".context/memory/context-map.md", present: fs.existsSync(contextMapPath(cwd)) },
         { label: "AGENTS.md", present: fs.existsSync(agentsPath) },
         { label: ".context/settings/project.json", present: fs.existsSync(projectSettingsPath) },
-      ], useJJ);
+      ], useJJ ? "☑ JJ (Jujutsu): active" : jjLine, useJJ ? `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}` : jjDetailLine);
       pendingInitSummary = initSummary;
       ctx.ui.notify(initSummary, "info");
     },
