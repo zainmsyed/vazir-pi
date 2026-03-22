@@ -99,8 +99,16 @@ const AGENTS_MD_TEMPLATE = [
   "",
 ].join("\n");
 
+const JJ_DOCS_URL = "https://www.jj-vcs.dev/latest/install-and-setup/";
+
 let lastUserPrompt = "";
 let useJJ = false;
+let pendingInitSummary: string | null = null;
+
+type InitFileStatus = {
+  label: string;
+  present: boolean;
+};
 
 function memoryDir(cwd: string) {
   return path.join(cwd, ".context", "memory");
@@ -262,6 +270,17 @@ function dedupeLearnedRules(systemMd: string): string {
   return systemMd.replace(/## Learned Rules[\s\S]*$/, learnedSection);
 }
 
+function buildInitSummary(fileStatuses: InitFileStatus[], jjStarted: boolean): string {
+  const jjLine = jjStarted ? "☑ JJ (Jujutsu): active" : "☒ JJ (Jujutsu): Not started";
+  return [
+    "Vazir init summary",
+    jjLine,
+    `  ↳ Go here to install directions ${JJ_DOCS_URL}`,
+    "☑ Added files:",
+    ...fileStatuses.map(file => `    ${file.present ? "☑" : "☒"} ${file.label}`),
+  ].join("\n");
+}
+
 export default function (pi: ExtensionAPI) {
   pi.on("input", async (event: any) => {
     if (event.text?.trim() && !event.text.startsWith("/")) {
@@ -276,6 +295,10 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     const parts: string[] = [];
+    if (pendingInitSummary) {
+      parts.push(pendingInitSummary);
+      pendingInitSummary = null;
+    }
     const contextMap = strip(readIfExists(contextMapPath(ctx.cwd)));
     const agents = strip(readIfExists(path.join(ctx.cwd, "AGENTS.md")));
     const systemMd = strip(readIfExists(systemPath(ctx.cwd)));
@@ -333,12 +356,14 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("AGENTS.md created", "info");
       }
 
+      const indexExisted = fs.existsSync(indexPath(cwd));
       const sourceFiles = walkSourceFiles(cwd);
       const indexSummary = writeIndex(cwd, sourceFiles);
       ctx.ui.notify("index.md generated", "info");
 
       let contextMapStatus = "existing";
-      if (!fs.existsSync(contextMapPath(cwd))) {
+      const contextMapExisted = fs.existsSync(contextMapPath(cwd));
+      if (!contextMapExisted) {
         fs.writeFileSync(contextMapPath(cwd), CONTEXT_MAP_TEMPLATE);
         contextMapStatus = "fill in manually";
         const draftedContextMap = draftContextMap(cwd, sourceFiles);
@@ -370,7 +395,7 @@ export default function (pi: ExtensionAPI) {
 
         if (choice === "Ask pi to install JJ — continue with git fallback") {
           await pi.sendUserMessage(
-            "Install Jujutsu and then re-run /vazir-init. Linux options: your distro package if available, or cargo install jj-cli. Docs: https://jj-vcs.dev/latest/install-and-setup",
+            "Install Jujutsu and then re-run /vazir-init. Directions to install can be found here: https://www.jj-vcs.dev/latest/install-and-setup/",
           );
           ctx.ui.notify("JJ install requested — continuing with git fallback so Vazir files are already in place", "info");
         }
@@ -419,10 +444,15 @@ export default function (pi: ExtensionAPI) {
       }
 
       useJJ = jjAvailable && detectJJ(cwd);
-      ctx.ui.notify(
-        `Vazir initialised • JJ: ${useJJ ? "active" : "git fallback"} • context-map.md: ${contextMapStatus} • index.md: ${indexSummary.total} files indexed`,
-        "info",
-      );
+      const initSummary = buildInitSummary([
+        { label: ".context/memory/system.md", present: fs.existsSync(systemPath(cwd)) },
+        { label: ".context/memory/index.md", present: fs.existsSync(indexPath(cwd)) },
+        { label: ".context/memory/context-map.md", present: fs.existsSync(contextMapPath(cwd)) },
+        { label: "AGENTS.md", present: fs.existsSync(agentsPath) },
+        { label: ".context/settings/project.json", present: fs.existsSync(projectSettingsPath) },
+      ], useJJ);
+      pendingInitSummary = initSummary;
+      ctx.ui.notify(initSummary, "info");
     },
   });
 
