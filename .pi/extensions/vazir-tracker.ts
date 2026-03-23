@@ -318,7 +318,9 @@ export default function (pi: ExtensionAPI) {
               case "D": statusLabel = "D"; break;
               default: statusLabel = "?"; break;
             }
-            parts.push(`${statusLabel} ${f.file} +${f.added}/-${f.removed}`);
+            const added = theme.fg("success", `+${f.added}`);
+            const removed = theme.fg("error", `-${f.removed}`);
+            parts.push(`${statusLabel} ${f.file} ${added}/${removed}`);
           }
 
           const vcs = useJJ ? " · jj" : "";
