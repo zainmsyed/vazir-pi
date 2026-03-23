@@ -119,6 +119,10 @@ function learningsDir(cwd: string) {
   return path.join(cwd, ".context", "learnings");
 }
 
+function pendingLearningsPath(cwd: string) {
+  return path.join(learningsDir(cwd), "pending.md");
+}
+
 function settingsDir(cwd: string) {
   return path.join(cwd, ".context", "settings");
 }
@@ -254,30 +258,157 @@ function draftContextMap(cwd: string, sourceFiles: string[]): string | null {
   const agents = readIfExists(path.join(cwd, "AGENTS.md")).trim();
   if (!agents) return null;
 
+  const importantPaths = ["AGENTS.md", ".context/memory/system.md", ".context/memory/index.md"];
+  const topLevelDirs = [...new Set(sourceFiles.map(file => file.split("/")[0]).filter(Boolean))].slice(0, 8);
+
   return [
     "# Context Map",
     "",
-    "- Project: Vazir POC",
-    "- Stack: TypeScript / pi-coding-agent",
-    "- Key dirs: .pi, .context, AGENTS.md",
-    "- Fragile: bootstrap order, JJ fallback",
+    "<!-- Keep this under 150 tokens. Review and tighten after bootstrap. -->",
     "",
-    `- Files: ${sourceFiles.length}`,
+    "- Project: see AGENTS.md",
+    "- Stack: see AGENTS.md",
+    `- Key dirs: ${topLevelDirs.join(", ") || "."}`,
+    `- Important paths: ${importantPaths.join(", ")}`,
+    `- Files indexed: ${sourceFiles.length}`,
     "",
   ].join("\n");
 }
 
-function dedupeLearnedRules(systemMd: string): string {
-  const match = systemMd.match(/## Learned Rules[\s\S]*$/);
-  if (!match) return systemMd;
+function learnedRuleLinesFromMd(md: string): string[] {
+  const lines = md.split("\n");
+  const headingIndex = lines.findIndex(line => line.trim() === "## Learned Rules");
+  if (headingIndex < 0) return [];
 
-  const lines = match[0]
-    .split("\n")
+  let sectionEnd = lines.length;
+  for (let index = headingIndex + 1; index < lines.length; index += 1) {
+    if (/^#{1,6}\s/.test(lines[index].trim())) {
+      sectionEnd = index;
+      break;
+    }
+  }
+
+  return lines
+    .slice(headingIndex + 1, sectionEnd)
     .map(line => line.trim())
-    .filter(line => line.startsWith("- "));
-  const uniqueLines = [...new Set(lines)];
-  const learnedSection = ["## Learned Rules", ...uniqueLines, ""].join("\n");
-  return systemMd.replace(/## Learned Rules[\s\S]*$/, learnedSection);
+    .filter(line => line.startsWith("- "))
+    .map(line => line.slice(2));
+}
+
+function dedupeLearnedRules(systemMd: string): string {
+  const learnedLines = learnedRuleLinesFromMd(systemMd);
+  if (learnedLines.length === 0) return systemMd;
+  const uniqueLines = [...new Set(learnedLines)];
+  const replacement = ["## Learned Rules", ...uniqueLines];
+
+  const lines = systemMd.split("\n");
+  const headingIndex = lines.findIndex(line => line.trim() === "## Learned Rules");
+  if (headingIndex < 0) return systemMd;
+
+  let sectionEnd = lines.length;
+  for (let index = headingIndex + 1; index < lines.length; index += 1) {
+    if (/^#{1,6}\s/.test(lines[index].trim())) {
+      sectionEnd = index;
+      break;
+    }
+  }
+
+  const nextLines = [
+    ...lines.slice(0, headingIndex),
+    ...replacement,
+    "",
+    ...lines.slice(sectionEnd),
+  ];
+
+  return nextLines.join("\n").replace(/\n+$/, "\n");
+}
+
+async function prepareLearningConsolidation(cwd: string): Promise<string | null> {
+  const systemMdPath = systemPath(cwd);
+  const pendingPath = pendingLearningsPath(cwd);
+  if (!fs.existsSync(systemMdPath)) return null;
+
+  const systemMd = readIfExists(systemMdPath);
+  const learnings = readIfExists(pendingPath).trim();
+  if (!systemMd.trim() || !learnings) {
+    const deduped = dedupeLearnedRules(systemMd);
+    return deduped !== systemMd ? deduped : null;
+  }
+
+  const apiKey = (globalThis as { process?: { env?: { ANTHROPIC_API_KEY?: string } } }).process?.env?.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) {
+    const deduped = dedupeLearnedRules(systemMd);
+    return deduped !== systemMd ? deduped : null;
+  }
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1000,
+        messages: [{
+          role: "user",
+          content:
+            "You maintain a rule set for a coding agent.\n\n" +
+            `Current system.md:\n<system_md>${systemMd}</system_md>\n\n` +
+            `Recent rejection log:\n<learnings>${learnings}</learnings>\n\n` +
+            "Return a cleaned ## Learned Rules section only:\n" +
+            "- Merge rules that say the same thing differently\n" +
+            "- Remove rules contradicted by newer ones\n" +
+            "- One concise bullet per rule\n" +
+            "- No new rules\n" +
+            "- Return ONLY the ## Learned Rules section",
+        }],
+      }),
+    });
+
+    const data = await response.json() as { content?: Array<{ text?: string }> };
+    const cleaned = data.content?.[0]?.text?.trim();
+    if (!cleaned || !cleaned.startsWith("## Learned Rules")) return null;
+
+    const updated = systemMd.includes("## Learned Rules")
+      ? systemMd.replace(/## Learned Rules[\s\S]*$/, cleaned)
+      : systemMd.trimEnd() + `\n\n${cleaned}\n`;
+    return updated !== systemMd ? updated : null;
+  } catch {
+    const deduped = dedupeLearnedRules(systemMd);
+    return deduped !== systemMd ? deduped : null;
+  }
+}
+
+async function runLearningConsolidation(cwd: string): Promise<boolean> {
+  const systemMdPath = systemPath(cwd);
+  const pendingPath = pendingLearningsPath(cwd);
+  const updated = await prepareLearningConsolidation(cwd);
+  if (updated == null) return false;
+
+  fs.writeFileSync(systemMdPath, updated);
+  fs.writeFileSync(pendingPath, "");
+  return true;
+}
+
+function applyPreparedLearningConsolidation(cwd: string, updated: string): void {
+  const systemMdPath = systemPath(cwd);
+  const pendingPath = pendingLearningsPath(cwd);
+  fs.writeFileSync(systemMdPath, updated);
+  fs.writeFileSync(pendingPath, "");
+}
+
+function summarizeLearnedRuleDiff(before: string, after: string): { beforeCount: number; afterCount: number; added: string[]; removed: string[] } {
+  const beforeRules = learnedRuleLinesFromMd(before);
+  const afterRules = learnedRuleLinesFromMd(after);
+  return {
+    beforeCount: beforeRules.length,
+    afterCount: afterRules.length,
+    added: afterRules.filter(rule => !beforeRules.includes(rule)),
+    removed: beforeRules.filter(rule => !afterRules.includes(rule)),
+  };
 }
 
 function buildInitSummary(fileStatuses: InitFileStatus[], jjLine: string, jjDetailLine: string): string {
@@ -325,17 +456,11 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_before_compact", async (_event: any, ctx: any) => {
-    const systemMdPath = systemPath(ctx.cwd);
-    if (fs.existsSync(systemMdPath)) {
-      fs.writeFileSync(systemMdPath, dedupeLearnedRules(readIfExists(systemMdPath)));
-    }
+    await runLearningConsolidation(ctx.cwd);
   });
 
   pi.on("session_shutdown", async (_event: any, ctx: any) => {
-    const systemMdPath = systemPath(ctx.cwd);
-    if (fs.existsSync(systemMdPath)) {
-      fs.writeFileSync(systemMdPath, dedupeLearnedRules(readIfExists(systemMdPath)));
-    }
+    await runLearningConsolidation(ctx.cwd);
   });
 
   pi.registerCommand("vazir-init", {
@@ -485,13 +610,28 @@ export default function (pi: ExtensionAPI) {
       }
 
       const before = readIfExists(systemMdPath);
-      const after = dedupeLearnedRules(before);
-      if (after !== before) {
-        fs.writeFileSync(systemMdPath, after);
-        ctx.ui.notify("system.md consolidated", "info");
-      } else {
+      const proposed = await prepareLearningConsolidation(ctx.cwd);
+      if (!proposed || proposed === before) {
         ctx.ui.notify("Nothing to consolidate", "info");
+        return;
       }
+
+      const diff = summarizeLearnedRuleDiff(before, proposed);
+      const preview = [
+        `Learned rules: ${diff.beforeCount} → ${diff.afterCount}`,
+        diff.removed.length > 0 ? `Removed: ${diff.removed.map(rule => `- ${rule}`).join("; ")}` : "Removed: none",
+        diff.added.length > 0 ? `Added: ${diff.added.map(rule => `+ ${rule}`).join("; ")}` : "Added: none",
+      ].join("\n");
+
+      ctx.ui.notify(preview, "info");
+      const apply = await ctx.ui.select("Apply these consolidation changes?", ["Apply", "Discard"]);
+      if (apply !== "Apply") {
+        ctx.ui.notify("Consolidation discarded", "info");
+        return;
+      }
+
+      applyPreparedLearningConsolidation(ctx.cwd, proposed);
+      ctx.ui.notify("system.md consolidated", "info");
     },
   });
 }
