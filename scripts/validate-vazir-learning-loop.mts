@@ -6,6 +6,24 @@ import { pathToFileURL } from "node:url";
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
+const originalFetch = globalThis.fetch;
+globalThis.fetch = (async () => ({
+  json: async () => ({
+    content: [
+      {
+        text: [
+          "## Learned Rules",
+          "- avoid renaming auth helpers",
+          "- keep checkpoint labels human readable",
+          "",
+        ].join("\n"),
+      },
+    ],
+  }),
+})) as unknown as typeof globalThis.fetch;
+
+process.env.ANTHROPIC_API_KEY = "test-key";
+
 const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context.ts";
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;
@@ -36,10 +54,30 @@ function createProject(prefix: string): string {
       "",
     ].join("\n"),
   );
-  fs.writeFileSync(
-    path.join(cwd, ".context", "learnings", "code-review.md"),
-    "---\n2026-03-22T12:00:00.000Z\navoid renaming auth helpers\n",
-  );
+    fs.writeFileSync(
+      path.join(cwd, ".context", "learnings", "code-review.md"),
+      [
+        "---",
+        "2026-03-22T12:00:00.000Z",
+        "avoid renaming auth helpers",
+        "---",
+        "2026-03-22T12:01:00.000Z",
+        "keep checkpoint labels human readable",
+        "",
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      path.join(cwd, ".context", "learnings", "pending.md"),
+      [
+        "---",
+        "2026-03-22T12:00:00.000Z",
+        "avoid renaming auth helpers",
+        "---",
+        "2026-03-22T12:01:00.000Z",
+        "keep checkpoint labels human readable",
+        "",
+      ].join("\n"),
+    );
   return cwd;
 }
 
@@ -82,10 +120,20 @@ function makeCtx(cwd: string, notifications: Notification[]) {
 
 function readLearnedRules(cwd: string): string[] {
   const systemMd = fs.readFileSync(path.join(cwd, ".context", "memory", "system.md"), "utf-8");
-  const match = systemMd.match(/## Learned Rules[\s\S]*$/);
-  assert(Boolean(match), "system.md is missing the Learned Rules section");
-  return match![0]
-    .split("\n")
+  const lines = systemMd.split("\n");
+  const headingIndex = lines.findIndex(line => line.trim() === "## Learned Rules");
+  assert(headingIndex >= 0, "system.md is missing the Learned Rules section");
+
+  let sectionEnd = lines.length;
+  for (let index = headingIndex + 1; index < lines.length; index += 1) {
+    if (/^#{1,6}\s/.test(lines[index].trim())) {
+      sectionEnd = index;
+      break;
+    }
+  }
+
+  return lines
+    .slice(headingIndex + 1, sectionEnd)
     .map(line => line.trim())
     .filter(line => line.startsWith("- "))
     .map(line => line.slice(2));
@@ -101,11 +149,13 @@ async function runScenario(eventName: "session_before_compact" | "session_shutdo
 
   const learnedRules = readLearnedRules(cwd);
   const learnings = fs.readFileSync(path.join(cwd, ".context", "learnings", "code-review.md"), "utf-8");
+  const pending = fs.readFileSync(path.join(cwd, ".context", "learnings", "pending.md"), "utf-8");
 
   assert(learnedRules.length === 2, `${eventName} did not dedupe learned rules`);
   assert(learnedRules[0] === "avoid renaming auth helpers", `${eventName} changed the first learned rule unexpectedly`);
   assert(learnedRules[1] === "keep checkpoint labels human readable", `${eventName} changed the second learned rule unexpectedly`);
   assert(learnings.includes("avoid renaming auth helpers"), `${eventName} should not modify code-review.md`);
+  assert(pending.trim() === "", `${eventName} should clear pending.md after consolidation`);
   assert(notifications.length === 0, `${eventName} should not emit UI notifications`);
 
   return {
@@ -134,3 +184,5 @@ const shutdownResult = await runScenario("session_shutdown");
 
 printScenario("Session Before Compact", compactResult);
 printScenario("Session Shutdown", shutdownResult);
+
+globalThis.fetch = originalFetch;

@@ -329,10 +329,12 @@ function appendToSystemMd(cwd: string, rule: string) {
 }
 
 function appendToLearnings(cwd: string, reason: string) {
-  const p = path.join(cwd, ".context/learnings/code-review.md");
-  fs.mkdirSync(parentDirectory(p), { recursive: true });
+  const auditPath = path.join(cwd, ".context/learnings/code-review.md");
+  const pendingPath = path.join(cwd, ".context/learnings/pending.md");
+  fs.mkdirSync(parentDirectory(auditPath), { recursive: true });
   const entry = `\n---\n${new Date().toISOString()}\n${reason}\n`;
-  fs.writeFileSync(p, (fs.existsSync(p) ? fs.readFileSync(p, "utf-8") : "") + entry);
+  fs.writeFileSync(auditPath, (fs.existsSync(auditPath) ? fs.readFileSync(auditPath, "utf-8") : "") + entry);
+  fs.writeFileSync(pendingPath, (fs.existsSync(pendingPath) ? fs.readFileSync(pendingPath, "utf-8") : "") + entry);
 }
 
 // ── Extension ──────────────────────────────────────────────────────────
