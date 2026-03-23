@@ -48,7 +48,7 @@ function jjOpLog(cwd: string, limit = 15): Array<{ id: string; description: stri
       `jj op log --no-graph --limit ${limit} --template 'id.short(8) ++ "||" ++ description ++ "||" ++ time.ago() ++ "\\n"'`,
       { cwd, encoding: "utf-8" },
     ).trim();
-    return raw.split("\n").filter(Boolean).map(line => {
+    return raw.split("\n").filter(Boolean).map((line: string) => {
       const [id, description, ago] = line.split("||");
       return { id: id.trim(), description: description.trim(), ago: ago.trim() };
     });
@@ -85,6 +85,12 @@ function jjHasChanges(cwd: string): boolean {
   } catch {
     return false;
   }
+}
+
+function parentDirectory(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  const index = normalized.lastIndexOf("/");
+  return index >= 0 ? normalized.slice(0, index) : ".";
 }
 
 // ── Git helpers ────────────────────────────────────────────────────────
@@ -183,7 +189,7 @@ function gitSnapshotFile(cwd: string, filePath: string, checkpointDir: string) {
   const abs = path.join(cwd, filePath);
   if (!fs.existsSync(abs)) return;
   const dest = path.join(checkpointDir, "files", filePath);
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.mkdirSync(parentDirectory(dest), { recursive: true });
   fs.copyFileSync(abs, dest);
 }
 
@@ -205,9 +211,9 @@ function listGitCheckpoints(cwd: string, sessionId: string) {
   const dir = sessionCheckpointDir(cwd, sessionId);
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir, { withFileTypes: true })
-    .map(entry => entry.name)
-    .map(n => parseInt(n)).filter(n => !isNaN(n)).sort((a, b) => b - a)
-    .map(n => {
+    .map((entry: { name: string }) => entry.name)
+    .map((n: string) => parseInt(n)).filter((n: number) => !isNaN(n)).sort((a: number, b: number) => b - a)
+    .map((n: number) => {
       const d = path.join(dir, String(n));
       const mp = path.join(d, "meta.json");
       if (!fs.existsSync(mp)) return null;
@@ -218,7 +224,7 @@ function listGitCheckpoints(cwd: string, sessionId: string) {
 function findOrphanedGitSessions(cwd: string, currentId: string): string[] {
   const root = checkpointsRoot(cwd);
   if (!fs.existsSync(root)) return [];
-  return fs.readdirSync(root, { withFileTypes: true }).map(entry => entry.name).filter(id => id !== currentId);
+  return fs.readdirSync(root, { withFileTypes: true }).map((entry: { name: string }) => entry.name).filter((id: string) => id !== currentId);
 }
 
 // ── refreshWidget ──────────────────────────────────────────────────────
@@ -240,7 +246,7 @@ function appendToSystemMd(cwd: string, rule: string) {
 
 function appendToLearnings(cwd: string, reason: string) {
   const p = path.join(cwd, ".context/learnings/code-review.md");
-  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.mkdirSync(parentDirectory(p), { recursive: true });
   const entry = `\n---\n${new Date().toISOString()}\n${reason}\n`;
   fs.writeFileSync(p, (fs.existsSync(p) ? fs.readFileSync(p, "utf-8") : "") + entry);
 }
@@ -250,7 +256,7 @@ function appendToLearnings(cwd: string, reason: string) {
 export default function (pi: ExtensionAPI) {
 
   // Track user prompts for retry flow
-  pi.on("input", async (event) => {
+  pi.on("input", async (event: { text?: string }) => {
     if (event.text?.trim() && !event.text.startsWith("/")) {
       lastUserPrompt = event.text.trim();
     }
@@ -259,7 +265,7 @@ export default function (pi: ExtensionAPI) {
 
   // ── session_start ────────────────────────────────────────────────────
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (_event: unknown, ctx: { cwd: string; hasUI: boolean; sessionManager?: { getSessionFile?: () => string } | undefined; ui: any }) => {
     const cwd = ctx.cwd;
     useJJ = detectJJ(cwd);
 
@@ -297,7 +303,7 @@ export default function (pi: ExtensionAPI) {
     if (!ctx.hasUI) return;
     syncChanges(cwd);
 
-    ctx.ui.setWidget("vazir-tracker", (tui, theme) => {
+    ctx.ui.setWidget("vazir-tracker", (tui: { requestRender(): void }, theme: { fg: (label: string, text: string) => string }) => {
       widgetTui = tui;
       return {
         render(): string[] {
@@ -332,7 +338,7 @@ export default function (pi: ExtensionAPI) {
   let gitCurrentCheckpointDir = "";
   let gitCheckpointCount = 0;
 
-  pi.on("before_agent_start", async (_event, ctx) => {
+  pi.on("before_agent_start", async (_event: unknown, ctx: { cwd: string }) => {
     if (useJJ) return;
 
     gitCheckpointCount++;
@@ -348,7 +354,7 @@ export default function (pi: ExtensionAPI) {
     gitCurrentCheckpointDir = dir;
   });
 
-  pi.on("tool_call", async (event, ctx) => {
+  pi.on("tool_call", async (event: { toolName?: string; input?: { path?: string } }, ctx: { cwd: string }) => {
     if (useJJ) return;
     if (event.toolName === "write" || event.toolName === "edit") {
       const filePath = (event.input as any)?.path;
@@ -374,7 +380,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   // Sync widget after any file-writing tool
-  pi.on("tool_result", async (event, ctx) => {
+  pi.on("tool_result", async (event: { toolName?: string }, ctx: { cwd: string }) => {
     if (event.toolName === "write" || event.toolName === "edit" || event.toolName === "bash") {
       syncChanges(ctx.cwd);
       refreshWidget();
@@ -396,7 +402,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("diff", {
     description: "Show inline terminal diff for a changed file",
-    handler: async (_args, ctx) => {
+    handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
       syncChanges(ctx.cwd);
       if (changedFiles.size === 0) {
         ctx.ui.notify("No changed files", "info");
@@ -421,7 +427,7 @@ export default function (pi: ExtensionAPI) {
           diffText = jjDiffFile(ctx.cwd, chosen.file);
         } else if (chosen.status === "?") {
           const content = fs.readFileSync(path.join(ctx.cwd, chosen.file), "utf-8");
-          diffText = content.split("\n").map(l => `+ ${l}`).join("\n");
+          diffText = content.split("\n").map((l: string) => `+ ${l}`).join("\n");
         } else {
           diffText = childProcess.execSync(
             `git diff --no-color HEAD -- "${chosen.file}"`,
@@ -441,7 +447,7 @@ export default function (pi: ExtensionAPI) {
       const lines = diffText.split("\n");
       let scrollOffset = 0;
 
-      await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+      await ctx.ui.custom((tui: { requestRender(): void }, theme: { fg: (label: string, text: string) => string }, _kb: unknown, done: () => void) => {
         return {
           render(width: number): string[] {
             const visibleRows = Math.max(5, (process.stdout.rows || 24) - 8);
@@ -469,7 +475,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("reject", {
     description: "Reject the agent's last changes, restore a checkpoint, and optionally retry",
-    handler: async (_args, ctx) => {
+    handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
       const cwd = ctx.cwd;
       const rejectionReason = await ctx.ui.input(
         "What went wrong?",
@@ -598,7 +604,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerCommand("reset", {
     description: "Describe the current JJ change or clear git fallback checkpoints",
-    handler: async (_args, ctx) => {
+    handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
       if (useJJ) {
         const desc = await ctx.ui.input(
           "Describe this change (used as commit message):",
