@@ -20,6 +20,10 @@ interface CheckpointMeta {
   newFiles: string[];
 }
 
+interface JjCheckpointLabelStore {
+  labels: Record<string, string>;
+}
+
 // ── State ──────────────────────────────────────────────────────────────
 
 const changedFiles = new Map<string, FileInfo>();
@@ -42,6 +46,53 @@ function detectJJ(cwd: string): boolean {
 // Maps jj op IDs to the user prompt that triggered that agent turn
 const jjOpPromptMap = new Map<string, string>();
 
+function jjCheckpointLabelsPath(cwd: string): string {
+  return path.join(cwd, ".context", "settings", "jj-checkpoint-labels.json");
+}
+
+function loadJjCheckpointLabels(cwd: string) {
+  jjOpPromptMap.clear();
+
+  const labelsPath = jjCheckpointLabelsPath(cwd);
+  if (!fs.existsSync(labelsPath)) return;
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(labelsPath, "utf-8")) as Partial<JjCheckpointLabelStore>;
+    for (const [opId, label] of Object.entries(parsed.labels ?? {})) {
+      if (typeof label === "string" && label.trim()) {
+        jjOpPromptMap.set(opId, label.trim());
+      }
+    }
+  } catch {
+    /* ignore invalid label store */
+  }
+}
+
+function saveJjCheckpointLabel(cwd: string, opId: string, prompt: string) {
+  const trimmedPrompt = prompt.trim();
+  if (!trimmedPrompt) return;
+
+  const labelsPath = jjCheckpointLabelsPath(cwd);
+  fs.mkdirSync(parentDirectory(labelsPath), { recursive: true });
+
+  let store: JjCheckpointLabelStore = { labels: {} };
+  if (fs.existsSync(labelsPath)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(labelsPath, "utf-8")) as Partial<JjCheckpointLabelStore>;
+      if (parsed.labels && typeof parsed.labels === "object") {
+        store = { labels: { ...parsed.labels } };
+      }
+    } catch {
+      store = { labels: {} };
+    }
+  }
+
+  const label = trimmedPrompt.slice(0, 80);
+  store.labels[opId] = label;
+  fs.writeFileSync(labelsPath, JSON.stringify(store, null, 2));
+  jjOpPromptMap.set(opId, label);
+}
+
 function jjOpLog(cwd: string, limit = 15): Array<{ id: string; description: string; ago: string }> {
   try {
     const raw = childProcess.execSync(
@@ -57,10 +108,43 @@ function jjOpLog(cwd: string, limit = 15): Array<{ id: string; description: stri
   }
 }
 
+function isUserVisibleJjCheckpoint(op: { description: string }): boolean {
+  return op.description === "snapshot working copy" || op.description === "restore to operation";
+}
+
+function fallbackJjCheckpointLabel(op: { description: string }): string {
+  if (op.description === "restore to operation") {
+    return "Restored checkpoint";
+  }
+
+  return "Checkpoint";
+}
+
 function checkpointLabel(op: { id: string; description: string; ago: string }): string {
   const prompt = jjOpPromptMap.get(op.id);
-  const label = prompt ? prompt.slice(0, 50) : op.description;
+  const label = prompt ? prompt.slice(0, 50) : fallbackJjCheckpointLabel(op);
   return `${op.ago} · ${label}`;
+}
+
+function currentJjOpId(cwd: string): string {
+  try {
+    return childProcess.execSync(
+      `jj op log --no-graph --limit 1 --template 'id.short(8)'`,
+      { cwd, encoding: "utf-8" },
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+function jjCheckpointChoices(cwd: string): Array<{ id: string; description: string; ago: string }> {
+  loadJjCheckpointLabels(cwd);
+
+  const ops = jjOpLog(cwd, 30);
+  if (ops.length <= 1) return [];
+
+  const currentOpId = currentJjOpId(cwd) || ops[0]?.id || "";
+  return ops.filter(op => op.id !== currentOpId && (jjOpPromptMap.has(op.id) || isUserVisibleJjCheckpoint(op)));
 }
 
 function jjDiffStat(cwd: string): string {
@@ -268,6 +352,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event: unknown, ctx: { cwd: string; hasUI: boolean; sessionManager?: { getSessionFile?: () => string } | undefined; ui: any }) => {
     const cwd = ctx.cwd;
     useJJ = detectJJ(cwd);
+    if (useJJ) loadJjCheckpointLabels(cwd);
 
     // Extract session ID for git fallback
     const sessionFile = (ctx.sessionManager as any)?.getSessionFile?.() ?? "";
@@ -390,11 +475,8 @@ export default function (pi: ExtensionAPI) {
       // Record current jj op ID → user prompt for human-readable checkpoint labels
       if (useJJ) {
         try {
-          const opId = childProcess.execSync(
-            `jj op log --no-graph --limit 1 --template 'id.short(8)'`,
-            { cwd: ctx.cwd, encoding: "utf-8" },
-          ).trim();
-          if (opId && lastUserPrompt) jjOpPromptMap.set(opId, lastUserPrompt);
+          const opId = currentJjOpId(ctx.cwd);
+          if (opId && lastUserPrompt) saveJjCheckpointLabel(ctx.cwd, opId, lastUserPrompt);
         } catch { /* ignore */ }
       }
     }
@@ -514,9 +596,9 @@ export default function (pi: ExtensionAPI) {
       // No retry: offer checkpoint restore now.
       if (useJJ) {
         // ── JJ path ─────────────────────────────────────────────────
-        const ops = jjOpLog(cwd);
+        const pickable = jjCheckpointChoices(cwd);
 
-        if (ops.length > 1) {
+        if (pickable.length > 0) {
           const restoreChoice = await ctx.ui.select(
             "Restore checkpoint?",
             [
@@ -530,14 +612,13 @@ export default function (pi: ExtensionAPI) {
 
           if (restoreChoice === "Previous checkpoint — undo last agent turn") {
             try {
-              childProcess.execSync(`jj op restore ${ops[1].id}`, { cwd });
+              childProcess.execSync(`jj op restore ${pickable[0].id}`, { cwd });
               restored = true;
-              ctx.ui.notify(`Restored to previous checkpoint (${ops[1].ago})`, "info");
+              ctx.ui.notify(`Restored to previous checkpoint (${checkpointLabel(pickable[0])})`, "info");
             } catch (e: any) {
               ctx.ui.notify(`Restore failed: ${e.message}`, "error");
             }
           } else if (restoreChoice === "Choose checkpoint — pick from history") {
-            const pickable = ops.slice(1);
             const labels = pickable.map(op => checkpointLabel(op));
 
             const pick = await ctx.ui.select("Restore to which checkpoint?", labels);
@@ -610,8 +691,8 @@ export default function (pi: ExtensionAPI) {
       const cwd = ctx.cwd;
 
       if (useJJ) {
-        const ops = jjOpLog(cwd);
-        if (ops.length > 1) {
+        const pickable = jjCheckpointChoices(cwd);
+        if (pickable.length > 0) {
           const restoreChoice = await ctx.ui.select(
             "Restore checkpoint?",
             [
@@ -623,13 +704,12 @@ export default function (pi: ExtensionAPI) {
 
           if (restoreChoice === "Previous checkpoint — undo last agent turn") {
             try {
-              childProcess.execSync(`jj op restore ${ops[1].id}`, { cwd });
-              ctx.ui.notify(`Restored to previous checkpoint (${ops[1].ago})`, "info");
+              childProcess.execSync(`jj op restore ${pickable[0].id}`, { cwd });
+              ctx.ui.notify(`Restored to previous checkpoint (${checkpointLabel(pickable[0])})`, "info");
             } catch (e: any) {
               ctx.ui.notify(`Restore failed: ${e.message}`, "error");
             }
           } else if (restoreChoice === "Choose checkpoint — pick from history") {
-            const pickable = ops.slice(1);
             const labels = pickable.map(op => checkpointLabel(op));
             const pick = await ctx.ui.select("Restore to which checkpoint?", labels);
             if (pick != null) {
