@@ -121,6 +121,98 @@ function findActiveStory(cwd: string): StoryFrontmatter | null {
   return inProgress[0];
 }
 
+function nonTerminalStories(cwd: string): StoryFrontmatter[] {
+  return listStories(cwd).filter(story => story.status !== "complete" && story.status !== "retired");
+}
+
+function updateStoryFrontmatter(
+  storyPath: string,
+  updates: { status?: StoryFrontmatter["status"]; lastAccessed?: string },
+): void {
+  const content = readIfExists(storyPath);
+  if (!content) return;
+
+  let updated = content;
+  if (updates.status) {
+    updated = updated.replace(/^[*][*]Status:[*][*]\s*.+$/m, `**Status:** ${updates.status}  `);
+  }
+  if (updates.lastAccessed) {
+    updated = updated.replace(/^[*][*]Last accessed:[*][*]\s*.+$/m, `**Last accessed:** ${updates.lastAccessed}  `);
+  }
+
+  if (updated !== content) {
+    fs.writeFileSync(storyPath, updated);
+  }
+}
+
+async function resolveStoryForFix(
+  cwd: string,
+  ui: any,
+): Promise<{ story: StoryFrontmatter | null; reason: "resolved" | "missing" | "cancelled" }> {
+  const active = findActiveStory(cwd);
+  if (active) {
+    return { story: active, reason: "resolved" };
+  }
+
+  const candidates = nonTerminalStories(cwd)
+    .sort((a, b) => {
+      const dateCmp = b.lastAccessed.localeCompare(a.lastAccessed);
+      if (dateCmp !== 0) return dateCmp;
+      return b.number - a.number;
+    });
+
+  if (candidates.length === 0) {
+    return { story: null, reason: "missing" };
+  }
+
+  if (candidates.length === 1) {
+    const selected = candidates[0];
+    if (selected.status === "not-started") {
+      updateStoryFrontmatter(selected.file, { status: "in-progress", lastAccessed: todayDate() });
+      return {
+        story: {
+          ...selected,
+          status: "in-progress",
+          lastAccessed: todayDate(),
+        },
+        reason: "resolved",
+      };
+    }
+
+    return { story: selected, reason: "resolved" };
+  }
+
+  const options = candidates.map(story => `${path.basename(story.file, ".md")} — ${story.status}`);
+  const choice = await ui.select(
+    "No in-progress story found. Which story should /fix log to? Selecting a not-started story will mark it in-progress.",
+    [...options, "Cancel"],
+  );
+
+  if (!choice || choice === "Cancel") {
+    return { story: null, reason: "cancelled" };
+  }
+
+  const index = options.indexOf(choice);
+  if (index < 0) {
+    return { story: null, reason: "cancelled" };
+  }
+
+  const selected = candidates[index];
+  if (selected.status === "not-started") {
+    updateStoryFrontmatter(selected.file, { status: "in-progress", lastAccessed: todayDate() });
+    return {
+      story: {
+        ...selected,
+        status: "in-progress",
+        lastAccessed: todayDate(),
+      },
+      reason: "resolved",
+    };
+  }
+
+  return { story: selected, reason: "resolved" };
+}
+
 function appendToStoryIssues(storyPath: string, description: string): void {
   const content = readIfExists(storyPath);
   if (!content) return;
@@ -749,28 +841,24 @@ export default function (pi: ExtensionAPI) {
         "warning",
       );
 
-      // Find active story
-      const active = findActiveStory(cwd);
-      let storyName = "(no active story)";
-
-      if (active) {
-        storyName = path.basename(active.file, ".md");
-        appendToStoryIssues(active.file, description);
-
-        // Update last_accessed
-        const content = readIfExists(active.file);
-        const updated = content.replace(
-          /^\*\*Last accessed:\*\*\s*.+$/m,
-          `**Last accessed:** ${todayDate()}  `,
-        );
-        if (updated !== content) {
-          fs.writeFileSync(active.file, updated);
-        }
-
-        ctx.ui.notify(`Issue logged to ${storyName}`, "info");
-      } else {
-        ctx.ui.notify("No in-progress story found — issue logged to complaints-log only", "warning");
+      const resolved = await resolveStoryForFix(cwd, ctx.ui);
+      if (resolved.reason === "missing") {
+        ctx.ui.notify("No active or available story found. Run /plan first so /fix can log against a story file.", "warning");
+        return;
       }
+
+      if (resolved.reason === "cancelled" || !resolved.story) {
+        ctx.ui.notify("/fix cancelled — no story selected", "info");
+        return;
+      }
+
+      const active = resolved.story;
+      const storyName = path.basename(active.file, ".md");
+
+      appendToStoryIssues(active.file, description);
+      updateStoryFrontmatter(active.file, { lastAccessed: todayDate() });
+
+      ctx.ui.notify(`Issue logged to ${storyName}`, "info");
 
       // Append to complaints-log.md
       appendToComplaintsLog(cwd, storyName, description);
@@ -779,7 +867,7 @@ export default function (pi: ExtensionAPI) {
       const instruction = [
         `The user reported an issue via /fix: "${description}"`,
         "",
-        active ? `Issue logged to ${storyName} and complaints-log.md.` : "Issue logged to complaints-log.md (no active story).",
+        `Issue logged to ${storyName} and complaints-log.md.`,
         "",
         "Your job:",
         "1. Investigate and attempt to fix the issue.",
