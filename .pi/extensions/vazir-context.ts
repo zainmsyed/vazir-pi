@@ -108,6 +108,7 @@ const JJ_OVERVIEW_URL = "https://www.jj-vcs.dev/latest/";
 let lastUserPrompt = "";
 let useJJ = false;
 let pendingInitSummary: string | null = null;
+const storyFrontmatterSnapshots = new Map<string, Map<string, { status: string; completed: string }>>();
 
 type InitFileStatus = {
   label: string;
@@ -117,8 +118,19 @@ type InitFileStatus = {
 interface StoryFrontmatter {
   status: string;
   lastAccessed: string;
+  completed: string;
   file: string;
   number: number;
+}
+
+interface SeedStorySpec {
+  title: string;
+  goal: string;
+  verification: string;
+  scope: string[];
+  outOfScope: string[];
+  dependencies: string[];
+  checklist: string[];
 }
 
 // ── Path helpers ───────────────────────────────────────────────────────
@@ -210,6 +222,7 @@ function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null {
 
   const statusMatch = content.match(/^\*\*Status:\*\*\s*(.+)$/m);
   const lastAccessedMatch = content.match(/^\*\*Last accessed:\*\*\s*(.+)$/m);
+  const completedMatch = content.match(/^\*\*Completed:\*\*\s*(.+)$/m);
   const fileName = path.basename(filePath);
   const numberMatch = fileName.match(/story-(\d+)\.md$/);
 
@@ -218,6 +231,7 @@ function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null {
   return {
     status: statusMatch[1].trim(),
     lastAccessed: lastAccessedMatch?.[1]?.trim() ?? "",
+    completed: completedMatch?.[1]?.trim() ?? "—",
     file: filePath,
     number: parseInt(numberMatch[1], 10),
   };
@@ -248,6 +262,80 @@ function findActiveStory(cwd: string): StoryFrontmatter | null {
   });
 
   return inProgress[0];
+}
+
+function snapshotStoryFrontmatter(cwd: string): Map<string, { status: string; completed: string }> {
+  return new Map(
+    listStories(cwd).map(story => [story.file, { status: story.status, completed: story.completed }]),
+  );
+}
+
+function userExplicitlyApprovedStatusChange(prompt: string, nextStatus: string): boolean {
+  const normalized = prompt.trim().toLowerCase();
+  if (!normalized) return false;
+
+  const generalApprovals = new Set(["yes", "y", "done", "approved", "looks good", "ship it"]);
+  if (generalApprovals.has(normalized)) return true;
+
+  if (nextStatus === "complete") {
+    return [
+      "mark this done",
+      "mark it done",
+      "mark this complete",
+      "mark it complete",
+      "complete this story",
+      "complete the story",
+      "this is complete",
+      "story is complete",
+      "mark story complete",
+    ].some(phrase => normalized.includes(phrase));
+  }
+
+  if (nextStatus === "retired") {
+    return [
+      "retire this story",
+      "retire the story",
+      "mark this retired",
+      "mark it retired",
+      "scrap this story",
+      "scrap the story",
+    ].some(phrase => normalized.includes(phrase));
+  }
+
+  return false;
+}
+
+function restoreStoryFrontmatter(filePath: string, previous: { status: string; completed: string }): boolean {
+  const content = readIfExists(filePath);
+  if (!content) return false;
+
+  let updated = content.replace(/^\*\*Status:\*\*\s*.+$/m, `**Status:** ${previous.status}  `);
+  updated = updated.replace(/^\*\*Completed:\*\*\s*.+$/m, `**Completed:** ${previous.completed}`);
+
+  if (updated === content) return false;
+  fs.writeFileSync(filePath, updated);
+  return true;
+}
+
+function enforceUserOnlyStoryStatuses(cwd: string): string[] {
+  const snapshot = storyFrontmatterSnapshots.get(cwd);
+  if (!snapshot) return [];
+
+  const revertedStories: string[] = [];
+  for (const story of listStories(cwd)) {
+    const previous = snapshot.get(story.file);
+    if (!previous) continue;
+    if (story.status !== "complete" && story.status !== "retired") continue;
+    if (story.status === previous.status) continue;
+    if (userExplicitlyApprovedStatusChange(lastUserPrompt, story.status)) continue;
+
+    if (restoreStoryFrontmatter(story.file, previous)) {
+      revertedStories.push(path.basename(story.file));
+    }
+  }
+
+  storyFrontmatterSnapshots.delete(cwd);
+  return revertedStories;
 }
 
 function nextStoryNumber(cwd: string): number {
@@ -303,6 +391,119 @@ function storyTemplate(num: number, title: string): string {
   ].join("\n");
 }
 
+function titleCase(input: string): string {
+  return input
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function normalizeProjectBrief(input: string, projectName: string): string {
+  const trimmed = input.trim().replace(/\s+/g, " ");
+  if (trimmed) return trimmed;
+  if (projectName.trim()) return `${projectName.trim()} v1`;
+  return "the project v1";
+}
+
+function deriveStorySubject(brief: string): string {
+  const cleaned = brief
+    .replace(/^(build|create|make|plan|design|ship)\s+/i, "")
+    .replace(/[.?!]+$/g, "")
+    .trim();
+  if (!cleaned) return "project";
+  return cleaned.length > 72 ? `${cleaned.slice(0, 69).trim()}...` : cleaned;
+}
+
+function seedStorySpecs(brief: string): SeedStorySpec[] {
+  const subject = deriveStorySubject(brief);
+  const storySubject = titleCase(subject);
+
+  return [
+    {
+      title: `Scope and foundation for ${storySubject}`,
+      goal: `Capture the v1 shape of ${subject}, confirm the initial constraints, and set up the smallest safe foundation for implementation.`,
+      verification: "The user can review the seeded plan and starter stories and confirm the project direction, scope, and first implementation slice.",
+      scope: [".context/stories/plan.md", ".context/stories/"],
+      outOfScope: ["Unplanned product areas", "Nice-to-have features without user approval"],
+      dependencies: ["Requires: none", "Blocks: story-002, story-003"],
+      checklist: [
+        `Capture the core v1 outcome for ${subject}`,
+        "List explicit v1 exclusions and risky assumptions",
+        "Confirm the first implementation slice is small enough to verify in one session",
+      ],
+    },
+    {
+      title: `Core happy path for ${storySubject}`,
+      goal: `Define the smallest end-to-end user-visible slice of ${subject} that proves the product works for its primary user.`,
+      verification: "The user can perform one clear happy-path check that demonstrates the main v1 flow works end to end.",
+      scope: ["Primary app flow files", "Minimal supporting state or API surface"],
+      outOfScope: ["Secondary workflows", "Admin or analytics extras unless required for the happy path"],
+      dependencies: ["Requires: story-001", "Blocks: story-003"],
+      checklist: [
+        "Define the single most important user flow",
+        "Identify the files and systems needed for the first shippable slice",
+        "Keep the verification step observable and unambiguous",
+      ],
+    },
+    {
+      title: `Verification and polish for ${storySubject}`,
+      goal: `Tighten the initial slice of ${subject}, verify key behavior, and capture the follow-up work that should happen after the first end-to-end path is stable.`,
+      verification: "The user can confirm the initial slice is stable enough to continue and can clearly see what remains for the next stories.",
+      scope: ["Files touched by the core happy path", "Verification harnesses or smoke checks needed for confidence"],
+      outOfScope: ["Large refactors", "Future roadmap items not needed for initial confidence"],
+      dependencies: ["Requires: story-002", "Blocks: later feature stories"],
+      checklist: [
+        "List the highest-risk edge cases still worth checking in v1",
+        "Capture follow-up work that should be split into later stories",
+        "Document what the agent can and cannot verify mechanically",
+      ],
+    },
+  ];
+}
+
+function fillStoryTemplate(num: number, spec: SeedStorySpec): string {
+  return [
+    `# Story ${String(num).padStart(3, "0")}: ${spec.title}`,
+    "",
+    `**Status:** not-started  `,
+    `**Created:** ${todayDate()}  `,
+    `**Last accessed:** ${todayDate()}  `,
+    `**Completed:** —`,
+    "",
+    "---",
+    "",
+    "## Goal",
+    spec.goal,
+    "",
+    "## Verification",
+    spec.verification,
+    "",
+    "## Scope — files this story may touch",
+    ...spec.scope.map(item => `- ${item}`),
+    "",
+    "## Out of scope — do not touch",
+    ...spec.outOfScope.map(item => `- ${item}`),
+    "",
+    "## Dependencies",
+    ...spec.dependencies.map(item => `- ${item}`),
+    "",
+    "---",
+    "",
+    "## Checklist",
+    ...spec.checklist.map(item => `- [ ] ${item}`),
+    "",
+    "---",
+    "",
+    "## Issues",
+    "",
+    "---",
+    "",
+    "## Completion Summary",
+    "",
+  ].join("\n");
+}
+
 function planTemplate(projectName: string): string {
   const today = todayDate();
   return [
@@ -330,6 +531,66 @@ function planTemplate(projectName: string): string {
     "## Replanning log",
     "",
   ].join("\n");
+}
+
+function seededPlanTemplate(projectName: string, brief: string, firstStoryNumber: number): string {
+  const specs = seedStorySpecs(brief);
+  const today = todayDate();
+  const rows = specs.map((spec, index) => {
+    const storyNumber = firstStoryNumber + index;
+    const blocks = index === 0 ? `${storyFileName(storyNumber + 1)}, ${storyFileName(storyNumber + 2)}` : index === 1 ? `${storyFileName(storyNumber + 1)}` : "—";
+    return `| ${storyFileName(storyNumber)} | ${spec.title} | not-started | ${blocks} |`;
+  });
+
+  return [
+    `# ${projectName || "Project"} — Plan`,
+    "",
+    `**Created:** ${today}  `,
+    `**Last updated:** ${today}`,
+    "",
+    "---",
+    "",
+    "## What we're building",
+    `Initial planning seed for ${brief}. This is a deterministic scaffold that the agent should refine with the user before implementation begins.`,
+    "",
+    "## What we're not building (v1 scope)",
+    "- Anything the user has not explicitly prioritized for the first slice",
+    "- Nice-to-have extensions that do not help verify the core workflow",
+    "",
+    "## Features",
+    `### Feature 1: ${titleCase(deriveStorySubject(brief))}`,
+    "Initial end-to-end slice seeded for planning refinement. Stories below are placeholders that should be tightened with user answers.",
+    "",
+    "## Story queue",
+    "| Story | Title | Status | Blocks |",
+    "|---|---|---|---|",
+    ...rows,
+    "",
+    "## Replanning log",
+    `- ${today}: Seeded starter plan from the initial project brief. Refine after clarifying questions.`,
+    "",
+  ].join("\n");
+}
+
+function ensureSeedStories(cwd: string, brief: string): { files: string[]; created: boolean } {
+  const existingStories = listStories(cwd).sort((a, b) => a.number - b.number);
+  if (existingStories.length > 0) {
+    return {
+      files: existingStories.map(story => path.basename(story.file)),
+      created: false,
+    };
+  }
+
+  const firstStoryNumber = nextStoryNumber(cwd);
+  const createdFiles: string[] = [];
+  for (const [index, spec] of seedStorySpecs(brief).entries()) {
+    const storyNumber = firstStoryNumber + index;
+    const fileName = storyFileName(storyNumber);
+    fs.writeFileSync(path.join(storiesDir(cwd), fileName), fillStoryTemplate(storyNumber, spec));
+    createdFiles.push(fileName);
+  }
+
+  return { files: createdFiles, created: true };
 }
 
 // ── File index helpers ─────────────────────────────────────────────────
@@ -589,6 +850,8 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("before_agent_start", async (event: any, ctx: any) => {
+    storyFrontmatterSnapshots.set(ctx.cwd, snapshotStoryFrontmatter(ctx.cwd));
+
     const parts: string[] = [];
     if (pendingInitSummary) {
       parts.push(pendingInitSummary);
@@ -632,6 +895,14 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_end", async (_event: any, ctx: any) => {
     const cwd = ctx.cwd;
+    const revertedStories = enforceUserOnlyStoryStatuses(cwd);
+    if (revertedStories.length > 0) {
+      ctx.ui.notify(
+        `Blocked unauthorized story status change. Only the user may mark stories complete or retired: ${revertedStories.join(", ")}`,
+        "warning",
+      );
+    }
+
     const idxPath = indexPath(cwd);
     if (!fs.existsSync(idxPath)) return;
 
@@ -864,15 +1135,33 @@ export default function (pi: ExtensionAPI) {
         projectName = settings.project_name || "";
       } catch { /* ignore */ }
 
+      let planningBrief = args.trim();
+      if (!planningBrief) {
+        planningBrief = (await ctx.ui.input?.(
+          "What are we planning?",
+          "e.g. a SaaS dashboard for tracking team OKRs",
+        ))?.trim() ?? "";
+      }
+      planningBrief = normalizeProjectBrief(planningBrief, projectName);
+
       // Generate or update plan.md
       if (!planExists) {
-        fs.writeFileSync(planPath, planTemplate(projectName));
+        fs.writeFileSync(planPath, seededPlanTemplate(projectName, planningBrief, nextStoryNumber(cwd)));
         ctx.ui.notify("plan.md created in .context/stories/", "info");
+      }
+
+      const storySeed = ensureSeedStories(cwd, planningBrief);
+      const storyFiles = storySeed.files;
+      if (storyFiles.length > 0) {
+        ctx.ui.notify(
+          storySeed.created ? `Seeded starter stories: ${storyFiles.join(", ")}` : `Using existing stories: ${storyFiles.join(", ")}`,
+          "info",
+        );
       }
 
       // Instruct the agent to run the planning conversation
       const instruction = [
-        "The user wants to plan their project. A plan.md template has been created at .context/stories/plan.md.",
+        "The user wants to plan their project. A seeded plan.md and starter story files already exist in .context/stories/.",
         "",
         "Your job:",
         "1. Ask the user clarifying questions:",
@@ -880,12 +1169,13 @@ export default function (pi: ExtensionAPI) {
         "   - What's the most important thing to get right in v1?",
         "   - What are we explicitly NOT building in v1?",
         "   - What stack are we using / what already exists?",
-        "2. Based on their answers, fill in plan.md with a proper PRD-level breakdown.",
-        '3. Chunk the plan into story files — one per verifiable unit. Use the template structure exactly (Status, Created, Last accessed, Completed, Goal, Verification, Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary).',
-        `4. Story files go in .context/stories/ as story-NNN.md. Next available number: ${nextStoryNumber(cwd)}.`,
-        "5. Each story should be completable in a single focused session with one clear verification step.",
-        "6. Before writing each story file, validate that it contains the required Status, Created, Last accessed, and Completed lines plus every required template section.",
-        "7. After generating stories, present the list to the user and ask if anything needs adjusting.",
+        `2. Refine .context/stories/plan.md based on the user's answers. Current brief: ${planningBrief}`,
+        `3. Refine the existing story files in place first: ${storyFiles.join(", ") || "existing story files"}. Create additional story-NNN.md files only if the seeded three stories are clearly insufficient.`,
+        '4. Every story file must use the exact template structure (Status, Created, Last accessed, Completed, Goal, Verification, Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary).',
+        `5. If you create additional stories, continue numbering from ${nextStoryNumber(cwd)}.`,
+        "6. Each story should be completable in a single focused session with one clear verification step.",
+        "7. Before finishing, validate that plan.md exists and at least one story-NNN.md file exists. If the seeded stories need retitling or rewriting, edit them instead of leaving placeholders.",
+        "8. After generating or refining the stories, present the list to the user and ask if anything needs adjusting.",
         "",
         planExists ? "NOTE: Plan already exists — this is a replan. Update affected sections and stories. Append to the replanning log. Do not touch unaffected stories." : "",
       ].filter(Boolean).join("\n");

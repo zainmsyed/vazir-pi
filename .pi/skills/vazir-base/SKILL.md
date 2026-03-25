@@ -15,7 +15,7 @@ disable-model-invocation: false
 - Work against the active story's Checklist. Update checkboxes as tasks complete.
 - Do not begin work on another story unless the user explicitly directs you to.
 - When you believe a story is done, state what you can and cannot verify mechanically, then ask the user to verify.
-- Never set a story status to `complete` or `retired` — these are user-only transitions.
+- Never set a story status to `complete` or `retired` unless the user's immediately preceding message explicitly confirms that transition.
 - You may set `not-started → in-progress` when beginning work on a story.
 - Update the story's `last_accessed` frontmatter to today's date every time you work on it.
 
