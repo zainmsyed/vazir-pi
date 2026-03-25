@@ -19,14 +19,16 @@ function createProject(prefix: string): string {
   return cwd;
 }
 
-function installJjStub(logLines: string[], currentOpId: string) {
+function installJjStub(logLines: string[], currentOpId: string, onDescribe?: (message: string) => void) {
+  let currentOp = currentOpId;
+
   childProcess.execSync = ((command: string, options?: { encoding?: BufferEncoding }) => {
     if (command.startsWith("jj root")) {
       return options?.encoding ? "/tmp/fake-jj-root\n" : Buffer.from("/tmp/fake-jj-root\n");
     }
 
     if (command.includes("jj op log --no-graph --limit 1 --template 'id.short(8)'")) {
-      return options?.encoding ? `${currentOpId}\n` : Buffer.from(`${currentOpId}\n`);
+      return options?.encoding ? `${currentOp}\n` : Buffer.from(`${currentOp}\n`);
     }
 
     if (command.includes("jj op log --no-graph --limit")) {
@@ -34,7 +36,18 @@ function installJjStub(logLines: string[], currentOpId: string) {
       return options?.encoding ? output : Buffer.from(output);
     }
 
+    if (command.startsWith("jj describe -m ")) {
+      const message = JSON.parse(command.slice("jj describe -m ".length)) as string;
+      onDescribe?.(message);
+      currentOp = "cccccccc";
+      return options?.encoding ? "" : Buffer.from("");
+    }
+
     if (command.startsWith("jj op restore ")) {
+      return options?.encoding ? "" : Buffer.from("");
+    }
+
+    if (command.startsWith("jj restore --from @-")) {
       return options?.encoding ? "" : Buffer.from("");
     }
 
@@ -153,6 +166,50 @@ async function runPersistedLabelScenario() {
   }
 }
 
+async function runDescribeBackfillScenario() {
+  const cwd = createProject("vazir-checkpoint-describe-backfill-");
+  fs.writeFileSync(
+    path.join(cwd, ".context", "settings", "jj-checkpoint-labels.json"),
+    JSON.stringify({
+      labels: {
+        cccccccc: "Make retry labels readable",
+      },
+    }, null, 2),
+  );
+
+  installJjStub([
+    "dddddddd||snapshot working copy||now",
+    "cccccccc||describe commit abcdef12||1 minute ago",
+    "bbbbbbbb||snapshot working copy||1 minute ago",
+    "aaaaaaaa||snapshot working copy||2 minutes ago",
+  ], "dddddddd");
+
+  try {
+    const harness = await loadHarness();
+    assert(Boolean(harness.checkpointCommand), "checkpoint command was not registered");
+
+    const { ctx, prompts } = makeCtx(cwd, [
+      "Choose checkpoint — pick from history",
+      "1 minute ago · Make retry labels readable",
+    ]);
+
+    await harness.emit("session_start", {}, ctx);
+    await harness.checkpointCommand!.handler("", ctx);
+
+    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which checkpoint?");
+    assert(Boolean(historyPrompt), "describe-backfill checkpoint prompt was not shown");
+    assert(historyPrompt!.options[0] === "1 minute ago · Make retry labels readable", "snapshot checkpoint did not inherit the adjacent describe label");
+    assert(historyPrompt!.options[1] === "2 minutes ago · Checkpoint", "fallback checkpoint order was not preserved after describe backfill");
+
+    return {
+      cwd,
+      options: historyPrompt!.options,
+    };
+  } finally {
+    restoreExecSync();
+  }
+}
+
 async function runUnlabeledFallbackScenario() {
   const cwd = createProject("vazir-checkpoint-fallback-");
   installJjStub([
@@ -190,9 +247,148 @@ async function runUnlabeledFallbackScenario() {
   }
 }
 
+async function runLongHistoryScenario() {
+  const cwd = createProject("vazir-checkpoint-long-history-");
+  const logLines = ["bbbbbbbb||snapshot working copy||now"];
+
+  for (let index = 1; index <= 20; index++) {
+    const opId = `${String(index).padStart(8, "0")}`;
+    logLines.push(`${opId}||snapshot working copy||${index} hour${index === 1 ? "" : "s"} ago`);
+  }
+
+  installJjStub(logLines, "bbbbbbbb");
+
+  try {
+    const harness = await loadHarness();
+    assert(Boolean(harness.checkpointCommand), "checkpoint command was not registered");
+
+    const { ctx, prompts } = makeCtx(cwd, [
+      "Choose checkpoint — pick from history",
+      "1 hour ago · Checkpoint",
+    ]);
+
+    await harness.emit("session_start", {}, ctx);
+    await harness.checkpointCommand!.handler("", ctx);
+
+    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which checkpoint?");
+    assert(Boolean(historyPrompt), "long-history checkpoint prompt was not shown");
+    assert(historyPrompt!.options.length === 12, "checkpoint history should include a longer capped list");
+    assert(historyPrompt!.options[0] === "1 hour ago · Checkpoint", "long-history list should stay sorted by recency");
+    assert(historyPrompt!.options[11] === "12 hours ago · Checkpoint", "long-history list should be capped after 12 visible checkpoints");
+
+    return {
+      cwd,
+      optionCount: historyPrompt!.options.length,
+      first: historyPrompt!.options[0],
+      last: historyPrompt!.options[11],
+    };
+  } finally {
+    restoreExecSync();
+  }
+}
+
+async function runRecencyOrderingScenario() {
+  const cwd = createProject("vazir-checkpoint-recency-order-");
+  fs.writeFileSync(
+    path.join(cwd, ".context", "settings", "jj-checkpoint-labels.json"),
+    JSON.stringify({
+      labels: {
+        cccccccc: "Older labeled checkpoint",
+      },
+    }, null, 2),
+  );
+
+  installJjStub([
+    "ffffffff||snapshot working copy||now",
+    "eeeeeeee||snapshot working copy||1 minute ago",
+    "cccccccc||describe commit abcdef12||2 minutes ago",
+    "dddddddd||snapshot working copy||2 minutes ago",
+    "bbbbbbbb||restore to operation||3 minutes ago",
+    "aaaaaaaa||snapshot working copy||4 minutes ago",
+  ], "ffffffff");
+
+  try {
+    const harness = await loadHarness();
+    assert(Boolean(harness.checkpointCommand), "checkpoint command was not registered");
+
+    const { ctx, prompts } = makeCtx(cwd, [
+      "Choose checkpoint — pick from history",
+      "1 minute ago · Checkpoint",
+    ]);
+
+    await harness.emit("session_start", {}, ctx);
+    await harness.checkpointCommand!.handler("", ctx);
+
+    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which checkpoint?");
+    assert(Boolean(historyPrompt), "recency-order checkpoint prompt was not shown");
+    assert(historyPrompt!.options[0] === "1 minute ago · Checkpoint", "most recent visible checkpoint should stay first");
+    assert(historyPrompt!.options[1] === "2 minutes ago · Older labeled checkpoint", "labeled checkpoints should remain in recency order");
+    assert(historyPrompt!.options[2] === "3 minutes ago · Restored checkpoint", "restore checkpoints should remain in recency order");
+    assert(historyPrompt!.options[3] === "4 minutes ago · Checkpoint", "older fallback checkpoints should stay after newer entries");
+
+    return {
+      cwd,
+      options: historyPrompt!.options,
+    };
+  } finally {
+    restoreExecSync();
+  }
+}
+
+async function runSkipCurrentSnapshotScenario() {
+  const cwd = createProject("vazir-checkpoint-skip-current-snapshot-");
+  fs.writeFileSync(
+    path.join(cwd, ".context", "settings", "jj-checkpoint-labels.json"),
+    JSON.stringify({
+      labels: {
+        cccccccc: "Bad turn prompt",
+        aaaaaaaa: "Good previous checkpoint",
+      },
+    }, null, 2),
+  );
+
+  installJjStub([
+    "dddddddd||describe commit deadbeef||now",
+    "cccccccc||snapshot working copy||now",
+    "bbbbbbbb||restore to operation||2 minutes ago",
+    "aaaaaaaa||snapshot working copy||4 minutes ago",
+  ], "dddddddd");
+
+  try {
+    const harness = await loadHarness();
+    assert(Boolean(harness.checkpointCommand), "checkpoint command was not registered");
+
+    const { ctx, prompts } = makeCtx(cwd, [
+      "Choose checkpoint — pick from history",
+      "2 minutes ago · Restored checkpoint",
+    ]);
+
+    await harness.emit("session_start", {}, ctx);
+    await harness.checkpointCommand!.handler("", ctx);
+
+    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which checkpoint?");
+    assert(Boolean(historyPrompt), "skip-current-snapshot checkpoint prompt was not shown");
+    assert(historyPrompt!.options[0] === "2 minutes ago · Restored checkpoint", "current turn snapshot should not appear as the first restorable checkpoint");
+    assert(historyPrompt!.options[1] === "4 minutes ago · Good previous checkpoint", "previous good checkpoint should remain available after skipping current snapshot");
+
+    return {
+      cwd,
+      options: historyPrompt!.options,
+    };
+  } finally {
+    restoreExecSync();
+  }
+}
+
 async function runPersistenceScenario() {
   const cwd = createProject("vazir-checkpoint-save-");
-  installJjStub(["bbbbbbbb||snapshot working copy||now"], "bbbbbbbb");
+  const describedMessages: string[] = [];
+  installJjStub([
+    "cccccccc||describe commit 12345678||now",
+    "bbbbbbbb||snapshot working copy||1 minute ago",
+  ], "bbbbbbbb", message => {
+    describedMessages.push(message);
+  });
 
   try {
     const harness = await loadHarness();
@@ -200,10 +396,11 @@ async function runPersistenceScenario() {
 
     await harness.emit("session_start", {}, ctx);
     await harness.emit("input", { text: "Make retry labels readable" }, ctx);
-    await harness.emit("tool_result", { toolName: "write" }, ctx);
+    await harness.emit("agent_end", {}, ctx);
 
     const labels = JSON.parse(fs.readFileSync(path.join(cwd, ".context", "settings", "jj-checkpoint-labels.json"), "utf-8")) as { labels: Record<string, string> };
-    assert(labels.labels.bbbbbbbb === "Make retry labels readable", "tool_result did not persist the current op label");
+    assert(describedMessages[0] === "Make retry labels readable", "agent_end did not describe the JJ change with the prompt");
+    assert(labels.labels.bbbbbbbb === "Make retry labels readable", "agent_end did not persist the snapshot op label before describe");
 
     return {
       cwd,
@@ -215,7 +412,11 @@ async function runPersistenceScenario() {
 }
 
 const persisted = await runPersistedLabelScenario();
+const describeBackfill = await runDescribeBackfillScenario();
 const fallback = await runUnlabeledFallbackScenario();
+const longHistory = await runLongHistoryScenario();
+const recencyOrdering = await runRecencyOrderingScenario();
+const skipCurrentSnapshot = await runSkipCurrentSnapshotScenario();
 const saved = await runPersistenceScenario();
 
 console.log("Persisted JJ Labels");
@@ -226,10 +427,41 @@ for (const option of persisted.options) {
 }
 console.log("");
 
+console.log("Describe Label Backfill");
+console.log(`cwd: ${describeBackfill.cwd}`);
+console.log("options:");
+for (const option of describeBackfill.options) {
+  console.log(`  - ${option}`);
+}
+console.log("");
+
 console.log("Unlabeled JJ Fallback");
 console.log(`cwd: ${fallback.cwd}`);
 console.log("options:");
 for (const option of fallback.options) {
+  console.log(`  - ${option}`);
+}
+console.log("");
+
+console.log("Long JJ History");
+console.log(`cwd: ${longHistory.cwd}`);
+console.log(`optionCount: ${longHistory.optionCount}`);
+console.log(`first: ${longHistory.first}`);
+console.log(`last: ${longHistory.last}`);
+console.log("");
+
+console.log("Recency Ordering");
+console.log(`cwd: ${recencyOrdering.cwd}`);
+console.log("options:");
+for (const option of recencyOrdering.options) {
+  console.log(`  - ${option}`);
+}
+console.log("");
+
+console.log("Skip Current Snapshot");
+console.log(`cwd: ${skipCurrentSnapshot.cwd}`);
+console.log("options:");
+for (const option of skipCurrentSnapshot.options) {
   console.log(`  - ${option}`);
 }
 console.log("");

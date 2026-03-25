@@ -11,7 +11,5 @@ node_modules/
 .context/sandbox/
 
 # Vazir transient data (checkpoints are session-scoped)
-.context/
 .context/checkpoints/
-AGENTS.md
 
