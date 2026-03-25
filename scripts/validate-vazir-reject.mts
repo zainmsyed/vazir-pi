@@ -211,6 +211,59 @@ async function runNoCheckpointScenario() {
   };
 }
 
+async function runRetryRestoresPreviousCheckpointScenario() {
+  const cwd = createProject("vazir-reject-retry-restores-");
+  const notifications: Notification[] = [];
+  const confirmCalls: ConfirmCall[] = [];
+  const interactionOrder: string[] = [];
+  const harness = makePi();
+
+  writeCheckpoint(cwd, "deadbeef", 1, "First prompt", "export const value = 'checkpoint-1';\n");
+  writeCheckpoint(cwd, "deadbeef", 2, "Second prompt", "export const value = 'checkpoint-2';\n");
+  fs.writeFileSync(path.join(cwd, "sample.ts"), "export const value = 'broken';\n");
+
+  await primeGitFallback(harness, cwd, notifications);
+
+  const ctx = makeBaseCtx(cwd, notifications);
+  ctx.ui.input = async () => {
+    interactionOrder.push("input");
+    return "do not change sample.ts behavior";
+  };
+  ctx.ui.confirm = async (prompt: string, detail?: string) => {
+    interactionOrder.push(`confirm:${prompt}`);
+    confirmCalls.push({ prompt, detail });
+    return true;
+  };
+  ctx.ui.select = async (prompt: string) => {
+    interactionOrder.push(`select:${prompt}`);
+    throw new Error("select should not be called when retry auto-restores the previous checkpoint");
+  };
+
+  await harness.rejectCommand.handler("", ctx);
+
+  const content = fs.readFileSync(path.join(cwd, "sample.ts"), "utf-8");
+  const systemMd = fs.readFileSync(path.join(cwd, ".context", "memory", "system.md"), "utf-8");
+  const learnings = fs.readFileSync(path.join(cwd, ".context", "learnings", "code-review.md"), "utf-8");
+  const pending = fs.readFileSync(path.join(cwd, ".context", "learnings", "pending.md"), "utf-8");
+
+  assert(confirmCalls.length === 1, "expected a single retry confirmation in retry flow");
+  assert(!interactionOrder.some(item => item.startsWith("select:")), "retry flow should not show restore pickers");
+  assert(content.includes("checkpoint-2"), "retry should restore the previous checkpoint before resending");
+  assert(systemMd.includes("- do not change sample.ts behavior"), "system.md did not preserve the rejection rule after retry restore");
+  assert(learnings.includes("do not change sample.ts behavior"), "learnings log did not preserve the rejection reason after retry restore");
+  assert(pending.includes("do not change sample.ts behavior"), "pending learnings did not preserve the rejection reason after retry restore");
+  assert(harness.sentMessages.length === 1, "retry flow should resend exactly one prompt");
+  assert(harness.sentMessages[0] === 'Previous attempt was rejected: "do not change sample.ts behavior"\n\nFix the broken auth flow', "retry flow resent the wrong prompt");
+
+  return {
+    cwd,
+    notifications,
+    interactionOrder,
+    restoredContent: content.trim(),
+    resentPrompt: harness.sentMessages[0],
+  };
+}
+
 function printScenario(title: string, details: Record<string, unknown>) {
   console.log(title);
   for (const [key, value] of Object.entries(details)) {
@@ -236,6 +289,8 @@ function printScenario(title: string, details: Record<string, unknown>) {
 
 const chooseCheckpointNoRetry = await runChooseCheckpointNoRetryScenario();
 const noCheckpoint = await runNoCheckpointScenario();
+const retryRestoresPrevious = await runRetryRestoresPreviousCheckpointScenario();
 
 printScenario("Choose Checkpoint, Then Decline Retry", chooseCheckpointNoRetry);
 printScenario("No Checkpoints Available", noCheckpoint);
+printScenario("Retry Restores Previous Checkpoint", retryRestoresPrevious);
