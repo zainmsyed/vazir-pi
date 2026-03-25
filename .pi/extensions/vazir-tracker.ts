@@ -1,3 +1,6 @@
+/// <reference path="../../types/pi-runtime-ambient.d.ts" />
+/// <reference path="../../types/node-runtime-ambient.d.ts" />
+
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Key, matchesKey } from "@mariozechner/pi-tui";
 import * as childProcess from "child_process";
@@ -24,6 +27,16 @@ interface JjCheckpointLabelStore {
   labels: Record<string, string>;
 }
 
+interface StoryFrontmatter {
+  status: string;
+  lastAccessed: string;
+  file: string;
+  number: number;
+}
+
+const JJ_CHECKPOINT_SCAN_LIMIT = 120;
+const JJ_CHECKPOINT_MAX_CHOICES = 12;
+
 // ── State ──────────────────────────────────────────────────────────────
 
 const changedFiles = new Map<string, FileInfo>();
@@ -31,6 +44,117 @@ let widgetTui: any = null;
 let lastUserPrompt = "";
 let useJJ = false;
 let currentSessionId = "";
+
+// ── Generic helpers ────────────────────────────────────────────────────
+
+function readIfExists(filePath: string): string {
+  return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : "";
+}
+
+function parentDirectory(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  const index = normalized.lastIndexOf("/");
+  return index >= 0 ? normalized.slice(0, index) : ".";
+}
+
+function todayDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function nowISO(): string {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function storiesDir(cwd: string): string {
+  return path.join(cwd, ".context", "stories");
+}
+
+function complaintsLogPath(cwd: string): string {
+  return path.join(cwd, ".context", "complaints-log.md");
+}
+
+// ── Story helpers ──────────────────────────────────────────────────────
+
+function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null {
+  const content = readIfExists(filePath);
+  if (!content) return null;
+
+  const statusMatch = content.match(/^\*\*Status:\*\*\s*(.+)$/m);
+  const lastAccessedMatch = content.match(/^\*\*Last accessed:\*\*\s*(.+)$/m);
+  const fileName = path.basename(filePath);
+  const numberMatch = fileName.match(/story-(\d+)\.md$/);
+
+  if (!statusMatch || !numberMatch) return null;
+
+  return {
+    status: statusMatch[1].trim(),
+    lastAccessed: lastAccessedMatch?.[1]?.trim() ?? "",
+    file: filePath,
+    number: parseInt(numberMatch[1], 10),
+  };
+}
+
+function listStories(cwd: string): StoryFrontmatter[] {
+  const dir = storiesDir(cwd);
+  if (!fs.existsSync(dir)) return [];
+
+  return fs.readdirSync(dir)
+    .filter((name: string) => /^story-\d+\.md$/.test(name))
+    .map((name: string) => parseStoryFrontmatter(path.join(dir, name)))
+    .filter((s: StoryFrontmatter | null): s is StoryFrontmatter => s !== null);
+}
+
+function findActiveStory(cwd: string): StoryFrontmatter | null {
+  const stories = listStories(cwd);
+  const inProgress = stories.filter(s => s.status === "in-progress");
+
+  if (inProgress.length === 0) return null;
+  if (inProgress.length === 1) return inProgress[0];
+
+  // Multiple in-progress: pick most recent last_accessed, break ties by highest number
+  inProgress.sort((a, b) => {
+    const dateCmp = b.lastAccessed.localeCompare(a.lastAccessed);
+    if (dateCmp !== 0) return dateCmp;
+    return b.number - a.number;
+  });
+
+  return inProgress[0];
+}
+
+function appendToStoryIssues(storyPath: string, description: string): void {
+  const content = readIfExists(storyPath);
+  if (!content) return;
+
+  const issueEntry = [
+    `### /fix — "${description}"`,
+    `- **Reported:** ${todayDate()}  `,
+    `- **Status:** pending  `,
+    `- **Agent note:** —  `,
+    `- **Solution:** —`,
+    "",
+  ].join("\n");
+
+  // Insert after ## Issues heading
+  const issuesHeading = "## Issues";
+  const issuesIndex = content.indexOf(issuesHeading);
+  if (issuesIndex >= 0) {
+    const insertPos = issuesIndex + issuesHeading.length;
+    const updated = content.slice(0, insertPos) + "\n\n" + issueEntry + content.slice(insertPos);
+    fs.writeFileSync(storyPath, updated);
+  } else {
+    // Append at end if no Issues section
+    fs.writeFileSync(storyPath, content.trimEnd() + "\n\n## Issues\n\n" + issueEntry + "\n");
+  }
+}
+
+function appendToComplaintsLog(cwd: string, storyName: string, description: string): void {
+  const logPath = complaintsLogPath(cwd);
+  fs.mkdirSync(parentDirectory(logPath), { recursive: true });
+
+  const entry = `${nowISO()} | ${storyName} | "${description}" | status: pending\n`;
+  const existing = readIfExists(logPath);
+  fs.writeFileSync(logPath, existing.trimEnd() + "\n" + entry);
+}
 
 // ── JJ helpers ─────────────────────────────────────────────────────────
 
@@ -43,7 +167,6 @@ function detectJJ(cwd: string): boolean {
   }
 }
 
-// Maps jj op IDs to the user prompt that triggered that agent turn
 const jjOpPromptMap = new Map<string, string>();
 
 function jjCheckpointLabelsPath(cwd: string): string {
@@ -93,6 +216,25 @@ function saveJjCheckpointLabel(cwd: string, opId: string, prompt: string) {
   jjOpPromptMap.set(opId, label);
 }
 
+function persistCurrentJjCheckpointLabel(cwd: string, prompt: string) {
+  const opId = currentJjOpId(cwd);
+  if (opId) saveJjCheckpointLabel(cwd, opId, prompt);
+}
+
+function autoDescribeCurrentJjChange(cwd: string, prompt: string) {
+  const trimmedPrompt = prompt.trim();
+  if (!trimmedPrompt) return;
+
+  childProcess.execSync(`jj describe -m ${JSON.stringify(trimmedPrompt.slice(0, 72))}`, {
+    cwd,
+    stdio: "pipe",
+  });
+}
+
+function isJjDescribeOperation(op: { description: string }): boolean {
+  return op.description.startsWith("describe commit ");
+}
+
 function jjOpLog(cwd: string, limit = 15): Array<{ id: string; description: string; ago: string }> {
   try {
     const raw = childProcess.execSync(
@@ -116,12 +258,11 @@ function fallbackJjCheckpointLabel(op: { description: string }): string {
   if (op.description === "restore to operation") {
     return "Restored checkpoint";
   }
-
   return "Checkpoint";
 }
 
-function checkpointLabel(op: { id: string; description: string; ago: string }): string {
-  const prompt = jjOpPromptMap.get(op.id);
+function checkpointLabel(op: { id: string; description: string; ago: string; label?: string }): string {
+  const prompt = op.label ?? jjOpPromptMap.get(op.id);
   const label = prompt ? prompt.slice(0, 50) : fallbackJjCheckpointLabel(op);
   return `${op.ago} · ${label}`;
 }
@@ -137,14 +278,58 @@ function currentJjOpId(cwd: string): string {
   }
 }
 
-function jjCheckpointChoices(cwd: string): Array<{ id: string; description: string; ago: string }> {
+function currentJjCheckpointId(
+  ops: Array<{ id: string; description: string; ago: string }>,
+  currentOpId: string,
+): string {
+  if (ops.length === 0) return "";
+
+  const currentIndex = ops.findIndex(op => op.id === currentOpId);
+  if (currentIndex === -1) {
+    return isUserVisibleJjCheckpoint(ops[0]) ? ops[0].id : "";
+  }
+
+  const currentOp = ops[currentIndex];
+  if (isUserVisibleJjCheckpoint(currentOp)) {
+    return currentOp.id;
+  }
+
+  for (let index = currentIndex + 1; index < ops.length; index++) {
+    if (isUserVisibleJjCheckpoint(ops[index])) {
+      return ops[index].id;
+    }
+  }
+
+  return "";
+}
+
+function jjCheckpointChoices(cwd: string): Array<{ id: string; description: string; ago: string; label?: string }> {
   loadJjCheckpointLabels(cwd);
 
-  const ops = jjOpLog(cwd, 30);
+  const ops = jjOpLog(cwd, JJ_CHECKPOINT_SCAN_LIMIT);
   if (ops.length <= 1) return [];
 
   const currentOpId = currentJjOpId(cwd) || ops[0]?.id || "";
-  return ops.filter(op => op.id !== currentOpId && (jjOpPromptMap.has(op.id) || isUserVisibleJjCheckpoint(op)));
+  const currentCheckpointId = currentJjCheckpointId(ops, currentOpId);
+  const visible = ops
+    .map((op, index) => {
+      if (op.id === currentOpId || op.id === currentCheckpointId || !isUserVisibleJjCheckpoint(op)) {
+        return null;
+      }
+
+      const directLabel = jjOpPromptMap.get(op.id);
+      const adjacentDescribeLabel = index > 0 && isJjDescribeOperation(ops[index - 1])
+        ? jjOpPromptMap.get(ops[index - 1].id)
+        : undefined;
+
+      return {
+        ...op,
+        label: directLabel ?? adjacentDescribeLabel,
+      };
+    })
+    .filter(Boolean) as Array<{ id: string; description: string; ago: string; label?: string }>;
+
+  return visible.slice(0, JJ_CHECKPOINT_MAX_CHOICES);
 }
 
 function jjDiffStat(cwd: string): string {
@@ -171,10 +356,9 @@ function jjHasChanges(cwd: string): boolean {
   }
 }
 
-function parentDirectory(filePath: string): string {
-  const normalized = filePath.replace(/\\/g, "/");
-  const index = normalized.lastIndexOf("/");
-  return index >= 0 ? normalized.slice(0, index) : ".";
+function jjRestoreCheckpoint(cwd: string, opId: string) {
+  childProcess.execSync(`jj op restore ${opId}`, { cwd, stdio: "pipe" });
+  childProcess.execSync("jj restore --from @-", { cwd, stdio: "pipe" });
 }
 
 // ── Git helpers ────────────────────────────────────────────────────────
@@ -315,33 +499,11 @@ function findOrphanedGitSessions(cwd: string, currentId: string): string[] {
 
 function refreshWidget() { widgetTui?.requestRender(); }
 
-// ── Helpers for system.md + learnings ──────────────────────────────────
-
-function appendToSystemMd(cwd: string, rule: string) {
-  const p = path.join(cwd, ".context/memory/system.md");
-  if (!fs.existsSync(p)) return;
-  let content = fs.readFileSync(p, "utf-8");
-  const bullet = `- ${rule}`;
-  content = content.includes("## Learned Rules")
-    ? content.replace("## Learned Rules", `## Learned Rules\n${bullet}`)
-    : content.trimEnd() + `\n\n## Learned Rules\n${bullet}\n`;
-  fs.writeFileSync(p, content);
-}
-
-function appendToLearnings(cwd: string, reason: string) {
-  const auditPath = path.join(cwd, ".context/learnings/code-review.md");
-  const pendingPath = path.join(cwd, ".context/learnings/pending.md");
-  fs.mkdirSync(parentDirectory(auditPath), { recursive: true });
-  const entry = `\n---\n${new Date().toISOString()}\n${reason}\n`;
-  fs.writeFileSync(auditPath, (fs.existsSync(auditPath) ? fs.readFileSync(auditPath, "utf-8") : "") + entry);
-  fs.writeFileSync(pendingPath, (fs.existsSync(pendingPath) ? fs.readFileSync(pendingPath, "utf-8") : "") + entry);
-}
-
 // ── Extension ──────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
 
-  // Track user prompts for retry flow
+  // Track user prompts
   pi.on("input", async (event: { text?: string }) => {
     if (event.text?.trim() && !event.text.startsWith("/")) {
       lastUserPrompt = event.text.trim();
@@ -356,7 +518,6 @@ export default function (pi: ExtensionAPI) {
     useJJ = detectJJ(cwd);
     if (useJJ) loadJjCheckpointLabels(cwd);
 
-    // Extract session ID for git fallback
     const sessionFile = (ctx.sessionManager as any)?.getSessionFile?.() ?? "";
     const match = sessionFile.match(/_([a-f0-9]+)\.jsonl$/);
     currentSessionId = match ? match[1] : Date.now().toString(16);
@@ -365,7 +526,7 @@ export default function (pi: ExtensionAPI) {
     if (useJJ) {
       if (jjHasChanges(cwd)) {
         ctx.ui.notify(
-          "Work in progress from previous session detected. Use /reject to restore an earlier state.",
+          "Work in progress from previous session detected. Use /reset to restore an earlier state.",
           "warning",
         );
       }
@@ -374,7 +535,7 @@ export default function (pi: ExtensionAPI) {
       if (orphans.length > 0) {
         if (!isGitClean(cwd)) {
           ctx.ui.notify(
-            "Unfinished work from a previous session detected. Use /reject to restore a checkpoint.",
+            "Unfinished work from a previous session detected. Use /reset to restore a checkpoint.",
             "warning",
           );
         } else {
@@ -411,7 +572,7 @@ export default function (pi: ExtensionAPI) {
           }
 
           const vcs = useJJ ? " · jj" : "";
-          const hint = " · /diff · /reject · /reset";
+          const hint = " · /diff · /fix · /reset";
           const width = 120;
           const line = (" " + parts.join("   ") + vcs + hint).slice(0, width);
           return [line];
@@ -448,13 +609,10 @@ export default function (pi: ExtensionAPI) {
     if (event.toolName === "write" || event.toolName === "edit") {
       const filePath = (event.input as any)?.path;
       if (filePath && gitCurrentCheckpointDir) {
-        // Snapshot the file before the tool modifies it
         gitSnapshotFile(ctx.cwd, filePath, gitCurrentCheckpointDir);
 
-        // Track if the file is new (doesn't exist yet)
         const isNew = !fs.existsSync(path.join(ctx.cwd, filePath));
 
-        // Update meta
         const mp = path.join(gitCurrentCheckpointDir, "meta.json");
         const meta: CheckpointMeta = JSON.parse(fs.readFileSync(mp, "utf-8"));
         if (!meta.files.includes(filePath)) {
@@ -473,14 +631,22 @@ export default function (pi: ExtensionAPI) {
     if (event.toolName === "write" || event.toolName === "edit" || event.toolName === "bash") {
       syncChanges(ctx.cwd);
       refreshWidget();
+    }
+  });
 
-      // Record current jj op ID → user prompt for human-readable checkpoint labels
-      if (useJJ) {
-        try {
-          const opId = currentJjOpId(ctx.cwd);
-          if (opId && lastUserPrompt) saveJjCheckpointLabel(ctx.cwd, opId, lastUserPrompt);
-        } catch { /* ignore */ }
-      }
+  pi.on("agent_end", async (_event: unknown, ctx: { cwd: string }) => {
+    if (!useJJ || !lastUserPrompt.trim()) return;
+
+    try {
+      persistCurrentJjCheckpointLabel(ctx.cwd, lastUserPrompt);
+    } catch {
+      /* silent — fallback labels still work */
+    }
+
+    try {
+      autoDescribeCurrentJjChange(ctx.cwd, lastUserPrompt);
+    } catch {
+      /* silent — not critical */
     }
   });
 
@@ -557,245 +723,163 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── /reject ───────────────────────────────────────────────────────────
+  // ── /fix ──────────────────────────────────────────────────────────────
 
-  pi.registerCommand("reject", {
-    description: "Reject the agent's last changes, restore a checkpoint, and optionally retry",
-    handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
+  pi.registerCommand("fix", {
+    description: "Log an issue to the active story and complaints-log, then attempt a fix",
+    handler: async (args: string, ctx: { cwd: string; ui: any }) => {
       const cwd = ctx.cwd;
-      const rejectionReason = await ctx.ui.input(
-        "What went wrong?",
-        "e.g. never modify the ValidateToken signature",
-      );
 
-      const trimmedReason = rejectionReason?.trim() ?? "";
-
-      if (trimmedReason) {
-        appendToSystemMd(cwd, trimmedReason);
-        appendToLearnings(cwd, trimmedReason);
-        ctx.ui.notify("Rule saved to system.md — agent will remember this", "info");
+      // Get description from args or prompt
+      let description = args.trim();
+      if (!description) {
+        description = (await ctx.ui.input(
+          "What went wrong?",
+          "e.g. signup button not submitting after refactor",
+        ))?.trim() ?? "";
       }
-
-      const retry = await ctx.ui.confirm(
-        "Retry?",
-        "Resend your last prompt with the rejection reason as context.",
-      );
-
-      if (retry) {
-        const retryPrompt = trimmedReason
-          ? `Previous attempt was rejected: "${trimmedReason}"\n\n${lastUserPrompt}`
-          : lastUserPrompt;
-
-        if (!retryPrompt.trim()) {
-          ctx.ui.notify("No previous prompt found — please retype your task", "warning");
-          return;
-        }
-
-        await pi.sendUserMessage(retryPrompt);
+      if (!description) {
+        ctx.ui.notify("No description provided — /fix cancelled", "info");
         return;
       }
 
-      // No retry: offer checkpoint restore now.
-      if (useJJ) {
-        // ── JJ path ─────────────────────────────────────────────────
-        const pickable = jjCheckpointChoices(cwd);
+      // Secrets warning per spec v4.1
+      ctx.ui.notify(
+        "Before logging — make sure your complaint doesn't contain API keys, database URLs, or credentials. complaints-log.md is plaintext and persists across sessions.",
+        "warning",
+      );
 
-        if (pickable.length > 0) {
-          const restoreChoice = await ctx.ui.select(
-            "Restore checkpoint?",
-            [
-              "Previous checkpoint — undo last agent turn",
-              "Choose checkpoint — pick from history",
-              "Keep current files",
-            ],
-          );
+      // Find active story
+      const active = findActiveStory(cwd);
+      let storyName = "(no active story)";
 
-          let restored = false;
+      if (active) {
+        storyName = path.basename(active.file, ".md");
+        appendToStoryIssues(active.file, description);
 
-          if (restoreChoice === "Previous checkpoint — undo last agent turn") {
-            try {
-              childProcess.execSync(`jj op restore ${pickable[0].id}`, { cwd });
-              restored = true;
-              ctx.ui.notify(`Restored to previous checkpoint (${checkpointLabel(pickable[0])})`, "info");
-            } catch (e: any) {
-              ctx.ui.notify(`Restore failed: ${e.message}`, "error");
-            }
-          } else if (restoreChoice === "Choose checkpoint — pick from history") {
-            const labels = pickable.map(op => checkpointLabel(op));
-
-            const pick = await ctx.ui.select("Restore to which checkpoint?", labels);
-            if (pick != null) {
-              const chosen = pickable[labels.indexOf(pick)];
-              try {
-                childProcess.execSync(`jj op restore ${chosen.id}`, { cwd });
-                restored = true;
-                ctx.ui.notify(`Restored to checkpoint: ${checkpointLabel(chosen)}`, "info");
-              } catch (e: any) {
-                ctx.ui.notify(`Restore failed: ${e.message}`, "error");
-              }
-            }
-          }
-
-          if (restored && trimmedReason) {
-            appendToSystemMd(cwd, trimmedReason);
-            appendToLearnings(cwd, trimmedReason);
-          }
-          syncChanges(cwd);
-          refreshWidget();
-        } else {
-          ctx.ui.notify("No checkpoints available to restore", "info");
+        // Update last_accessed
+        const content = readIfExists(active.file);
+        const updated = content.replace(
+          /^\*\*Last accessed:\*\*\s*.+$/m,
+          `**Last accessed:** ${todayDate()}  `,
+        );
+        if (updated !== content) {
+          fs.writeFileSync(active.file, updated);
         }
+
+        ctx.ui.notify(`Issue logged to ${storyName}`, "info");
       } else {
-        // ── Git fallback path ────────────────────────────────────────
-        const checkpoints = listGitCheckpoints(cwd, currentSessionId);
-
-        if (checkpoints.length > 0) {
-          const restoreChoice = await ctx.ui.select(
-            "Restore checkpoint?",
-            [
-              "Previous checkpoint — undo last agent turn",
-              "Choose checkpoint — pick from list",
-              "Keep current files",
-            ],
-          );
-
-          if (restoreChoice === "Previous checkpoint — undo last agent turn") {
-            gitRestoreCheckpoint(cwd, checkpoints[0].dir);
-            syncChanges(cwd);
-            refreshWidget();
-            ctx.ui.notify("Restored to previous checkpoint", "info");
-          } else if (restoreChoice === "Choose checkpoint — pick from list") {
-            const labels = checkpoints.map(cp => {
-              const t = new Date(cp.meta.timestamp).toLocaleTimeString();
-              return `#${cp.n} · ${t} · ${cp.meta.prompt || "—"} · ${cp.meta.files.slice(0, 3).join(", ")}`;
-            });
-            const pick = await ctx.ui.select("Choose checkpoint to restore:", labels);
-            if (pick != null) {
-              const chosen = checkpoints[labels.indexOf(pick)];
-              gitRestoreCheckpoint(cwd, chosen.dir);
-              syncChanges(cwd);
-              refreshWidget();
-              ctx.ui.notify(`Restored checkpoint #${chosen.n}`, "info");
-            }
-          }
-        } else {
-          ctx.ui.notify("No checkpoints available to restore", "info");
-        }
+        ctx.ui.notify("No in-progress story found — issue logged to complaints-log only", "warning");
       }
-    },
-  });
 
-  // ── /checkpoint ─────────────────────────────────────────────────────
+      // Append to complaints-log.md
+      appendToComplaintsLog(cwd, storyName, description);
 
-  pi.registerCommand("checkpoint", {
-    description: "Show checkpoint picker and optionally restore one",
-    handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
-      const cwd = ctx.cwd;
+      // Instruct the agent to attempt the fix
+      const instruction = [
+        `The user reported an issue via /fix: "${description}"`,
+        "",
+        active ? `Issue logged to ${storyName} and complaints-log.md.` : "Issue logged to complaints-log.md (no active story).",
+        "",
+        "Your job:",
+        "1. Investigate and attempt to fix the issue.",
+        "2. After fixing, explicitly state what you can verify mechanically and what requires user confirmation.",
+        '3. If you cannot verify the fix (UI behaviour, browser state), leave the issue status as "pending" and ask the user to confirm.',
+        '4. Never claim "should be working now" without declaring your verification limits.',
+      ].join("\n");
 
-      if (useJJ) {
-        const pickable = jjCheckpointChoices(cwd);
-        if (pickable.length > 0) {
-          const restoreChoice = await ctx.ui.select(
-            "Restore checkpoint?",
-            [
-              "Previous checkpoint — undo last agent turn",
-              "Choose checkpoint — pick from history",
-              "Keep current files",
-            ],
-          );
-
-          if (restoreChoice === "Previous checkpoint — undo last agent turn") {
-            try {
-              childProcess.execSync(`jj op restore ${pickable[0].id}`, { cwd });
-              ctx.ui.notify(`Restored to previous checkpoint (${checkpointLabel(pickable[0])})`, "info");
-            } catch (e: any) {
-              ctx.ui.notify(`Restore failed: ${e.message}`, "error");
-            }
-          } else if (restoreChoice === "Choose checkpoint — pick from history") {
-            const labels = pickable.map(op => checkpointLabel(op));
-            const pick = await ctx.ui.select("Restore to which checkpoint?", labels);
-            if (pick != null) {
-              const chosen = pickable[labels.indexOf(pick)];
-              try {
-                childProcess.execSync(`jj op restore ${chosen.id}`, { cwd });
-                ctx.ui.notify(`Restored to checkpoint: ${checkpointLabel(chosen)}`, "info");
-              } catch (e: any) {
-                ctx.ui.notify(`Restore failed: ${e.message}`, "error");
-              }
-            }
-          }
-
-          syncChanges(cwd);
-          refreshWidget();
-        } else {
-          ctx.ui.notify("No checkpoints available to restore", "info");
-        }
-      } else {
-        const checkpoints = listGitCheckpoints(cwd, currentSessionId);
-        if (checkpoints.length > 0) {
-          const restoreChoice = await ctx.ui.select(
-            "Restore checkpoint?",
-            [
-              "Previous checkpoint — undo last agent turn",
-              "Choose checkpoint — pick from list",
-              "Keep current files",
-            ],
-          );
-
-          if (restoreChoice === "Previous checkpoint — undo last agent turn") {
-            gitRestoreCheckpoint(cwd, checkpoints[0].dir);
-            syncChanges(cwd);
-            refreshWidget();
-            ctx.ui.notify("Restored to previous checkpoint", "info");
-          } else if (restoreChoice === "Choose checkpoint — pick from list") {
-            const labels = checkpoints.map(cp => {
-              const t = new Date(cp.meta.timestamp).toLocaleTimeString();
-              return `#${cp.n} · ${t} · ${cp.meta.prompt || "—"} · ${cp.meta.files.slice(0, 3).join(", ")}`;
-            });
-            const pick = await ctx.ui.select("Choose checkpoint to restore:", labels);
-            if (pick != null) {
-              const chosen = checkpoints[labels.indexOf(pick)];
-              gitRestoreCheckpoint(cwd, chosen.dir);
-              syncChanges(cwd);
-              refreshWidget();
-              ctx.ui.notify(`Restored checkpoint #${chosen.n}`, "info");
-            }
-          }
-        } else {
-          ctx.ui.notify("No checkpoints available to restore", "info");
-        }
-      }
+      // Send as a user message so the agent acts on it
+      await pi.sendUserMessage(instruction);
     },
   });
 
   // ── /reset ────────────────────────────────────────────────────────────
 
   pi.registerCommand("reset", {
-    description: "Describe the current JJ change or clear git fallback checkpoints",
+    description: "JJ checkpoint picker — restore to a previous operation",
     handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
+      const cwd = ctx.cwd;
+
       if (useJJ) {
-        const desc = await ctx.ui.input(
-          "Describe this change (used as commit message):",
-          "e.g. add refresh token to auth handler",
+        const pickable = jjCheckpointChoices(cwd);
+        if (pickable.length === 0) {
+          ctx.ui.notify("No checkpoints available to restore", "info");
+          return;
+        }
+
+        const restoreChoice = await ctx.ui.select(
+          "Restore checkpoint?",
+          [
+            "Previous checkpoint — undo last agent turn",
+            "Choose checkpoint — pick from history",
+            "Cancel",
+          ],
         );
-        if (desc?.trim()) {
+
+        if (restoreChoice === "Cancel" || restoreChoice == null) return;
+
+        if (restoreChoice === "Previous checkpoint — undo last agent turn") {
           try {
-            childProcess.execSync(`jj describe -m ${JSON.stringify(desc.trim())}`, { cwd: ctx.cwd });
-            ctx.ui.notify(`Change described: "${desc.trim()}"`, "info");
+            jjRestoreCheckpoint(cwd, pickable[0].id);
+            ctx.ui.notify(`Restored to previous checkpoint (${checkpointLabel(pickable[0])})`, "info");
           } catch (e: any) {
-            ctx.ui.notify(`jj describe failed: ${e.message}`, "error");
+            ctx.ui.notify(`Restore failed: ${e.message}`, "error");
+          }
+        } else if (restoreChoice === "Choose checkpoint — pick from history") {
+          const labels = pickable.map(op => checkpointLabel(op));
+          const pick = await ctx.ui.select("Restore to which checkpoint?", labels);
+          if (pick != null) {
+            const chosen = pickable[labels.indexOf(pick)];
+            try {
+              jjRestoreCheckpoint(cwd, chosen.id);
+              ctx.ui.notify(`Restored to checkpoint: ${checkpointLabel(chosen)}`, "info");
+            } catch (e: any) {
+              ctx.ui.notify(`Restore failed: ${e.message}`, "error");
+            }
           }
         }
-      } else {
-        const d = sessionCheckpointDir(ctx.cwd, currentSessionId);
-        if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
-        gitCheckpointCount = 0;
-        gitCurrentCheckpointDir = "";
-      }
 
-      changedFiles.clear();
-      refreshWidget();
-      ctx.ui.notify("Tracker cleared", "info");
+        syncChanges(cwd);
+        refreshWidget();
+      } else {
+        // Git fallback
+        const checkpoints = listGitCheckpoints(cwd, currentSessionId);
+        if (checkpoints.length === 0) {
+          ctx.ui.notify("No checkpoints available to restore", "info");
+          return;
+        }
+
+        const restoreChoice = await ctx.ui.select(
+          "Restore checkpoint?",
+          [
+            "Previous checkpoint — undo last agent turn",
+            "Choose checkpoint — pick from list",
+            "Cancel",
+          ],
+        );
+
+        if (restoreChoice === "Cancel" || restoreChoice == null) return;
+
+        if (restoreChoice === "Previous checkpoint — undo last agent turn") {
+          gitRestoreCheckpoint(cwd, checkpoints[0].dir);
+          syncChanges(cwd);
+          refreshWidget();
+          ctx.ui.notify("Restored to previous checkpoint", "info");
+        } else if (restoreChoice === "Choose checkpoint — pick from list") {
+          const labels = checkpoints.map(cp => {
+            const t = new Date(cp.meta.timestamp).toLocaleTimeString();
+            return `#${cp.n} · ${t} · ${cp.meta.prompt || "—"} · ${cp.meta.files.slice(0, 3).join(", ")}`;
+          });
+          const pick = await ctx.ui.select("Choose checkpoint to restore:", labels);
+          if (pick != null) {
+            const chosen = checkpoints[labels.indexOf(pick)];
+            gitRestoreCheckpoint(cwd, chosen.dir);
+            syncChanges(cwd);
+            refreshWidget();
+            ctx.ui.notify(`Restored checkpoint #${chosen.n}`, "info");
+          }
+        }
+      }
     },
   });
 }

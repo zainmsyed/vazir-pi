@@ -1,3 +1,6 @@
+/// <reference path="../../types/pi-runtime-ambient.d.ts" />
+/// <reference path="../../types/node-runtime-ambient.d.ts" />
+
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import * as childProcess from "child_process";
 import * as fs from "fs";
@@ -111,20 +114,29 @@ type InitFileStatus = {
   present: boolean;
 };
 
+interface StoryFrontmatter {
+  status: string;
+  lastAccessed: string;
+  file: string;
+  number: number;
+}
+
+// ── Path helpers ───────────────────────────────────────────────────────
+
 function memoryDir(cwd: string) {
   return path.join(cwd, ".context", "memory");
 }
 
-function learningsDir(cwd: string) {
-  return path.join(cwd, ".context", "learnings");
-}
-
-function pendingLearningsPath(cwd: string) {
-  return path.join(learningsDir(cwd), "pending.md");
-}
-
 function settingsDir(cwd: string) {
   return path.join(cwd, ".context", "settings");
+}
+
+function storiesDir(cwd: string) {
+  return path.join(cwd, ".context", "stories");
+}
+
+function complaintsLogPath(cwd: string) {
+  return path.join(cwd, ".context", "complaints-log.md");
 }
 
 function indexPath(cwd: string) {
@@ -138,6 +150,8 @@ function systemPath(cwd: string) {
 function contextMapPath(cwd: string) {
   return path.join(memoryDir(cwd), "context-map.md");
 }
+
+// ── Generic helpers ────────────────────────────────────────────────────
 
 function readIfExists(filePath: string): string {
   return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : "";
@@ -156,6 +170,14 @@ function relativeToCwd(cwd: string, fullPath: string): string {
 function baseName(filePath: string): string {
   const normalized = filePath.replace(/\\/g, "/");
   return normalized.split("/").pop() || normalized;
+}
+
+function todayDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function nowISO(): string {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 function detectJJ(cwd: string): boolean {
@@ -179,6 +201,138 @@ function detectGitRepo(cwd: string): boolean {
 function strip(content: string): string {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim();
 }
+
+// ── Story helpers ──────────────────────────────────────────────────────
+
+function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null {
+  const content = readIfExists(filePath);
+  if (!content) return null;
+
+  const statusMatch = content.match(/^\*\*Status:\*\*\s*(.+)$/m);
+  const lastAccessedMatch = content.match(/^\*\*Last accessed:\*\*\s*(.+)$/m);
+  const fileName = path.basename(filePath);
+  const numberMatch = fileName.match(/story-(\d+)\.md$/);
+
+  if (!statusMatch || !numberMatch) return null;
+
+  return {
+    status: statusMatch[1].trim(),
+    lastAccessed: lastAccessedMatch?.[1]?.trim() ?? "",
+    file: filePath,
+    number: parseInt(numberMatch[1], 10),
+  };
+}
+
+function listStories(cwd: string): StoryFrontmatter[] {
+  const dir = storiesDir(cwd);
+  if (!fs.existsSync(dir)) return [];
+
+  return fs.readdirSync(dir)
+    .filter((name: string) => /^story-\d+\.md$/.test(name))
+    .map((name: string) => parseStoryFrontmatter(path.join(dir, name)))
+    .filter((s: StoryFrontmatter | null): s is StoryFrontmatter => s !== null);
+}
+
+function findActiveStory(cwd: string): StoryFrontmatter | null {
+  const stories = listStories(cwd);
+  const inProgress = stories.filter(s => s.status === "in-progress");
+
+  if (inProgress.length === 0) return null;
+  if (inProgress.length === 1) return inProgress[0];
+
+  // Multiple in-progress: pick most recent last_accessed, break ties by highest number
+  inProgress.sort((a, b) => {
+    const dateCmp = b.lastAccessed.localeCompare(a.lastAccessed);
+    if (dateCmp !== 0) return dateCmp;
+    return b.number - a.number;
+  });
+
+  return inProgress[0];
+}
+
+function nextStoryNumber(cwd: string): number {
+  const stories = listStories(cwd);
+  if (stories.length === 0) return 1;
+  return Math.max(...stories.map(s => s.number)) + 1;
+}
+
+function storyFileName(num: number): string {
+  return `story-${String(num).padStart(3, "0")}.md`;
+}
+
+function storyTemplate(num: number, title: string): string {
+  const today = todayDate();
+  return [
+    `# Story ${String(num).padStart(3, "0")}: ${title}`,
+    "",
+    `**Status:** not-started  `,
+    `**Created:** ${today}  `,
+    `**Last accessed:** ${today}  `,
+    `**Completed:** —`,
+    "",
+    "---",
+    "",
+    "## Goal",
+    "[One paragraph. What this story delivers.]",
+    "",
+    "## Verification",
+    "[How the user confirms this story is done.]",
+    "",
+    "## Scope — files this story may touch",
+    "- ",
+    "",
+    "## Out of scope — do not touch",
+    "- ",
+    "",
+    "## Dependencies",
+    "- ",
+    "",
+    "---",
+    "",
+    "## Checklist",
+    "- [ ] ",
+    "",
+    "---",
+    "",
+    "## Issues",
+    "",
+    "---",
+    "",
+    "## Completion Summary",
+    "",
+  ].join("\n");
+}
+
+function planTemplate(projectName: string): string {
+  const today = todayDate();
+  return [
+    `# ${projectName || "Project"} — Plan`,
+    "",
+    `**Created:** ${today}  `,
+    `**Last updated:** ${today}`,
+    "",
+    "---",
+    "",
+    "## What we're building",
+    "[2–3 sentences. The product, who it's for, what problem it solves.]",
+    "",
+    "## What we're not building (v1 scope)",
+    "[Explicit exclusions.]",
+    "",
+    "## Features",
+    "### Feature 1: [Name]",
+    "[Description. Which stories implement this feature.]",
+    "",
+    "## Story queue",
+    "| Story | Title | Status | Blocks |",
+    "|---|---|---|---|",
+    "",
+    "## Replanning log",
+    "",
+  ].join("\n");
+}
+
+// ── File index helpers ─────────────────────────────────────────────────
 
 function isIndexableFile(relPath: string): boolean {
   if (!relPath || relPath.startsWith("docs/")) return false;
@@ -219,17 +373,17 @@ function walkSourceFiles(cwd: string): string[] {
   return files.sort((left, right) => left.localeCompare(right));
 }
 
-function guessDescriptionFromPath(relPath: string): string {
+function guessDescriptionFromPath(relPath: string): string | null {
   const fileName = baseName(relPath);
   const lowerPath = relPath.toLowerCase();
 
   if (lowerPath === "agents.md") return "Cross-framework project guidance and working notes";
-  if (lowerPath.includes("vazir-context")) return "Context injection, init, and consolidation extension";
-  if (lowerPath.includes("vazir-tracker")) return "Change tracker, diff, reject, and reset extension";
+  if (lowerPath.includes("vazir-context")) return "Context injection, init, plan, and consolidation extension";
+  if (lowerPath.includes("vazir-tracker")) return "Change tracker, diff, fix, and reset extension";
   if (lowerPath.endsWith("/skill.md")) return "Vazir baseline skill instructions";
   if (lowerPath.endsWith(".json")) return `${fileName} configuration file`;
-  if (lowerPath.endsWith(".md")) return `${fileName} project notes`;
-  return `${fileName} source file`;
+  if (lowerPath === "readme.md") return "Project overview and setup notes";
+  return null;
 }
 
 function formatIndex(entries: Array<{ file: string; description: string }>): string {
@@ -242,15 +396,18 @@ function formatIndex(entries: Array<{ file: string; description: string }>): str
 }
 
 function writeIndex(cwd: string, sourceFiles: string[]): { total: number; undescribed: number } {
-  const entries = sourceFiles.map(file => ({
-    file,
-    description: guessDescriptionFromPath(file),
-  }));
+  const entries = sourceFiles.map(file => {
+    const description = guessDescriptionFromPath(file);
+    return {
+      file,
+      description: description ?? "(undescribed)",
+    };
+  });
   const indexContent = formatIndex(entries);
   fs.writeFileSync(indexPath(cwd), indexContent);
   return {
     total: entries.length,
-    undescribed: 0,
+    undescribed: entries.filter(entry => entry.description === "(undescribed)").length,
   };
 }
 
@@ -274,6 +431,41 @@ function draftContextMap(cwd: string, sourceFiles: string[]): string | null {
     "",
   ].join("\n");
 }
+
+function hasStoryTemplateShape(content: string): boolean {
+  const requiredMarkers = [
+    "**Status:**",
+    "**Created:**",
+    "**Last accessed:**",
+    "**Completed:**",
+    "## Goal",
+    "## Verification",
+    "## Scope — files this story may touch",
+    "## Out of scope — do not touch",
+    "## Dependencies",
+    "## Checklist",
+    "## Issues",
+    "## Completion Summary",
+  ];
+
+  return requiredMarkers.every(marker => content.includes(marker));
+}
+
+function malformedStoryFiles(cwd: string): string[] {
+  return listStories(cwd)
+    .map(story => story.file)
+    .filter(filePath => !hasStoryTemplateShape(readIfExists(filePath)));
+}
+
+function undescribedIndexFiles(cwd: string): string[] {
+  const lines = readIfExists(indexPath(cwd)).split("\n");
+  return lines
+    .filter(line => line.includes(" — (undescribed)"))
+    .map(line => line.split(" — ")[0]?.trim())
+    .filter(Boolean) as string[];
+}
+
+// ── Learned rules helpers ──────────────────────────────────────────────
 
 function learnedRuleLinesFromMd(md: string): string[] {
   const lines = md.split("\n");
@@ -299,7 +491,7 @@ function dedupeLearnedRules(systemMd: string): string {
   const learnedLines = learnedRuleLinesFromMd(systemMd);
   if (learnedLines.length === 0) return systemMd;
   const uniqueLines = [...new Set(learnedLines)];
-  const replacement = ["## Learned Rules", ...uniqueLines];
+  const replacement = ["## Learned Rules", ...uniqueLines.map(r => `- ${r}`)];
 
   const lines = systemMd.split("\n");
   const headingIndex = lines.findIndex(line => line.trim() === "## Learned Rules");
@@ -323,92 +515,53 @@ function dedupeLearnedRules(systemMd: string): string {
   return nextLines.join("\n").replace(/\n+$/, "\n");
 }
 
-async function prepareLearningConsolidation(cwd: string): Promise<string | null> {
+// ── Consolidation helpers ──────────────────────────────────────────────
+
+function applyLocalRuleDedupe(cwd: string): boolean {
   const systemMdPath = systemPath(cwd);
-  const pendingPath = pendingLearningsPath(cwd);
-  if (!fs.existsSync(systemMdPath)) return null;
+  if (!fs.existsSync(systemMdPath)) return false;
 
-  const systemMd = readIfExists(systemMdPath);
-  const learnings = readIfExists(pendingPath).trim();
-  if (!systemMd.trim() || !learnings) {
-    const deduped = dedupeLearnedRules(systemMd);
-    return deduped !== systemMd ? deduped : null;
-  }
-
-  const apiKey = (globalThis as { process?: { env?: { ANTHROPIC_API_KEY?: string } } }).process?.env?.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) {
-    const deduped = dedupeLearnedRules(systemMd);
-    return deduped !== systemMd ? deduped : null;
-  }
-
-  try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 1000,
-        messages: [{
-          role: "user",
-          content:
-            "You maintain a rule set for a coding agent.\n\n" +
-            `Current system.md:\n<system_md>${systemMd}</system_md>\n\n` +
-            `Recent rejection log:\n<learnings>${learnings}</learnings>\n\n` +
-            "Return a cleaned ## Learned Rules section only:\n" +
-            "- Merge rules that say the same thing differently\n" +
-            "- Remove rules contradicted by newer ones\n" +
-            "- One concise bullet per rule\n" +
-            "- No new rules\n" +
-            "- Return ONLY the ## Learned Rules section",
-        }],
-      }),
-    });
-
-    const data = await response.json() as { content?: Array<{ text?: string }> };
-    const cleaned = data.content?.[0]?.text?.trim();
-    if (!cleaned || !cleaned.startsWith("## Learned Rules")) return null;
-
-    const updated = systemMd.includes("## Learned Rules")
-      ? systemMd.replace(/## Learned Rules[\s\S]*$/, cleaned)
-      : systemMd.trimEnd() + `\n\n${cleaned}\n`;
-    return updated !== systemMd ? updated : null;
-  } catch {
-    const deduped = dedupeLearnedRules(systemMd);
-    return deduped !== systemMd ? deduped : null;
-  }
-}
-
-async function runLearningConsolidation(cwd: string): Promise<boolean> {
-  const systemMdPath = systemPath(cwd);
-  const pendingPath = pendingLearningsPath(cwd);
-  const updated = await prepareLearningConsolidation(cwd);
-  if (updated == null) return false;
-
-  fs.writeFileSync(systemMdPath, updated);
-  fs.writeFileSync(pendingPath, "");
+  const before = readIfExists(systemMdPath);
+  const after = dedupeLearnedRules(before);
+  if (after === before) return false;
+  fs.writeFileSync(systemMdPath, after);
   return true;
 }
 
-function applyPreparedLearningConsolidation(cwd: string, updated: string): void {
-  const systemMdPath = systemPath(cwd);
-  const pendingPath = pendingLearningsPath(cwd);
-  fs.writeFileSync(systemMdPath, updated);
-  fs.writeFileSync(pendingPath, "");
+function buildContextMapDraftInstruction(cwd: string): string {
+  const projectSettingsPath = path.join(settingsDir(cwd), "project.json");
+  const projectSettings = readIfExists(projectSettingsPath);
+  return [
+    "Complete the Vazir bootstrap context drafting using the currently selected Pi model.",
+    "",
+    "Tasks:",
+    "1. Rewrite .context/memory/context-map.md into a concise project orientation under 150 tokens.",
+    "2. Base it on the actual repository structure, AGENTS.md, and key fragile areas you can infer from the codebase.",
+    "3. Replace placeholder or generic lines with concrete project-specific content.",
+    "4. Replace every `(undescribed)` entry in .context/memory/index.md with a concise useful description.",
+    "5. Keep descriptions short and factual. Do not rewrite already useful descriptions unless they are obviously wrong.",
+    "",
+    `Project settings:\n${projectSettings || "{}"}`,
+  ].join("\n");
 }
 
-function summarizeLearnedRuleDiff(before: string, after: string): { beforeCount: number; afterCount: number; added: string[]; removed: string[] } {
-  const beforeRules = learnedRuleLinesFromMd(before);
-  const afterRules = learnedRuleLinesFromMd(after);
-  return {
-    beforeCount: beforeRules.length,
-    afterCount: afterRules.length,
-    added: afterRules.filter(rule => !beforeRules.includes(rule)),
-    removed: beforeRules.filter(rule => !afterRules.includes(rule)),
-  };
+function buildConsolidationInstruction(cwd: string): string {
+  const malformed = malformedStoryFiles(cwd);
+  const undescribed = undescribedIndexFiles(cwd);
+  return [
+    "Run Vazir consolidation using the currently selected Pi model.",
+    "",
+    "Tasks:",
+    "1. Read .context/complaints-log.md and cluster similar complaints.",
+    "2. Update .context/memory/system.md ## Learned Rules with concise promoted rules for complaint clusters that hit threshold, and promote any reopened issue directly.",
+    "3. Merge duplicate or overlapping learned rules. Keep the ## Rules section intact.",
+    undescribed.length > 0 ? "4. Replace every `(undescribed)` entry in .context/memory/index.md with a concise useful description." : "4. Leave .context/memory/index.md unchanged unless a description is clearly wrong.",
+    malformed.length > 0 ? "5. Repair malformed story files so they include the required frontmatter lines and all required template sections." : "5. Leave story files unchanged unless you discover a malformed one while consolidating.",
+    "6. Preserve existing user-authored content unless it is clearly placeholder text or malformed structure.",
+    "",
+    malformed.length > 0 ? `Malformed stories detected: ${malformed.map(filePath => path.basename(filePath)).join(", ")}` : "Malformed stories detected: none",
+    undescribed.length > 0 ? `Undescribed index entries: ${undescribed.join(", ")}` : "Undescribed index entries: none",
+  ].join("\n");
 }
 
 function buildInitSummary(fileStatuses: InitFileStatus[], jjLine: string, jjDetailLine: string): string {
@@ -420,6 +573,8 @@ function buildInitSummary(fileStatuses: InitFileStatus[], jjLine: string, jjDeta
     ...fileStatuses.map(file => `    ${file.present ? "☑" : "☒"} ${file.label}`),
   ].join("\n");
 }
+
+// ── Extension ──────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
   pi.on("input", async (event: any) => {
@@ -448,6 +603,16 @@ export default function (pi: ExtensionAPI) {
     else if (agents) parts.push(agents);
     if (systemMd) parts.push(systemMd);
     if (indexMd) parts.push(indexMd);
+
+    // Inject active story
+    const active = findActiveStory(ctx.cwd);
+    if (active) {
+      const storyContent = strip(readIfExists(active.file));
+      if (storyContent) {
+        parts.push(`[Active Story]\n${storyContent}`);
+      }
+    }
+
     if (parts.length === 0) return;
 
     return {
@@ -456,12 +621,55 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_before_compact", async (_event: any, ctx: any) => {
-    await runLearningConsolidation(ctx.cwd);
+    applyLocalRuleDedupe(ctx.cwd);
   });
 
   pi.on("session_shutdown", async (_event: any, ctx: any) => {
-    await runLearningConsolidation(ctx.cwd);
+    applyLocalRuleDedupe(ctx.cwd);
   });
+
+  // ── agent_end: zero-token index.md structural updates ─────────────────
+
+  pi.on("agent_end", async (_event: any, ctx: any) => {
+    const cwd = ctx.cwd;
+    const idxPath = indexPath(cwd);
+    if (!fs.existsSync(idxPath)) return;
+
+    const existing = readIfExists(idxPath);
+    const lines = existing.split("\n");
+    const currentFiles = new Set(walkSourceFiles(cwd));
+    const updated: string[] = [];
+    const indexedFiles = new Set<string>();
+
+    for (const line of lines) {
+      // Lines like: path/to/file.ts — description
+      const match = line.match(/^(.+?)\s+—\s+(.+)$/);
+      if (match) {
+        const filePath = match[1].trim();
+        if (currentFiles.has(filePath)) {
+          updated.push(line);
+          indexedFiles.add(filePath);
+        }
+        // Else: file was deleted/renamed — skip it
+      } else {
+        updated.push(line);
+      }
+    }
+
+    // Add new files as (undescribed)
+    for (const file of currentFiles) {
+      if (!indexedFiles.has(file)) {
+        updated.push(`${file} — (undescribed)`);
+      }
+    }
+
+    const newContent = updated.join("\n");
+    if (newContent !== existing) {
+      fs.writeFileSync(idxPath, newContent);
+    }
+  });
+
+  // ── /vazir-init ──────────────────────────────────────────────────────
 
   pi.registerCommand("vazir-init", {
     description: "Bootstrap Vazir context files, then set up git and JJ when available",
@@ -469,13 +677,19 @@ export default function (pi: ExtensionAPI) {
       const cwd = ctx.cwd;
 
       ensureDir(memoryDir(cwd));
-      ensureDir(learningsDir(cwd));
+      ensureDir(storiesDir(cwd));
       ensureDir(settingsDir(cwd));
       ensureDir(path.join(cwd, ".context", "checkpoints"));
 
       if (!fs.existsSync(systemPath(cwd))) {
         fs.writeFileSync(systemPath(cwd), SYSTEM_MD_TEMPLATE);
         ctx.ui.notify("system.md created", "info");
+      }
+
+      // complaints-log.md
+      if (!fs.existsSync(complaintsLogPath(cwd))) {
+        fs.writeFileSync(complaintsLogPath(cwd), "# Complaints Log\n\n");
+        ctx.ui.notify("complaints-log.md created", "info");
       }
 
       const projectSettingsPath = path.join(settingsDir(cwd), "project.json");
@@ -496,14 +710,16 @@ export default function (pi: ExtensionAPI) {
 
       let contextMapStatus = "existing";
       const contextMapExisted = fs.existsSync(contextMapPath(cwd));
+      let shouldRequestModelDraft = false;
       if (!contextMapExisted) {
         fs.writeFileSync(contextMapPath(cwd), CONTEXT_MAP_TEMPLATE);
         contextMapStatus = "fill in manually";
         const draftedContextMap = draftContextMap(cwd, sourceFiles);
         if (draftedContextMap) {
           fs.writeFileSync(contextMapPath(cwd), draftedContextMap);
-          contextMapStatus = "drafted";
-          ctx.ui.notify("context-map.md drafted — review and tighten it", "info");
+          contextMapStatus = "seeded";
+          shouldRequestModelDraft = true;
+          ctx.ui.notify("context-map.md seeded — Pi will refine it using the current model", "info");
         }
       }
 
@@ -592,16 +808,170 @@ export default function (pi: ExtensionAPI) {
         { label: ".context/memory/system.md", present: fs.existsSync(systemPath(cwd)) },
         { label: ".context/memory/index.md", present: fs.existsSync(indexPath(cwd)) },
         { label: ".context/memory/context-map.md", present: fs.existsSync(contextMapPath(cwd)) },
+        { label: ".context/stories/", present: fs.existsSync(storiesDir(cwd)) },
+        { label: ".context/complaints-log.md", present: fs.existsSync(complaintsLogPath(cwd)) },
         { label: "AGENTS.md", present: fs.existsSync(agentsPath) },
         { label: ".context/settings/project.json", present: fs.existsSync(projectSettingsPath) },
       ], useJJ ? "☑ JJ (Jujutsu): active" : jjLine, useJJ ? `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}` : jjDetailLine);
       pendingInitSummary = initSummary;
       ctx.ui.notify(initSummary, "info");
+
+      if (shouldRequestModelDraft || indexSummary.undescribed > 0) {
+        await pi.sendUserMessage(buildContextMapDraftInstruction(cwd), { deliverAs: "followUp" });
+      }
     },
   });
 
+  // ── /plan ────────────────────────────────────────────────────────────
+
+  pi.registerCommand("plan", {
+    description: "Start a planning conversation — generates plan.md and story files",
+    handler: async (args: string, ctx: any) => {
+      const cwd = ctx.cwd;
+      ensureDir(storiesDir(cwd));
+
+      const planPath = path.join(storiesDir(cwd), "plan.md");
+      const planExists = fs.existsSync(planPath);
+
+      if (planExists && !args.trim()) {
+        const choice = await ctx.ui.select(
+          "A plan already exists. What would you like to do?",
+          [
+            "View current plan",
+            "Replan — update scope and stories",
+            "Cancel",
+          ],
+        );
+
+        if (choice === "Cancel" || choice == null) return;
+
+        if (choice === "View current plan") {
+          const plan = readIfExists(planPath);
+          const stories = listStories(cwd);
+          const storyList = stories
+            .sort((a, b) => a.number - b.number)
+            .map(s => `  ${storyFileName(s.number)} — ${s.status}`)
+            .join("\n");
+          ctx.ui.notify(`${plan}\n\nStory files:\n${storyList}`, "info");
+          return;
+        }
+      }
+
+      // Read project settings for name
+      let projectName = "";
+      try {
+        const settings = JSON.parse(readIfExists(path.join(settingsDir(cwd), "project.json")));
+        projectName = settings.project_name || "";
+      } catch { /* ignore */ }
+
+      // Generate or update plan.md
+      if (!planExists) {
+        fs.writeFileSync(planPath, planTemplate(projectName));
+        ctx.ui.notify("plan.md created in .context/stories/", "info");
+      }
+
+      // Instruct the agent to run the planning conversation
+      const instruction = [
+        "The user wants to plan their project. A plan.md template has been created at .context/stories/plan.md.",
+        "",
+        "Your job:",
+        "1. Ask the user clarifying questions:",
+        "   - Who are the users?",
+        "   - What's the most important thing to get right in v1?",
+        "   - What are we explicitly NOT building in v1?",
+        "   - What stack are we using / what already exists?",
+        "2. Based on their answers, fill in plan.md with a proper PRD-level breakdown.",
+        '3. Chunk the plan into story files — one per verifiable unit. Use the template structure exactly (Status, Created, Last accessed, Completed, Goal, Verification, Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary).',
+        `4. Story files go in .context/stories/ as story-NNN.md. Next available number: ${nextStoryNumber(cwd)}.`,
+        "5. Each story should be completable in a single focused session with one clear verification step.",
+        "6. Before writing each story file, validate that it contains the required Status, Created, Last accessed, and Completed lines plus every required template section.",
+        "7. After generating stories, present the list to the user and ask if anything needs adjusting.",
+        "",
+        planExists ? "NOTE: Plan already exists — this is a replan. Update affected sections and stories. Append to the replanning log. Do not touch unaffected stories." : "",
+      ].filter(Boolean).join("\n");
+
+      await pi.sendUserMessage(instruction);
+    },
+  });
+
+  // ── /unlearn ─────────────────────────────────────────────────────────
+
+  pi.registerCommand("unlearn", {
+    description: "Remove a promoted rule from system.md",
+    handler: async (args: string, ctx: any) => {
+      const cwd = ctx.cwd;
+      const systemMdPath = systemPath(cwd);
+
+      if (!fs.existsSync(systemMdPath)) {
+        ctx.ui.notify("No system.md found — run /vazir-init first", "warning");
+        return;
+      }
+
+      const systemMd = readIfExists(systemMdPath);
+      const rules = learnedRuleLinesFromMd(systemMd);
+
+      if (rules.length === 0) {
+        ctx.ui.notify("No learned rules to remove", "info");
+        return;
+      }
+
+      // Direct number argument: /unlearn 2
+      let ruleIndex = -1;
+      const directNum = parseInt(args.trim(), 10);
+
+      if (!isNaN(directNum) && directNum >= 1 && directNum <= rules.length) {
+        ruleIndex = directNum - 1;
+      } else {
+        // Show numbered list and let user pick
+        const labels = rules.map((rule, i) => `${i + 1}. ${rule}`);
+        const pick = await ctx.ui.select(
+          "Learned rules in system.md — select one to remove:",
+          [...labels, "Cancel"],
+        );
+
+        if (pick == null || pick === "Cancel") return;
+
+        const pickIndex = labels.indexOf(pick);
+        if (pickIndex < 0) return;
+        ruleIndex = pickIndex;
+      }
+
+      const ruleText = rules[ruleIndex];
+      const confirm = await ctx.ui.confirm(
+        `Remove rule ${ruleIndex + 1}: "${ruleText}"?`,
+        "This rule will no longer constrain the agent.",
+      );
+
+      if (!confirm) {
+        ctx.ui.notify("Unlearn cancelled", "info");
+        return;
+      }
+
+      // Remove the rule from system.md
+      const bullet = `- ${ruleText}`;
+      const updatedSystemMd = systemMd
+        .split("\n")
+        .filter(line => line.trim() !== bullet)
+        .join("\n");
+      fs.writeFileSync(systemMdPath, updatedSystemMd);
+
+      // Mark in complaints-log if present
+      const clPath = complaintsLogPath(cwd);
+      if (fs.existsSync(clPath)) {
+        const log = readIfExists(clPath);
+        // Append unlearned marker
+        const marker = `${nowISO()} | unlearned | "${ruleText}"\n`;
+        fs.writeFileSync(clPath, log.trimEnd() + "\n" + marker);
+      }
+
+      ctx.ui.notify(`Rule removed: "${ruleText}"\nIt will no longer constrain the agent.`, "info");
+    },
+  });
+
+  // ── /consolidate ─────────────────────────────────────────────────────
+
   pi.registerCommand("consolidate", {
-    description: "Review and consolidate learned rules in system.md",
+    description: "Cluster complaints-log, promote threshold hits, consolidate learned rules",
     handler: async (_args: string, ctx: any) => {
       const systemMdPath = systemPath(ctx.cwd);
       if (!fs.existsSync(systemMdPath)) {
@@ -609,18 +979,18 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const before = readIfExists(systemMdPath);
-      const proposed = await prepareLearningConsolidation(ctx.cwd);
-      if (!proposed || proposed === before) {
-        ctx.ui.notify("Nothing to consolidate", "info");
-        return;
-      }
+      const undescribed = undescribedIndexFiles(ctx.cwd);
+      const malformed = malformedStoryFiles(ctx.cwd);
+      const complaints = readIfExists(complaintsLogPath(ctx.cwd))
+        .split("\n")
+        .filter(line => line.trim() && !line.startsWith("#"))
+        .length;
 
-      const diff = summarizeLearnedRuleDiff(before, proposed);
       const preview = [
-        `Learned rules: ${diff.beforeCount} → ${diff.afterCount}`,
-        diff.removed.length > 0 ? `Removed: ${diff.removed.map(rule => `- ${rule}`).join("; ")}` : "Removed: none",
-        diff.added.length > 0 ? `Added: ${diff.added.map(rule => `+ ${rule}`).join("; ")}` : "Added: none",
+        `Complaints entries: ${complaints}`,
+        `Undescribed index entries: ${undescribed.length}`,
+        `Malformed story files: ${malformed.length}`,
+        "Local learned-rule dedupe applied after confirmation only",
       ].join("\n");
 
       ctx.ui.notify(preview, "info");
@@ -630,8 +1000,9 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      applyPreparedLearningConsolidation(ctx.cwd, proposed);
-      ctx.ui.notify("system.md consolidated", "info");
+      applyLocalRuleDedupe(ctx.cwd);
+      await pi.sendUserMessage(buildConsolidationInstruction(ctx.cwd), { deliverAs: "followUp" });
+      ctx.ui.notify("Consolidation handed to the current Pi model", "info");
     },
   });
 }
