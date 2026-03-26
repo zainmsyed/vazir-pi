@@ -881,93 +881,104 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── /reset ────────────────────────────────────────────────────────────
+  async function runCheckpointRestore(ctx: { cwd: string; ui: any }) {
+    const cwd = ctx.cwd;
 
-  pi.registerCommand("reset", {
-    description: "JJ checkpoint picker — restore to a previous operation",
-    handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
-      const cwd = ctx.cwd;
+    if (useJJ) {
+      const pickable = jjCheckpointChoices(cwd);
+      if (pickable.length === 0) {
+        ctx.ui.notify("No checkpoints available to restore", "info");
+        return;
+      }
 
-      if (useJJ) {
-        const pickable = jjCheckpointChoices(cwd);
-        if (pickable.length === 0) {
-          ctx.ui.notify("No checkpoints available to restore", "info");
-          return;
+      const restoreChoice = await ctx.ui.select(
+        "Restore checkpoint?",
+        [
+          "Previous checkpoint — undo last agent turn",
+          "Choose checkpoint — pick from history",
+          "Cancel",
+        ],
+      );
+
+      if (restoreChoice === "Cancel" || restoreChoice == null) return;
+
+      if (restoreChoice === "Previous checkpoint — undo last agent turn") {
+        try {
+          jjRestoreCheckpoint(cwd, pickable[0].id);
+          ctx.ui.notify(`Restored to previous checkpoint (${checkpointLabel(pickable[0])})`, "info");
+        } catch (e: any) {
+          ctx.ui.notify(`Restore failed: ${e.message}`, "error");
         }
-
-        const restoreChoice = await ctx.ui.select(
-          "Restore checkpoint?",
-          [
-            "Previous checkpoint — undo last agent turn",
-            "Choose checkpoint — pick from history",
-            "Cancel",
-          ],
-        );
-
-        if (restoreChoice === "Cancel" || restoreChoice == null) return;
-
-        if (restoreChoice === "Previous checkpoint — undo last agent turn") {
+      } else if (restoreChoice === "Choose checkpoint — pick from history") {
+        const labels = pickable.map(op => checkpointLabel(op));
+        const pick = await ctx.ui.select("Restore to which checkpoint?", labels);
+        if (pick != null) {
+          const chosen = pickable[labels.indexOf(pick)];
           try {
-            jjRestoreCheckpoint(cwd, pickable[0].id);
-            ctx.ui.notify(`Restored to previous checkpoint (${checkpointLabel(pickable[0])})`, "info");
+            jjRestoreCheckpoint(cwd, chosen.id);
+            ctx.ui.notify(`Restored to checkpoint: ${checkpointLabel(chosen)}`, "info");
           } catch (e: any) {
             ctx.ui.notify(`Restore failed: ${e.message}`, "error");
           }
-        } else if (restoreChoice === "Choose checkpoint — pick from history") {
-          const labels = pickable.map(op => checkpointLabel(op));
-          const pick = await ctx.ui.select("Restore to which checkpoint?", labels);
-          if (pick != null) {
-            const chosen = pickable[labels.indexOf(pick)];
-            try {
-              jjRestoreCheckpoint(cwd, chosen.id);
-              ctx.ui.notify(`Restored to checkpoint: ${checkpointLabel(chosen)}`, "info");
-            } catch (e: any) {
-              ctx.ui.notify(`Restore failed: ${e.message}`, "error");
-            }
-          }
-        }
-
-        syncChanges(cwd);
-        refreshWidget();
-      } else {
-        // Git fallback
-        const checkpoints = listGitCheckpoints(cwd, currentSessionId);
-        if (checkpoints.length === 0) {
-          ctx.ui.notify("No checkpoints available to restore", "info");
-          return;
-        }
-
-        const restoreChoice = await ctx.ui.select(
-          "Restore checkpoint?",
-          [
-            "Previous checkpoint — undo last agent turn",
-            "Choose checkpoint — pick from list",
-            "Cancel",
-          ],
-        );
-
-        if (restoreChoice === "Cancel" || restoreChoice == null) return;
-
-        if (restoreChoice === "Previous checkpoint — undo last agent turn") {
-          gitRestoreCheckpoint(cwd, checkpoints[0].dir);
-          syncChanges(cwd);
-          refreshWidget();
-          ctx.ui.notify("Restored to previous checkpoint", "info");
-        } else if (restoreChoice === "Choose checkpoint — pick from list") {
-          const labels = checkpoints.map(cp => {
-            const t = new Date(cp.meta.timestamp).toLocaleTimeString();
-            return `#${cp.n} · ${t} · ${cp.meta.prompt || "—"} · ${cp.meta.files.slice(0, 3).join(", ")}`;
-          });
-          const pick = await ctx.ui.select("Choose checkpoint to restore:", labels);
-          if (pick != null) {
-            const chosen = checkpoints[labels.indexOf(pick)];
-            gitRestoreCheckpoint(cwd, chosen.dir);
-            syncChanges(cwd);
-            refreshWidget();
-            ctx.ui.notify(`Restored checkpoint #${chosen.n}`, "info");
-          }
         }
       }
+
+      syncChanges(cwd);
+      refreshWidget();
+      return;
+    }
+
+    const checkpoints = listGitCheckpoints(cwd, currentSessionId);
+    if (checkpoints.length === 0) {
+      ctx.ui.notify("No checkpoints available to restore", "info");
+      return;
+    }
+
+    const restoreChoice = await ctx.ui.select(
+      "Restore checkpoint?",
+      [
+        "Previous checkpoint — undo last agent turn",
+        "Choose checkpoint — pick from list",
+        "Cancel",
+      ],
+    );
+
+    if (restoreChoice === "Cancel" || restoreChoice == null) return;
+
+    if (restoreChoice === "Previous checkpoint — undo last agent turn") {
+      gitRestoreCheckpoint(cwd, checkpoints[0].dir);
+      syncChanges(cwd);
+      refreshWidget();
+      ctx.ui.notify("Restored to previous checkpoint", "info");
+    } else if (restoreChoice === "Choose checkpoint — pick from list") {
+      const labels = checkpoints.map(cp => {
+        const t = new Date(cp.meta.timestamp).toLocaleTimeString();
+        return `#${cp.n} · ${t} · ${cp.meta.prompt || "—"} · ${cp.meta.files.slice(0, 3).join(", ")}`;
+      });
+      const pick = await ctx.ui.select("Choose checkpoint to restore:", labels);
+      if (pick != null) {
+        const chosen = checkpoints[labels.indexOf(pick)];
+        gitRestoreCheckpoint(cwd, chosen.dir);
+        syncChanges(cwd);
+        refreshWidget();
+        ctx.ui.notify(`Restored checkpoint #${chosen.n}`, "info");
+      }
+    }
+  }
+
+  // ── /checkpoint and /reset ────────────────────────────────────────────
+
+  pi.registerCommand("checkpoint", {
+    description: "JJ checkpoint picker — restore to a previous operation",
+    handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
+      await runCheckpointRestore(ctx);
+    },
+  });
+
+  pi.registerCommand("reset", {
+    description: "Alias for /checkpoint",
+    handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
+      await runCheckpointRestore(ctx);
     },
   });
 }
