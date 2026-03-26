@@ -48,6 +48,8 @@ Note: the exact commands and flags depend on the local "jj" installation; run `j
 - Compare snapshots / show a diff:
   - jj diff <snapshot-id-1> <snapshot-id-2>
 
+In Vazir, the in-app restore command is `/checkpoint` (with `/reset` kept as an alias).
+
 If jj is not available, use git as the fallback checkpoint mechanism.
 
 Useful commands
