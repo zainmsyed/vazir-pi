@@ -433,7 +433,8 @@ automatic: true
 | `/unlearn [rule]` | `vazir-context.ts` | Show numbered list of promoted rules, remove selected rule from `system.md` |
 | `/consolidate` | `vazir-context.ts` | Preview + apply rule consolidation, cluster `complaints-log.md`, promote threshold hits |
 | `/diff` | `vazir-tracker.ts` | Show JJ or git diff for current changes |
-| `/reset` | `vazir-tracker.ts` | JJ checkpoint picker — restore to a previous operation |
+| `/checkpoint` | `vazir-tracker.ts` | JJ checkpoint picker — restore to a previous operation |
+| `/reset` | `vazir-tracker.ts` | Alias for `/checkpoint` |
 
 **Removed from v3.6:** `/reject` — replaced by `/fix` with richer semantics.
 
