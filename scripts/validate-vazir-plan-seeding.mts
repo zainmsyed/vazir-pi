@@ -105,6 +105,10 @@ async function runFreshPlanScenario() {
   }
   assert(sentMessages.length === 1, "plan should send one follow-up message to the model");
   assert(sentMessages[0].message.includes("starter story files"), "planning instruction did not mention starter story files");
+  assert(
+    sentMessages[0].message.includes("exactly one clarifying question at a time"),
+    "planning instruction did not request sequential questions",
+  );
   assert(notifications.some(note => note.message.startsWith("Seeded starter stories:")), "missing seeded story notification");
 
   return { cwd, storyFiles, notifications };

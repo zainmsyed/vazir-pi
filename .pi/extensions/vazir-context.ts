@@ -264,10 +264,41 @@ function findActiveStory(cwd: string): StoryFrontmatter | null {
   return inProgress[0];
 }
 
+function findWorkableStory(cwd: string): StoryFrontmatter | null {
+  const active = findActiveStory(cwd);
+  if (active) return active;
+
+  const candidates = listStories(cwd)
+    .filter(story => story.status !== "complete" && story.status !== "retired")
+    .sort((a, b) => a.number - b.number);
+
+  return candidates[0] ?? null;
+}
+
 function snapshotStoryFrontmatter(cwd: string): Map<string, { status: string; completed: string }> {
   return new Map(
     listStories(cwd).map(story => [story.file, { status: story.status, completed: story.completed }]),
   );
+}
+
+function updateStoryFrontmatter(
+  storyPath: string,
+  updates: { status?: StoryFrontmatter["status"]; lastAccessed?: string },
+): void {
+  const content = readIfExists(storyPath);
+  if (!content) return;
+
+  let updated = content;
+  if (updates.status) {
+    updated = updated.replace(/^[*][*]Status:[*][*]\s*.+$/m, `**Status:** ${updates.status}  `);
+  }
+  if (updates.lastAccessed) {
+    updated = updated.replace(/^[*][*]Last accessed:[*][*]\s*.+$/m, `**Last accessed:** ${updates.lastAccessed}  `);
+  }
+
+  if (updated !== content) {
+    fs.writeFileSync(storyPath, updated);
+  }
 }
 
 function userExplicitlyApprovedStatusChange(prompt: string, nextStatus: string): boolean {
@@ -852,6 +883,11 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     storyFrontmatterSnapshots.set(ctx.cwd, snapshotStoryFrontmatter(ctx.cwd));
 
+    const workable = findWorkableStory(ctx.cwd);
+    if (workable && workable.status === "not-started") {
+      updateStoryFrontmatter(workable.file, { status: "in-progress", lastAccessed: todayDate() });
+    }
+
     const parts: string[] = [];
     if (pendingInitSummary) {
       parts.push(pendingInitSummary);
@@ -1164,7 +1200,9 @@ export default function (pi: ExtensionAPI) {
         "The user wants to plan their project. A seeded plan.md and starter story files already exist in .context/stories/.",
         "",
         "Your job:",
-        "1. Ask the user clarifying questions:",
+        "1. Ask exactly one clarifying question at a time.",
+        "   Wait for the user's answer before asking the next question.",
+        "   Ask them in this order:",
         "   - Who are the users?",
         "   - What's the most important thing to get right in v1?",
         "   - What are we explicitly NOT building in v1?",
