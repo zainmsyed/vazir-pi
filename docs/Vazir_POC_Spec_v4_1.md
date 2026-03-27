@@ -93,6 +93,7 @@ Four statuses only — no paused, no blocked, no pending-review:
 - `anything → retired`: user only — explicit instruction to scrap
 - `complete → in-progress`: user only — reopen edge case, allowed
 - Agent may **never** set `complete` or `retired` — these are always user-triggered
+- When the agent begins a turn against a `not-started` story, it promotes that story to `in-progress` and updates `Last accessed` to today.
 
 When a user force-completes a story with unchecked items, the agent automatically appends to the completion summary:
 ```
@@ -280,7 +281,7 @@ The user only. Always. Agent asks, user confirms. The agent never flips a story 
 
 ### Command: `/plan`
 
-Triggered when the user describes what they want to build. The agent asks clarifying questions (baked into the skill file), then generates:
+Triggered when the user describes what they want to build. The agent asks clarifying questions one at a time, waiting for each answer before asking the next, then generates:
 
 1. `plan.md` — PRD-level document
 2. One `story-NNN.md` per story, chunked from the plan
@@ -445,11 +446,11 @@ automatic: true
 ```
 User: "I want to build a SaaS dashboard for tracking team OKRs"
       ↓
-Agent asks clarifying questions (from skill file prompt):
-  - Who are the users? (admin, team member, viewer?)
-  - What's the most important thing to get right in v1?
-  - What are we explicitly NOT building in v1?
-  - What stack are we using / what already exists?
+Agent asks clarifying questions one at a time (from skill file prompt):
+      - Who are the users? (admin, team member, viewer?)
+      - What's the most important thing to get right in v1?
+      - What are we explicitly NOT building in v1?
+      - What stack are we using / what already exists?
       ↓
 User answers
       ↓

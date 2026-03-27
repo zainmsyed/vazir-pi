@@ -26,51 +26,53 @@ function createProject(prefix: string): string {
   return cwd;
 }
 
-function writeStory(cwd: string): string {
-  const filePath = path.join(cwd, ".context", "stories", "story-001.md");
-  fs.writeFileSync(
-    filePath,
-    [
-      "# Story 001: Example",
-      "",
-      "**Status:** in-progress  ",
-      "**Created:** 2026-03-25  ",
-      "**Last accessed:** 2026-03-25  ",
-      "**Completed:** —",
-      "",
-      "---",
-      "",
-      "## Goal",
-      "Example goal.",
-      "",
-      "## Verification",
-      "Example verification.",
-      "",
-      "## Scope — files this story may touch",
-      "- src/example.ts",
-      "",
-      "## Out of scope — do not touch",
-      "- src/other.ts",
-      "",
-      "## Dependencies",
-      "- ",
-      "",
-      "---",
-      "",
-      "## Checklist",
-      "- [x] Example task",
-      "",
-      "---",
-      "",
-      "## Issues",
-      "",
-      "---",
-      "",
-      "## Completion Summary",
-      "",
-    ].join("\n"),
-  );
+function writeStory(cwd: string, number: number = 1, status: string = "in-progress", lastAccessed: string = "2026-03-25"): string {
+  const filePath = path.join(cwd, ".context", "stories", `story-${String(number).padStart(3, "0")}.md`);
+  const content = [
+    `# Story ${String(number).padStart(3, "0")}: Example`,
+    "",
+    `**Status:** ${status}  `,
+    "**Created:** 2026-03-25  ",
+    `**Last accessed:** ${lastAccessed}  `,
+    "**Completed:** —",
+    "",
+    "---",
+    "",
+    "## Goal",
+    "Example goal.",
+    "",
+    "## Verification",
+    "Example verification.",
+    "",
+    "## Scope — files this story may touch",
+    "- src/example.ts",
+    "",
+    "## Out of scope — do not touch",
+    "- src/other.ts",
+    "",
+    "## Dependencies",
+    "- ",
+    "",
+    "---",
+    "",
+    "## Checklist",
+    "- [x] Example task",
+    "",
+    "---",
+    "",
+    "## Issues",
+    "",
+    "---",
+    "",
+    "## Completion Summary",
+    "",
+  ].join("\n");
+  fs.writeFileSync(filePath, content);
   return filePath;
+}
+
+function writeNotStartedStory(cwd: string, number: number, lastAccessed: string): string {
+  return writeStory(cwd, number, "not-started", lastAccessed);
 }
 
 function makePi() {
@@ -166,6 +168,23 @@ async function runAllowedScenario() {
   return { cwd, notifications, story };
 }
 
+async function runAutoStartScenario() {
+  const cwd = createProject("vazir-story-guard-autostart-");
+  const notifications: Notification[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications);
+  const storyPath = writeNotStartedStory(cwd, 1, "2026-03-24");
+
+  await harness.emit("before_agent_start", { systemPrompt: "" }, ctx);
+
+  const story = fs.readFileSync(storyPath, "utf-8");
+  assert(story.includes("**Status:** in-progress"), "a not-started story should be promoted when work begins");
+  assert(!story.includes("**Last accessed:** 2026-03-24"), "auto-start should refresh last accessed");
+  assert(/\*\*Last accessed:\*\* \d{4}-\d{2}-\d{2}/.test(story), "auto-start should keep a valid last accessed date");
+
+  return { cwd, notifications, story };
+}
+
 function printScenario(title: string, details: Record<string, unknown>) {
   console.log(title);
   for (const [key, value] of Object.entries(details)) {
@@ -191,6 +210,8 @@ function printScenario(title: string, details: Record<string, unknown>) {
 
 const blocked = await runBlockedScenario();
 const allowed = await runAllowedScenario();
+const autoStart = await runAutoStartScenario();
 
 printScenario("Blocked Unauthorized Completion", blocked);
 printScenario("Allowed Explicit Completion", allowed);
+printScenario("Auto-Start Not-Started Story", autoStart);

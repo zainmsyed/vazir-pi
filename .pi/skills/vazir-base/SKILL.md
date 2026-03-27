@@ -19,6 +19,11 @@ disable-model-invocation: false
 - You may set `not-started → in-progress` when beginning work on a story.
 - Update the story's `last_accessed` frontmatter to today's date every time you work on it.
 
+## Planning flow
+- In `/plan`, ask exactly one clarifying question at a time.
+- Wait for the user's answer before asking the next question.
+- Start with the most important unknown for scope, then proceed to the remaining questions only as needed.
+
 ## Issue logging
 - When the user calls /fix, immediately log the issue to the Issues section of the most recently accessed in-progress story file.
 - Simultaneously append to `.context/complaints-log.md`.
