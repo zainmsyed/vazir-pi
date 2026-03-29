@@ -55,6 +55,12 @@ pi-coding-agent (base)
         │   ├── context-map.md       # Vazir conductor — 150 tokens, injected every turn
         │   ├── system.md            # Rules + promoted learned rules — injected every turn
         │   └── index.md             # File index — auto-generated and maintained
+            ├── intake/
+            │   ├── README.md            # Where users drop raw planning materials before /plan
+            │   ├── prd/
+            │   ├── dictionaries/
+            │   ├── references/
+            │   └── uploads/
         ├── stories/
         │   ├── plan.md              # PRD-level project breakdown
         │   ├── story-001.md         # One file per story — checklist + issues + completion
@@ -281,12 +287,30 @@ The user only. Always. Agent asks, user confirms. The agent never flips a story 
 
 ### Command: `/plan`
 
-Triggered when the user describes what they want to build. The agent asks clarifying questions one at a time, waiting for each answer before asking the next, then generates:
+Triggered when the user describes what they want to build or after they drop source materials into `.context/intake/`. The agent reviews intake materials first, then asks clarifying questions one at a time only for missing, ambiguous, or conflicting information, then generates:
 
 1. `plan.md` — PRD-level document
 2. One `story-NNN.md` per story, chunked from the plan
+3. `intake-brief.md` — distilled planning brief derived from intake materials plus user answers
 
 The user reviews the generated stories before work begins. Stories that are too big get broken down further. Stories that are wrong get edited or retired immediately.
+
+### Intake Materials
+
+`/vazir-init` creates `.context/intake/` as the single drop-zone for user-supplied planning inputs. This keeps raw source material separate from the app code and separate from Vazir's injected runtime memory.
+
+- `README.md` explains what belongs here
+- `prd/` holds PRDs, briefs, and POC notes
+- `dictionaries/` holds glossary, taxonomy, field definitions, and domain language
+- `references/` holds API notes, schemas, research docs, and external reference material
+- `uploads/` is the catch-all for screenshots or miscellaneous supporting files
+
+Rules:
+- Files in `.context/intake/` are raw planning inputs, not permanent system rules
+- `/plan` and replanning flows read them first, then ask only delta questions
+- `intake-brief.md`, `plan.md`, and `story-NNN.md` files are the distilled working artifacts derived from intake plus user answers
+- If intake artifacts conflict with each other or with the repository, the agent must surface the conflict explicitly instead of resolving it silently
+- Large intake files should not be read wholesale by default. The agent should skim selectively or ask the user which section matters.
 
 ### Story Sizing Rule
 
@@ -358,7 +382,9 @@ Story dependencies declared in each story file are what determine what's affecte
 
 | File | Created by | Updated by | Notes |
 |---|---|---|---|
+| `.context/stories/intake-brief.md` | `/plan` | Agent on replan | Distilled planning brief. Read first during planning and replanning. |
 | `.context/stories/plan.md` | `/plan` | Agent on replan | PRD-level. Agent reads on demand. |
+| `.context/intake/**` | `/vazir-init` | User manually | Raw planning materials. Read by `/plan` and replanning only. Never injected every turn. |
 | `.context/complaints-log.md` | `/fix` | `/fix` appends | Persistent cross-session log. Threshold tracking. |
 | `AGENTS.md` | `/vazir-init` | User manually | Cross-framework. Free-form. |
 | `.context/settings/project.json` | `/vazir-init` | User manually | `project_name`, `model_tier`. |
@@ -372,7 +398,14 @@ Story dependencies declared in each story file are what determine what's affecte
     │   ├── context-map.md            ← LLM-drafted at init. 150 tokens max.
     │   ├── system.md                 ← Rules + ## Promoted Rules. Auto-consolidated.
     │   └── index.md                  ← Always generated. Zero-token patches on agent_end.
+      ├── intake/
+      │   ├── README.md                 ← User instructions for planning inputs.
+      │   ├── prd/                      ← PRDs, briefs, POC notes.
+      │   ├── dictionaries/             ← Glossary, domain vocabulary, field definitions.
+      │   ├── references/               ← Schemas, API notes, supporting docs.
+      │   └── uploads/                  ← Screenshots and misc. source material.
     ├── stories/
+      │   ├── intake-brief.md           ← Distilled summary of intake materials + planning deltas.
     │   ├── plan.md                   ← PRD-level. Agent reads on demand.
     │   ├── story-001.md              ← One file per story.
     │   └── story-002.md
@@ -429,7 +462,7 @@ automatic: true
 | Command | Handler | What it does |
 |---|---|---|
 | `/vazir-init` | `vazir-context.ts` | Bootstrap `.context/`, generate `index.md`, draft `context-map.md`, set up JJ |
-| `/plan` | `vazir-context.ts` | Planning conversation → generate `plan.md` + all story files |
+| `/plan` | `vazir-context.ts` | Refresh `intake-brief.md`, review `.context/intake/`, ask delta questions, generate `plan.md` + all story files |
 | `/fix [description]` | `vazir-tracker.ts` | Warn re: secrets, log issue to active story + `complaints-log.md`, attempt fix, track status |
 | `/unlearn [rule]` | `vazir-context.ts` | Show numbered list of promoted rules, remove selected rule from `system.md` |
 | `/consolidate` | `vazir-context.ts` | Preview + apply rule consolidation, cluster `complaints-log.md`, promote threshold hits |
@@ -446,15 +479,22 @@ automatic: true
 ```
 User: "I want to build a SaaS dashboard for tracking team OKRs"
       ↓
-Agent asks clarifying questions one at a time (from skill file prompt):
+Agent refreshes `intake-brief.md` from `.context/intake/` and the current project brief
+      ↓
+Agent uses raw intake files only when the brief is ambiguous, incomplete, or conflicting
+      ↓
+Agent asks clarifying questions one at a time only for unresolved areas:
       - Who are the users? (admin, team member, viewer?)
       - What's the most important thing to get right in v1?
       - What are we explicitly NOT building in v1?
       - What stack are we using / what already exists?
+      - Which intake details conflict or look stale?
       ↓
 User answers
       ↓
-Agent generates plan.md (PRD-level)
+Agent updates intake-brief.md if new answers materially change the distilled understanding
+      ↓
+Agent generates plan.md (PRD-level distilled artifact)
       ↓
 Agent chunks into story files — each sized to one verifiable unit
       ↓

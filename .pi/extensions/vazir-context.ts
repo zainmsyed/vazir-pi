@@ -104,6 +104,8 @@ const AGENTS_MD_TEMPLATE = [
 
 const JJ_DOCS_URL = "https://www.jj-vcs.dev/latest/install-and-setup/";
 const JJ_OVERVIEW_URL = "https://www.jj-vcs.dev/latest/";
+const MAX_INTAKE_PREVIEW_BYTES = 4000;
+const MAX_INTAKE_PREVIEW_LINES = 12;
 
 let lastUserPrompt = "";
 let useJJ = false;
@@ -147,6 +149,14 @@ function storiesDir(cwd: string) {
   return path.join(cwd, ".context", "stories");
 }
 
+function intakeBriefPath(cwd: string) {
+  return path.join(storiesDir(cwd), "intake-brief.md");
+}
+
+function intakeDir(cwd: string) {
+  return path.join(cwd, ".context", "intake");
+}
+
 function complaintsLogPath(cwd: string) {
   return path.join(cwd, ".context", "complaints-log.md");
 }
@@ -163,6 +173,34 @@ function contextMapPath(cwd: string) {
   return path.join(memoryDir(cwd), "context-map.md");
 }
 
+function intakeReadmePath(cwd: string) {
+  return path.join(intakeDir(cwd), "README.md");
+}
+
+const INTAKE_README_TEMPLATE = [
+  "# Vazir Intake",
+  "",
+  "Drop planning materials here before running /plan.",
+  "",
+  "Use this folder for raw project inputs such as:",
+  "- PRDs and POC notes",
+  "- Domain dictionaries and glossary files",
+  "- API references or schema notes",
+  "- Research notes, screenshots, or supporting docs",
+  "",
+  "Suggested subfolders:",
+  "- prd/",
+  "- dictionaries/",
+  "- references/",
+  "- uploads/",
+  "",
+  "Rules:",
+  "- Treat files here as planning inputs, not permanent system rules.",
+  "- /plan should read these first, then ask only for missing or conflicting information.",
+  "- plan.md and story files remain the distilled working artifacts.",
+  "",
+].join("\n");
+
 // ── Generic helpers ────────────────────────────────────────────────────
 
 function readIfExists(filePath: string): string {
@@ -171,6 +209,13 @@ function readIfExists(filePath: string): string {
 
 function ensureDir(dirPath: string) {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function ensureIntakeStructure(cwd: string): void {
+  ensureDir(intakeDir(cwd));
+  for (const segment of ["prd", "dictionaries", "references", "uploads"]) {
+    ensureDir(path.join(intakeDir(cwd), segment));
+  }
 }
 
 function relativeToCwd(cwd: string, fullPath: string): string {
@@ -212,6 +257,157 @@ function detectGitRepo(cwd: string): boolean {
 
 function strip(content: string): string {
   return content.replace(/<!--[\s\S]*?-->/g, "").trim();
+}
+
+function safeFileSize(filePath: string): number | null {
+  try {
+    return (fs as unknown as { statSync(path: string): { size: number } }).statSync(filePath).size;
+  } catch {
+    return null;
+  }
+}
+
+function fileExtension(filePath: string): string {
+  return path.extname(filePath).toLowerCase();
+}
+
+function isPreviewableTextFile(filePath: string): boolean {
+  const ext = fileExtension(filePath);
+  return new Set([
+    ".md",
+    ".txt",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".csv",
+    ".tsv",
+    ".xml",
+    ".html",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".py",
+    ".rb",
+    ".go",
+    ".rs",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".sql",
+    ".sh",
+  ]).has(ext);
+}
+
+function clipTextPreview(content: string): string {
+  return content
+    .split("\n")
+    .slice(0, MAX_INTAKE_PREVIEW_LINES)
+    .join("\n")
+    .trim();
+}
+
+function buildIntakeBrief(cwd: string, planningBrief: string, intakeFiles: string[]): string {
+  const sections = [
+    "# Intake Brief",
+    "",
+    `**Last updated:** ${todayDate()}`,
+    "",
+    "## Planning brief",
+    planningBrief,
+    "",
+  ];
+
+  if (intakeFiles.length === 0) {
+    sections.push(
+      "## Source files",
+      "- None provided",
+      "",
+      "## Distilled notes",
+      "No intake materials were present when /plan ran. Planning should rely on the user conversation.",
+      "",
+    );
+    return sections.join("\n");
+  }
+
+  sections.push("## Source files");
+  for (const relPath of intakeFiles) {
+    const fullPath = path.join(cwd, relPath);
+    const size = safeFileSize(fullPath);
+    sections.push(`- ${relPath}${size == null ? "" : ` (${size} bytes)`}`);
+  }
+
+  sections.push("", "## Distilled notes");
+  for (const relPath of intakeFiles) {
+    const fullPath = path.join(cwd, relPath);
+    const size = safeFileSize(fullPath) ?? 0;
+    sections.push(`### ${relPath}`);
+
+    if (!isPreviewableTextFile(relPath)) {
+      sections.push("Unsupported preview type. Use the raw file only if the user specifically points to it.", "");
+      continue;
+    }
+
+    if (size > MAX_INTAKE_PREVIEW_BYTES) {
+      sections.push(
+        `Large file (${size} bytes). Do not read it wholesale by default. Skim selectively or ask the user which section matters most.`,
+        "",
+      );
+      continue;
+    }
+
+    const content = readIfExists(fullPath);
+    if (!content.trim()) {
+      sections.push("Empty file.", "");
+      continue;
+    }
+
+    const preview = clipTextPreview(content);
+    sections.push("```text", preview, "```", "");
+  }
+
+  sections.push(
+    "## Planning rules",
+    "- Treat intake files as raw planning inputs, not permanent system rules.",
+    "- Ask only delta questions after reviewing this brief and any raw files you actually need.",
+    "- Surface contradictions instead of resolving them silently.",
+    "",
+  );
+
+  return sections.join("\n");
+}
+
+function listIntakeFiles(cwd: string): string[] {
+  const root = intakeDir(cwd);
+  if (!fs.existsSync(root)) return [];
+
+  const files: string[] = [];
+
+  function walk(dir: string) {
+    let entries: Array<{ name: string; isDirectory(): boolean }>;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+        continue;
+      }
+
+      const relPath = relativeToCwd(cwd, fullPath).replace(/\\/g, "/");
+      if (relPath === ".context/intake/README.md") continue;
+      files.push(relPath);
+    }
+  }
+
+  walk(root);
+  return files.sort((left, right) => left.localeCompare(right));
 }
 
 // ── Story helpers ──────────────────────────────────────────────────────
@@ -986,7 +1182,13 @@ export default function (pi: ExtensionAPI) {
       ensureDir(memoryDir(cwd));
       ensureDir(storiesDir(cwd));
       ensureDir(settingsDir(cwd));
+      ensureIntakeStructure(cwd);
       ensureDir(path.join(cwd, ".context", "checkpoints"));
+
+      if (!fs.existsSync(intakeReadmePath(cwd))) {
+        fs.writeFileSync(intakeReadmePath(cwd), INTAKE_README_TEMPLATE);
+        ctx.ui.notify("intake README created", "info");
+      }
 
       if (!fs.existsSync(systemPath(cwd))) {
         fs.writeFileSync(systemPath(cwd), SYSTEM_MD_TEMPLATE);
@@ -1116,6 +1318,7 @@ export default function (pi: ExtensionAPI) {
         { label: ".context/memory/index.md", present: fs.existsSync(indexPath(cwd)) },
         { label: ".context/memory/context-map.md", present: fs.existsSync(contextMapPath(cwd)) },
         { label: ".context/stories/", present: fs.existsSync(storiesDir(cwd)) },
+        { label: ".context/intake/", present: fs.existsSync(intakeDir(cwd)) },
         { label: ".context/complaints-log.md", present: fs.existsSync(complaintsLogPath(cwd)) },
         { label: "AGENTS.md", present: fs.existsSync(agentsPath) },
         { label: ".context/settings/project.json", present: fs.existsSync(projectSettingsPath) },
@@ -1136,9 +1339,11 @@ export default function (pi: ExtensionAPI) {
     handler: async (args: string, ctx: any) => {
       const cwd = ctx.cwd;
       ensureDir(storiesDir(cwd));
+      ensureIntakeStructure(cwd);
 
       const planPath = path.join(storiesDir(cwd), "plan.md");
       const planExists = fs.existsSync(planPath);
+      const intakeFiles = listIntakeFiles(cwd);
 
       if (planExists && !args.trim()) {
         const choice = await ctx.ui.select(
@@ -1175,10 +1380,21 @@ export default function (pi: ExtensionAPI) {
       if (!planningBrief) {
         planningBrief = (await ctx.ui.input?.(
           "What are we planning?",
-          "e.g. a SaaS dashboard for tracking team OKRs",
+          intakeFiles.length > 0
+            ? "Keep it short if needed — /plan will review .context/intake first"
+            : "e.g. a SaaS dashboard for tracking team OKRs",
         ))?.trim() ?? "";
       }
       planningBrief = normalizeProjectBrief(planningBrief, projectName);
+
+      fs.writeFileSync(intakeBriefPath(cwd), buildIntakeBrief(cwd, planningBrief, intakeFiles));
+
+      if (intakeFiles.length > 0) {
+        ctx.ui.notify(`Found ${intakeFiles.length} intake file${intakeFiles.length === 1 ? "" : "s"} in .context/intake/`, "info");
+      } else {
+        ctx.ui.notify("No intake files found in .context/intake/ — /plan will rely on the conversation", "info");
+      }
+      ctx.ui.notify("intake-brief.md refreshed in .context/stories/", "info");
 
       // Generate or update plan.md
       if (!planExists) {
@@ -1200,20 +1416,23 @@ export default function (pi: ExtensionAPI) {
         "The user wants to plan their project. A seeded plan.md and starter story files already exist in .context/stories/.",
         "",
         "Your job:",
-        "1. Ask exactly one clarifying question at a time.",
-        "   Wait for the user's answer before asking the next question.",
-        "   Ask them in this order:",
+        `1. Read .context/stories/intake-brief.md before asking any questions.${intakeFiles.length > 0 ? ` Intake files referenced there: ${intakeFiles.join(", ")}` : ""}`,
+        intakeFiles.length > 0 ? "2. Use the raw files in .context/intake/ only when the intake brief is ambiguous, incomplete, or conflicting. Treat them as planning inputs, not permanent system rules." : "2. No intake files were provided. Start from the conversation alone.",
+        "3. Ask exactly one clarifying question at a time.",
+        intakeFiles.length > 0 ? "   Ask only for missing, ambiguous, or conflicting information after reviewing the intake brief and any raw files you actually need." : "   Wait for the user's answer before asking the next question.",
+        "   Default question areas if still unresolved after review:",
         "   - Who are the users?",
         "   - What's the most important thing to get right in v1?",
         "   - What are we explicitly NOT building in v1?",
         "   - What stack are we using / what already exists?",
-        `2. Refine .context/stories/plan.md based on the user's answers. Current brief: ${planningBrief}`,
-        `3. Refine the existing story files in place first: ${storyFiles.join(", ") || "existing story files"}. Create additional story-NNN.md files only if the seeded three stories are clearly insufficient.`,
-        '4. Every story file must use the exact template structure (Status, Created, Last accessed, Completed, Goal, Verification, Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary).',
-        `5. If you create additional stories, continue numbering from ${nextStoryNumber(cwd)}.`,
-        "6. Each story should be completable in a single focused session with one clear verification step.",
-        "7. Before finishing, validate that plan.md exists and at least one story-NNN.md file exists. If the seeded stories need retitling or rewriting, edit them instead of leaving placeholders.",
-        "8. After generating or refining the stories, present the list to the user and ask if anything needs adjusting.",
+        `4. Update .context/stories/intake-brief.md if the user's answers materially change the distilled understanding. Current brief: ${planningBrief}`,
+        `5. Refine .context/stories/plan.md based on the intake materials and the user's answers.`,
+        `6. Refine the existing story files in place first: ${storyFiles.join(", ") || "existing story files"}. Create additional story-NNN.md files only if the seeded three stories are clearly insufficient.`,
+        '7. Every story file must use the exact template structure (Status, Created, Last accessed, Completed, Goal, Verification, Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary).',
+        `8. If you create additional stories, continue numbering from ${nextStoryNumber(cwd)}.`,
+        "9. Each story should be completable in a single focused session with one clear verification step.",
+        "10. Before finishing, validate that intake-brief.md exists, plan.md exists, and at least one story-NNN.md file exists. If the seeded stories need retitling or rewriting, edit them instead of leaving placeholders.",
+        "11. After generating or refining the stories, present the list to the user and ask if anything needs adjusting.",
         "",
         planExists ? "NOTE: Plan already exists — this is a replan. Update affected sections and stories. Append to the replanning log. Do not touch unaffected stories." : "",
       ].filter(Boolean).join("\n");
