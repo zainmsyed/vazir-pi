@@ -90,13 +90,17 @@ async function runFreshPlanScenario() {
   const cwd = createProject("vazir-plan-seed-fresh-");
   const notifications: Notification[] = [];
   const { command, sentMessages } = makePi();
+  fs.mkdirSync(path.join(cwd, ".context", "intake", "prd"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, ".context", "intake", "prd", "product-brief.md"), "# Product Brief\n\nBuild a lean OKR dashboard for team leads.\n");
 
   await command.handler("", makeCtx(cwd, notifications));
 
   const storiesDir = path.join(cwd, ".context", "stories");
   const storyFiles = fs.readdirSync(storiesDir).filter((name: string) => /^story-\d+\.md$/.test(name)).sort();
+  const intakeBriefPath = path.join(storiesDir, "intake-brief.md");
   const planPath = path.join(storiesDir, "plan.md");
 
+  assert(fs.existsSync(intakeBriefPath), "intake-brief.md was not created");
   assert(fs.existsSync(planPath), "plan.md was not created");
   assert(storyFiles.length === 3, `expected 3 seeded story files, found ${storyFiles.length}`);
   for (const file of storyFiles) {
@@ -105,10 +109,17 @@ async function runFreshPlanScenario() {
   }
   assert(sentMessages.length === 1, "plan should send one follow-up message to the model");
   assert(sentMessages[0].message.includes("starter story files"), "planning instruction did not mention starter story files");
+  assert(sentMessages[0].message.includes("Read .context/stories/intake-brief.md before asking any questions."), "planning instruction did not mention intake brief review");
+  assert(sentMessages[0].message.includes(".context/intake/prd/product-brief.md"), "planning instruction did not list the intake file");
   assert(
     sentMessages[0].message.includes("exactly one clarifying question at a time"),
     "planning instruction did not request sequential questions",
   );
+  const intakeBrief = fs.readFileSync(intakeBriefPath, "utf-8");
+  assert(intakeBrief.includes("# Intake Brief"), "intake-brief.md did not use the expected heading");
+  assert(intakeBrief.includes(".context/intake/prd/product-brief.md") || intakeBrief.includes(".context/intake/prd/product-brief.md".replace(/^\.context\//, "")) || intakeBrief.includes(".context/intake") || intakeBrief.includes("product-brief.md"), "intake-brief.md did not reference the intake file");
+  assert(notifications.some(note => note.message.includes("Found 1 intake file")), "missing intake notification");
+  assert(notifications.some(note => note.message.includes("intake-brief.md refreshed")), "missing intake brief refresh notification");
   assert(notifications.some(note => note.message.startsWith("Seeded starter stories:")), "missing seeded story notification");
 
   return { cwd, storyFiles, notifications };
