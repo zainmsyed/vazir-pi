@@ -16,6 +16,13 @@ interface FileInfo {
   removed: number;
 }
 
+interface EditStreamEntry {
+  timestamp: string;
+  phase: "start" | "done";
+  toolName: "write" | "edit";
+  file: string;
+}
+
 interface CheckpointMeta {
   timestamp: string;
   prompt: string;
@@ -36,10 +43,14 @@ interface StoryFrontmatter {
 
 const JJ_CHECKPOINT_SCAN_LIMIT = 120;
 const JJ_CHECKPOINT_MAX_CHOICES = 12;
+const EDIT_STREAM_LIMIT = 48;
+const EDIT_WIDGET_LINE_LIMIT = 3;
 
 // ── State ──────────────────────────────────────────────────────────────
 
 const changedFiles = new Map<string, FileInfo>();
+const editStream: EditStreamEntry[] = [];
+const pendingEditCalls: Array<{ toolName: "write" | "edit"; file: string }> = [];
 let widgetTui: any = null;
 let lastUserPrompt = "";
 let useJJ = false;
@@ -63,6 +74,10 @@ function todayDate(): string {
 
 function nowISO(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function timeOfDay(iso: string): string {
+  return iso.slice(11, 19);
 }
 
 function storiesDir(cwd: string): string {
@@ -246,6 +261,38 @@ function appendToComplaintsLog(cwd: string, storyName: string, description: stri
   const entry = `${nowISO()} | ${storyName} | "${description}" | status: pending\n`;
   const existing = readIfExists(logPath);
   fs.writeFileSync(logPath, existing.trimEnd() + "\n" + entry);
+}
+
+function recordEditStreamEntry(phase: "start" | "done", toolName: "write" | "edit", file: string): void {
+  editStream.push({ timestamp: nowISO(), phase, toolName, file });
+  while (editStream.length > EDIT_STREAM_LIMIT) {
+    editStream.shift();
+  }
+}
+
+function toolPathFromInput(input: unknown): string {
+  const raw = input as { path?: string; filePath?: string } | undefined;
+  return raw?.path || raw?.filePath || "(unknown file)";
+}
+
+function claimPendingEditCall(toolName: "write" | "edit"): string {
+  const index = pendingEditCalls.findIndex(entry => entry.toolName === toolName);
+  if (index < 0) return "(unknown file)";
+
+  const [entry] = pendingEditCalls.splice(index, 1);
+  return entry.file;
+}
+
+function formatEditStreamEntry(entry: EditStreamEntry): string {
+  const phase = entry.phase === "start" ? "start" : "done ";
+  return `${timeOfDay(entry.timestamp)} ${phase} ${entry.toolName} ${entry.file}`;
+}
+
+function recentEditStreamLines(limit = EDIT_WIDGET_LINE_LIMIT): string[] {
+  return editStream
+    .slice(-limit)
+    .reverse()
+    .map(formatEditStreamEntry);
 }
 
 // ── JJ helpers ─────────────────────────────────────────────────────────
@@ -647,27 +694,34 @@ export default function (pi: ExtensionAPI) {
       widgetTui = tui;
       return {
         render(): string[] {
-          if (changedFiles.size === 0) return [];
+          if (changedFiles.size === 0 && editStream.length === 0) return [];
 
-          const parts: string[] = [];
-          for (const [, f] of changedFiles) {
-            let statusLabel: string;
-            switch (f.status) {
-              case "M": statusLabel = "M"; break;
-              case "A": statusLabel = "A"; break;
-              case "D": statusLabel = "D"; break;
-              default: statusLabel = "?"; break;
+          const lines: string[] = [];
+          if (changedFiles.size > 0) {
+            const parts: string[] = [];
+            for (const [, f] of changedFiles) {
+              let statusLabel: string;
+              switch (f.status) {
+                case "M": statusLabel = "M"; break;
+                case "A": statusLabel = "A"; break;
+                case "D": statusLabel = "D"; break;
+                default: statusLabel = "?"; break;
+              }
+              const added = theme.fg("success", `+${f.added}`);
+              const removed = theme.fg("error", `-${f.removed}`);
+              parts.push(`${statusLabel} ${f.file} ${added}/${removed}`);
             }
-            const added = theme.fg("success", `+${f.added}`);
-            const removed = theme.fg("error", `-${f.removed}`);
-            parts.push(`${statusLabel} ${f.file} ${added}/${removed}`);
+
+            const vcs = useJJ ? " · jj" : "";
+            lines.push((" " + parts.join("   ") + vcs + " · /diff · /fix · /reset").slice(0, 120));
           }
 
-          const vcs = useJJ ? " · jj" : "";
-          const hint = " · /diff · /fix · /reset";
-          const width = 120;
-          const line = (" " + parts.join("   ") + vcs + hint).slice(0, width);
-          return [line];
+          if (editStream.length > 0) {
+            lines.push(` edits · /edits · ${editStream.length} events`.slice(0, 120));
+            lines.push(...recentEditStreamLines());
+          }
+
+          return lines.slice(0, 1 + 1 + EDIT_WIDGET_LINE_LIMIT);
         },
         invalidate() {},
         dispose() { widgetTui = null; },
@@ -697,6 +751,14 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("tool_call", async (event: { toolName?: string; input?: { path?: string } }, ctx: { cwd: string }) => {
+    if (event.toolName === "write" || event.toolName === "edit") {
+      const toolName = event.toolName;
+      const file = toolPathFromInput(event.input);
+      pendingEditCalls.push({ toolName, file });
+      recordEditStreamEntry("start", toolName, file);
+      refreshWidget();
+    }
+
     if (useJJ) return;
     if (event.toolName === "write" || event.toolName === "edit") {
       const filePath = (event.input as any)?.path;
@@ -720,6 +782,11 @@ export default function (pi: ExtensionAPI) {
 
   // Sync widget after any file-writing tool
   pi.on("tool_result", async (event: { toolName?: string }, ctx: { cwd: string }) => {
+    if (event.toolName === "write" || event.toolName === "edit") {
+      const toolName = event.toolName;
+      recordEditStreamEntry("done", toolName, claimPendingEditCall(toolName));
+    }
+
     if (event.toolName === "write" || event.toolName === "edit" || event.toolName === "bash") {
       syncChanges(ctx.cwd);
       refreshWidget();
@@ -807,6 +874,43 @@ export default function (pi: ExtensionAPI) {
             else if (matchesKey(data, Key.down)) scrollOffset = Math.min(lines.length - 1, scrollOffset + 1);
             else if (matchesKey(data, Key.pageUp)) scrollOffset = Math.max(0, scrollOffset - 10);
             else if (matchesKey(data, Key.pageDown)) scrollOffset = Math.min(lines.length - 1, scrollOffset + 10);
+            else if (matchesKey(data, Key.escape)) { done(); return; }
+            tui.requestRender();
+          },
+        };
+      });
+    },
+  });
+
+  // ── /edits ───────────────────────────────────────────────────────────
+
+  pi.registerCommand("edits", {
+    description: "Show the recent file edit stream in an expandable terminal view",
+    handler: async (_args: string, ctx: { ui: any }) => {
+      if (editStream.length === 0) {
+        ctx.ui.notify("No file edit activity captured yet", "info");
+        return;
+      }
+
+      const lines = editStream.slice().reverse().map(formatEditStreamEntry);
+      let scrollOffset = 0;
+
+      await ctx.ui.custom((tui: { requestRender(): void }, _theme: unknown, _kb: unknown, done: () => void) => {
+        return {
+          render(width: number): string[] {
+            const visibleRows = Math.max(5, (process.stdout.rows || 24) - 8);
+            const header = ` Recent edits  ${editStream.length} events  ↑↓ scroll · esc close`;
+            const body = lines
+              .slice(scrollOffset, scrollOffset + visibleRows)
+              .map(line => line.slice(0, width));
+            return [header.slice(0, width), ...body];
+          },
+          invalidate() {},
+          handleInput(data: string) {
+            if (matchesKey(data, Key.up)) scrollOffset = Math.max(0, scrollOffset - 1);
+            else if (matchesKey(data, Key.down)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 1);
+            else if (matchesKey(data, Key.pageUp)) scrollOffset = Math.max(0, scrollOffset - 10);
+            else if (matchesKey(data, Key.pageDown)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 10);
             else if (matchesKey(data, Key.escape)) { done(); return; }
             tui.requestRender();
           },
