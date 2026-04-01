@@ -84,6 +84,10 @@ function storiesDir(cwd: string): string {
   return path.join(cwd, ".context", "stories");
 }
 
+function planPath(cwd: string): string {
+  return path.join(storiesDir(cwd), "plan.md");
+}
+
 function complaintsLogPath(cwd: string): string {
   return path.join(cwd, ".context", "complaints-log.md");
 }
@@ -138,6 +142,81 @@ function findActiveStory(cwd: string): StoryFrontmatter | null {
 
 function nonTerminalStories(cwd: string): StoryFrontmatter[] {
   return listStories(cwd).filter(story => story.status !== "complete" && story.status !== "retired");
+}
+
+function storyPickerLabel(story: StoryFrontmatter): string {
+  const fileName = path.basename(story.file);
+  const accessed = story.lastAccessed ? ` · ${story.lastAccessed}` : "";
+  return `${fileName} — ${story.status}${accessed}`;
+}
+
+function storyPickerChoices(cwd: string): Array<{ label: string; file: string; kind: "plan" | "story" }> {
+  const choices: Array<{ label: string; file: string; kind: "plan" | "story" }> = [];
+
+  if (fs.existsSync(planPath(cwd))) {
+    choices.push({
+      label: "plan.md — plan",
+      file: planPath(cwd),
+      kind: "plan",
+    });
+  }
+
+  for (const story of listStories(cwd).sort((a, b) => a.number - b.number)) {
+    choices.push({
+      label: storyPickerLabel(story),
+      file: story.file,
+      kind: "story",
+    });
+  }
+
+  return choices;
+}
+
+async function showScrollableText(
+  ctx: { ui: any },
+  title: string,
+  subtitle: string,
+  body: string,
+): Promise<void> {
+  const lines = body.split("\n");
+  let scrollOffset = 0;
+
+  await ctx.ui.custom((tui: { requestRender(): void }, _theme: unknown, _kb: unknown, done: () => void) => {
+    return {
+      render(width: number): string[] {
+        const visibleRows = Math.max(5, (process.stdout.rows || 24) - 8);
+        const header = ` ${title}  ${subtitle}  ↑↓ scroll · pgup/pgdn · esc close`;
+        const bodyLines = lines
+          .slice(scrollOffset, scrollOffset + visibleRows)
+          .map(line => line.slice(0, width));
+        return [header.slice(0, width), ...bodyLines];
+      },
+      invalidate() {},
+      handleInput(data: string) {
+        if (matchesKey(data, Key.up)) scrollOffset = Math.max(0, scrollOffset - 1);
+        else if (matchesKey(data, Key.down)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 1);
+        else if (matchesKey(data, Key.pageUp)) scrollOffset = Math.max(0, scrollOffset - 10);
+        else if (matchesKey(data, Key.pageDown)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 10);
+        else if (matchesKey(data, Key.escape)) { done(); return; }
+        tui.requestRender();
+      },
+    };
+  });
+}
+
+async function viewSelectedStoryOrPlan(
+  ctx: { cwd: string; ui: any },
+  selectedFile: string,
+  label: string,
+): Promise<void> {
+  const content = readIfExists(selectedFile).trimEnd();
+  if (!content) {
+    ctx.ui.notify(`No content found in ${label}`, "info");
+    return;
+  }
+
+  const title = path.basename(selectedFile);
+  await showScrollableText(ctx, title, label, content);
 }
 
 function updateStoryFrontmatter(
@@ -879,6 +958,28 @@ export default function (pi: ExtensionAPI) {
           },
         };
       });
+    },
+  });
+
+  // ── /story ───────────────────────────────────────────────────────────
+
+  pi.registerCommand("story", {
+    description: "Pick a story or plan file and open it in a scrollable terminal view",
+    handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
+      const choices = storyPickerChoices(ctx.cwd);
+      if (choices.length === 0) {
+        ctx.ui.notify("No plan or story files found yet. Run /plan first.", "info");
+        return;
+      }
+
+      const labels = choices.map(choice => choice.label);
+      const pick = await ctx.ui.select("Which plan or story do you want to view?", labels);
+      if (pick == null) return;
+
+      const selected = choices[labels.indexOf(pick)];
+      if (!selected) return;
+
+      await viewSelectedStoryOrPlan(ctx, selected.file, selected.label);
     },
   });
 
