@@ -15,7 +15,7 @@ A proof-of-concept demonstrating integration of Vazir features into the pi-codin
 Highlights
 ----------
 - Context injection extension: .pi/extensions/vazir-context.ts
-- Change tracker and diff/reject/reset helpers: .pi/extensions/vazir-tracker.ts
+- Change tracker, story picker, and diff/reset helpers: .pi/extensions/vazir-tracker.ts
 - Base skill definitions: .pi/skills/vazir-base/SKILL.md
 - Persistent project brain: .context/
 
@@ -73,7 +73,7 @@ Working rules
 -------------
 - Write directly to real project files (use provided tools)
 - Keep .context/ as the persistent project brain
-- Use /vazir-init, /diff, /reject, and /reset as core commands when interacting with the agent
+- Use /vazir-init, /plan, /story, /fix, and /reset as core commands when interacting with the agent
 - Avoid introducing routers or external APIs — pi handles agent connections
 
 Contributing

@@ -78,7 +78,7 @@ pi-coding-agent (base)
 
 ### Core Principle
 
-Every project starts with a planning conversation. The resulting plan lives in `.context/stories/` as markdown files the agent reads and updates. No UI required — the story files are the interface.
+Every project starts with a planning conversation. The resulting plan lives in `.context/stories/` as markdown files the agent reads and updates. The story files remain the source of truth, and `/story` opens the plan or any story in a scrollable terminal view when you want to inspect it.
 
 The agent works one story at a time by convention, not by hard constraint. The user can jump between stories freely — flow-state is non-negotiable. The story file structure ensures nothing gets lost when they do.
 
@@ -463,6 +463,7 @@ automatic: true
 |---|---|---|
 | `/vazir-init` | `vazir-context.ts` | Bootstrap `.context/`, generate `index.md`, draft `context-map.md`, set up JJ |
 | `/plan` | `vazir-context.ts` | Refresh `intake-brief.md`, review `.context/intake/`, ask delta questions, generate `plan.md` + all story files |
+| `/story` | `vazir-tracker.ts` | Pick the plan or a story file and open it in a scrollable terminal viewer |
 | `/fix [description]` | `vazir-tracker.ts` | Warn re: secrets, log issue to active story + `complaints-log.md`, attempt fix, track status |
 | `/unlearn [rule]` | `vazir-context.ts` | Show numbered list of promoted rules, remove selected rule from `system.md` |
 | `/consolidate` | `vazir-context.ts` | Preview + apply rule consolidation, cluster `complaints-log.md`, promote threshold hits |
