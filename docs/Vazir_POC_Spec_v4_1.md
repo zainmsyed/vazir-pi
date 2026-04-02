@@ -43,7 +43,7 @@ After 30 days of real use on real projects:
 ```
 pi-coding-agent (base)
     ├── .pi/extensions/
-    │   ├── vazir-context.ts   # Context injection + compaction consolidation + /vazir-init + /plan
+      │   ├── vazir-context.ts   # Context injection + compaction consolidation + /vazir-init + /plan + /remember + /review
     │   └── vazir-tracker.ts   # Change tracker widget + JJ/git checkpoints + /diff + /fix + /reset
     │
     ├── .pi/skills/
@@ -66,7 +66,8 @@ pi-coding-agent (base)
         │   ├── story-001.md         # One file per story — checklist + issues + completion
         │   ├── story-002.md
         │   └── ...
-        ├── complaints-log.md        # Persistent cross-session issue log — never injected
+      ├── reviews/                 # Detailed review files + remembered rules log + running summary
+      ├── complaints-log.md        # Persistent cross-session issue log — never injected
         ├── checkpoints/             # Git fallback only
         └── settings/
             └── project.json         # model_tier, project_name
@@ -465,6 +466,8 @@ automatic: true
 | `/plan` | `vazir-context.ts` | Refresh `intake-brief.md`, review `.context/intake/`, ask delta questions, generate `plan.md` + all story files |
 | `/story` | `vazir-tracker.ts` | Pick the plan or a story file and open it in a scrollable terminal viewer |
 | `/fix [description]` | `vazir-tracker.ts` | Warn re: secrets, log issue to active story + `complaints-log.md`, attempt fix, track status |
+| `/remember [rule]` | `vazir-context.ts` | Promote a confirmed reusable lesson into `system.md` immediately and record it in the running review summary; if no rule is provided, draft one from recent fix context |
+| `/review [focus]` | `vazir-context.ts` | Create a detailed review markdown file and sync recurring rule candidates into summary memory |
 | `/unlearn [rule]` | `vazir-context.ts` | Show numbered list of promoted rules, remove selected rule from `system.md` |
 | `/consolidate` | `vazir-context.ts` | Preview + apply rule consolidation, cluster `complaints-log.md`, promote threshold hits |
 | `/diff` | `vazir-tracker.ts` | Show JJ or git diff for current changes |
