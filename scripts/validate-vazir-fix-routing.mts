@@ -6,6 +6,28 @@ import { pathToFileURL } from "node:url";
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
+const repoRoot = "/home/zain/Documents/coding/vazir-pi";
+
+function ensureStubModule(moduleName: string, content: string): string {
+  const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
+  fs.mkdirSync(moduleDir, { recursive: true });
+  fs.writeFileSync(path.join(moduleDir, "index.js"), content);
+  return moduleDir;
+}
+
+ensureStubModule("@mariozechner/pi-tui", [
+  "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape' };",
+  "exports.matchesKey = (data, key) => data === key;",
+  "exports.Container = class {};",
+  "exports.Text = class {};",
+  "",
+].join("\n"));
+
+ensureStubModule("@mariozechner/pi-coding-agent", [
+  "exports.DynamicBorder = class {};",
+  "",
+].join("\n"));
+
 const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-tracker.ts";
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;

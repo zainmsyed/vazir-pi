@@ -16,6 +16,7 @@ Highlights
 ----------
 - Context injection extension: .pi/extensions/vazir-context.ts
 - Change tracker, story picker, and diff/reset helpers: .pi/extensions/vazir-tracker.ts
+- Review loop: per-review markdown files plus a running summary in .context/reviews/
 - Base skill definitions: .pi/skills/vazir-base/SKILL.md
 - Persistent project brain: .context/
 
@@ -73,7 +74,7 @@ Working rules
 -------------
 - Write directly to real project files (use provided tools)
 - Keep .context/ as the persistent project brain
-- Use /vazir-init, /plan, /story, /fix, and /reset as core commands when interacting with the agent
+- Use /vazir-init, /plan, /story, /fix, /remember, /review, and /reset as core commands when interacting with the agent; `/remember` can draft the rule from recent fix context if you do not pass one
 - Avoid introducing routers or external APIs — pi handles agent connections
 
 Contributing

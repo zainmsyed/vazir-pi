@@ -30,6 +30,10 @@ disable-model-invocation: false
 - After attempting a fix, state explicitly what you can and cannot verify. If you cannot verify mechanically, leave status as `pending` and ask the user to confirm.
 - Never claim a fix is working if you cannot verify it. "Should be working now" is not acceptable — declare your uncertainty explicitly.
 
+## Learning workflow
+- Use `/remember` only for confirmed, reusable lessons that should persist as memory. If the user runs `/remember` with no text, draft one concise rule from the recent fix context instead of asking them to write it manually.
+- Use `/review` to capture review findings in `.context/reviews/` and let repeated rule candidates promote into `.context/memory/system.md`.
+
 ## Verification honesty
 - Before claiming any task complete, state: what you verified mechanically, and what requires user confirmation.
 - For UI and browser behaviour: always defer to user confirmation. You cannot see the UI.

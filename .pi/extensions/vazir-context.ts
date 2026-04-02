@@ -106,6 +106,7 @@ const JJ_DOCS_URL = "https://www.jj-vcs.dev/latest/install-and-setup/";
 const JJ_OVERVIEW_URL = "https://www.jj-vcs.dev/latest/";
 const MAX_INTAKE_PREVIEW_BYTES = 4000;
 const MAX_INTAKE_PREVIEW_LINES = 12;
+const REVIEW_PROMOTION_THRESHOLD = 2;
 
 let lastUserPrompt = "";
 let useJJ = false;
@@ -161,6 +162,18 @@ function complaintsLogPath(cwd: string) {
   return path.join(cwd, ".context", "complaints-log.md");
 }
 
+function reviewsDir(cwd: string) {
+  return path.join(cwd, ".context", "reviews");
+}
+
+function reviewSummaryPath(cwd: string) {
+  return path.join(reviewsDir(cwd), "summary.md");
+}
+
+function rememberedRulesPath(cwd: string) {
+  return path.join(reviewsDir(cwd), "remembered.md");
+}
+
 function indexPath(cwd: string) {
   return path.join(memoryDir(cwd), "index.md");
 }
@@ -201,6 +214,23 @@ const INTAKE_README_TEMPLATE = [
   "",
 ].join("\n");
 
+const REVIEW_SUMMARY_TEMPLATE = [
+  "# Review Summary",
+  "",
+  "**Last updated:** —",
+  "",
+  "## Findings",
+  "- None yet",
+  "",
+].join("\n");
+
+const REMEMBERED_RULES_TEMPLATE = [
+  "# Remembered Rules",
+  "",
+  "Manual rules captured via /remember.",
+  "",
+].join("\n");
+
 // ── Generic helpers ────────────────────────────────────────────────────
 
 function readIfExists(filePath: string): string {
@@ -215,6 +245,16 @@ function ensureIntakeStructure(cwd: string): void {
   ensureDir(intakeDir(cwd));
   for (const segment of ["prd", "dictionaries", "references", "uploads"]) {
     ensureDir(path.join(intakeDir(cwd), segment));
+  }
+}
+
+function ensureReviewStructure(cwd: string): void {
+  ensureDir(reviewsDir(cwd));
+  if (!fs.existsSync(reviewSummaryPath(cwd))) {
+    fs.writeFileSync(reviewSummaryPath(cwd), REVIEW_SUMMARY_TEMPLATE);
+  }
+  if (!fs.existsSync(rememberedRulesPath(cwd))) {
+    fs.writeFileSync(rememberedRulesPath(cwd), REMEMBERED_RULES_TEMPLATE);
   }
 }
 
@@ -235,6 +275,10 @@ function todayDate(): string {
 
 function nowISO(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function compactTimestamp(iso: string): string {
+  return iso.replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
 }
 
 function detectJJ(cwd: string): boolean {
@@ -979,6 +1023,11 @@ function dedupeLearnedRules(systemMd: string): string {
   const learnedLines = learnedRuleLinesFromMd(systemMd);
   if (learnedLines.length === 0) return systemMd;
   const uniqueLines = [...new Set(learnedLines)];
+  return replaceLearnedRules(systemMd, uniqueLines);
+}
+
+function replaceLearnedRules(systemMd: string, rules: string[]): string {
+  const uniqueLines = [...new Set(rules.map(rule => rule.trim()).filter(Boolean))];
   const replacement = ["## Learned Rules", ...uniqueLines.map(r => `- ${r}`)];
 
   const lines = systemMd.split("\n");
@@ -1001,6 +1050,185 @@ function dedupeLearnedRules(systemMd: string): string {
   ];
 
   return nextLines.join("\n").replace(/\n+$/, "\n");
+}
+
+function normalizeRuleCandidate(rule: string): string {
+  return rule.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function appendLearnedRules(cwd: string, rules: string[]): string[] {
+  const systemMdPath = systemPath(cwd);
+  if (!fs.existsSync(systemMdPath) || rules.length === 0) return [];
+
+  const systemMd = readIfExists(systemMdPath);
+  const existing = learnedRuleLinesFromMd(systemMd);
+  const existingKeys = new Set(existing.map(normalizeRuleCandidate));
+  const additions: string[] = [];
+
+  for (const rule of rules) {
+    const trimmed = rule.trim();
+    if (!trimmed) continue;
+    const key = normalizeRuleCandidate(trimmed);
+    if (existingKeys.has(key)) continue;
+    existingKeys.add(key);
+    additions.push(trimmed);
+  }
+
+  if (additions.length === 0) return [];
+
+  fs.writeFileSync(systemMdPath, replaceLearnedRules(systemMd, [...existing, ...additions]));
+  return additions;
+}
+
+interface ReviewAggregate {
+  text: string;
+  count: number;
+  sources: string[];
+}
+
+function reviewDetailFiles(cwd: string): string[] {
+  const dir = reviewsDir(cwd);
+  if (!fs.existsSync(dir)) return [];
+
+  return fs.readdirSync(dir)
+    .filter((name: string) => name.endsWith(".md") && name !== "summary.md" && name !== "remembered.md")
+    .map((name: string) => path.join(dir, name))
+    .sort((a: string, b: string) => a.localeCompare(b));
+}
+
+function ruleCandidatesFromMarkdown(content: string): string[] {
+  return content
+    .split("\n")
+    .map(line => line.match(/^\- Rule candidate:\s*(.+)$/)?.[1]?.trim() ?? "")
+    .filter(line => line && line !== "—");
+}
+
+function collectReviewAggregates(cwd: string): ReviewAggregate[] {
+  const aggregates = new Map<string, ReviewAggregate>();
+  const sources = [...reviewDetailFiles(cwd), rememberedRulesPath(cwd)].filter(filePath => fs.existsSync(filePath));
+
+  for (const filePath of sources) {
+    const sourceName = path.basename(filePath);
+    for (const candidate of ruleCandidatesFromMarkdown(readIfExists(filePath))) {
+      const key = normalizeRuleCandidate(candidate);
+      const existing = aggregates.get(key);
+      if (existing) {
+        existing.count += 1;
+        if (!existing.sources.includes(sourceName)) existing.sources.push(sourceName);
+        continue;
+      }
+
+      aggregates.set(key, {
+        text: candidate,
+        count: 1,
+        sources: [sourceName],
+      });
+    }
+  }
+
+  return [...aggregates.values()].sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    return left.text.localeCompare(right.text);
+  });
+}
+
+function writeReviewSummary(cwd: string, aggregates: ReviewAggregate[]): void {
+  const lines = [
+    "# Review Summary",
+    "",
+    `**Last updated:** ${nowISO()}`,
+    "",
+    "## Findings",
+  ];
+
+  if (aggregates.length === 0) {
+    lines.push("- None yet", "");
+    fs.writeFileSync(reviewSummaryPath(cwd), lines.join("\n"));
+    return;
+  }
+
+  for (const aggregate of aggregates) {
+    const status = shouldPromoteReviewAggregate(aggregate) ? "promoted" : "tracked";
+    lines.push(`- ${aggregate.text} | count: ${aggregate.count} | status: ${status} | sources: ${aggregate.sources.join(", ")}`);
+  }
+
+  lines.push("");
+  fs.writeFileSync(reviewSummaryPath(cwd), lines.join("\n"));
+}
+
+function shouldPromoteReviewAggregate(aggregate: ReviewAggregate): boolean {
+  return aggregate.sources.includes("remembered.md") || aggregate.count >= REVIEW_PROMOTION_THRESHOLD;
+}
+
+function syncReviewSummaryAndPromoteRules(cwd: string): string[] {
+  ensureReviewStructure(cwd);
+  const aggregates = collectReviewAggregates(cwd);
+  writeReviewSummary(cwd, aggregates);
+  const promoted = aggregates
+    .filter(shouldPromoteReviewAggregate)
+    .map(aggregate => aggregate.text);
+  const additions = appendLearnedRules(cwd, promoted);
+  applyLocalRuleDedupe(cwd);
+  return additions;
+}
+
+function clearLegacyPendingLearnings(cwd: string): void {
+  const pendingPath = path.join(cwd, ".context", "learnings", "pending.md");
+  if (!fs.existsSync(pendingPath)) return;
+  fs.writeFileSync(pendingPath, "");
+}
+
+function rememberEntry(rule: string): string {
+  return [
+    "---",
+    `**Recorded:** ${nowISO()}  `,
+    `- Rule candidate: ${rule}`,
+    "",
+  ].join("\n");
+}
+
+function activeStoryLabelForReview(cwd: string): string {
+  const active = findActiveStory(cwd);
+  return active ? path.basename(active.file, ".md") : "—";
+}
+
+function buildRememberInstruction(cwd: string): string {
+  const activeStory = activeStoryLabelForReview(cwd);
+  return [
+    "Write one short reusable lesson to .context/reviews/remembered.md based on the recent fix and current story context.",
+    "",
+    "Requirements:",
+    "1. Distill the lesson into one concise rule, not a verbatim complaint or bug report.",
+    "2. Prefer a reusable pattern such as 'When X, also do Y'.",
+    "3. Append exactly one entry using the existing remembered.md format with `- Rule candidate: ...`.",
+    "4. Avoid duplicates if the same rule already exists in .context/reviews/remembered.md or .context/memory/system.md.",
+    "5. Use the active story, recent fix context, and existing remembered rules to choose the best wording.",
+    activeStory !== "—" ? `6. Active story: ${activeStory}.` : "6. No active story is available; rely on the recent fix context from the conversation.",
+  ].join("\n");
+}
+
+function reviewFileTemplate(cwd: string, focus: string): string {
+  const created = nowISO();
+  return [
+    `# Code Review ${created}`,
+    "",
+    `**Created:** ${created}  `,
+    `**Story:** ${activeStoryLabelForReview(cwd)}  `,
+    `**Focus:** ${focus}`,
+    "",
+    "## Findings",
+    "### Finding 1",
+    "- Severity: medium",
+    "- Category: bug",
+    "- Summary: ",
+    "- Evidence: ",
+    "- Recommendation: ",
+    "- Rule candidate: —",
+    "",
+    "## Reviewer Notes",
+    "- Keep findings focused on bugs, regressions, missing tests, scope drift, or workflow violations.",
+    "",
+  ].join("\n");
 }
 
 // ── Consolidation helpers ──────────────────────────────────────────────
@@ -1041,11 +1269,12 @@ function buildConsolidationInstruction(cwd: string): string {
     "",
     "Tasks:",
     "1. Read .context/complaints-log.md and cluster similar complaints.",
-    "2. Update .context/memory/system.md ## Learned Rules with concise promoted rules for complaint clusters that hit threshold, and promote any reopened issue directly.",
-    "3. Merge duplicate or overlapping learned rules. Keep the ## Rules section intact.",
-    undescribed.length > 0 ? "4. Replace every `(undescribed)` entry in .context/memory/index.md with a concise useful description." : "4. Leave .context/memory/index.md unchanged unless a description is clearly wrong.",
-    malformed.length > 0 ? "5. Repair malformed story files so they include the required frontmatter lines and all required template sections." : "5. Leave story files unchanged unless you discover a malformed one while consolidating.",
-    "6. Preserve existing user-authored content unless it is clearly placeholder text or malformed structure.",
+    "2. Read .context/reviews/summary.md and any detailed code review files only if the summary needs clarification.",
+    "3. Update .context/memory/system.md ## Learned Rules with concise promoted rules for complaint clusters that hit threshold, and promote any reopened issue directly.",
+    "4. Merge duplicate or overlapping learned rules. Keep the ## Rules section intact.",
+    undescribed.length > 0 ? "5. Replace every `(undescribed)` entry in .context/memory/index.md with a concise useful description." : "5. Leave .context/memory/index.md unchanged unless a description is clearly wrong.",
+    malformed.length > 0 ? "6. Repair malformed story files so they include the required frontmatter lines and all required template sections." : "6. Leave story files unchanged unless you discover a malformed one while consolidating.",
+    "7. Preserve existing user-authored content unless it is clearly placeholder text or malformed structure.",
     "",
     malformed.length > 0 ? `Malformed stories detected: ${malformed.map(filePath => path.basename(filePath)).join(", ")}` : "Malformed stories detected: none",
     undescribed.length > 0 ? `Undescribed index entries: ${undescribed.join(", ")}` : "Undescribed index entries: none",
@@ -1116,10 +1345,14 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_before_compact", async (_event: any, ctx: any) => {
+    syncReviewSummaryAndPromoteRules(ctx.cwd);
+    clearLegacyPendingLearnings(ctx.cwd);
     applyLocalRuleDedupe(ctx.cwd);
   });
 
   pi.on("session_shutdown", async (_event: any, ctx: any) => {
+    syncReviewSummaryAndPromoteRules(ctx.cwd);
+    clearLegacyPendingLearnings(ctx.cwd);
     applyLocalRuleDedupe(ctx.cwd);
   });
 
@@ -1127,6 +1360,13 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_end", async (_event: any, ctx: any) => {
     const cwd = ctx.cwd;
+    const promotedReviewRules = syncReviewSummaryAndPromoteRules(cwd);
+    if (promotedReviewRules.length > 0) {
+      ctx.ui.notify(
+        `Promoted review rule${promotedReviewRules.length === 1 ? "" : "s"} to system.md: ${promotedReviewRules.join(", ")}`,
+        "info",
+      );
+    }
     const revertedStories = enforceUserOnlyStoryStatuses(cwd);
     if (revertedStories.length > 0) {
       ctx.ui.notify(
@@ -1183,6 +1423,7 @@ export default function (pi: ExtensionAPI) {
       ensureDir(storiesDir(cwd));
       ensureDir(settingsDir(cwd));
       ensureIntakeStructure(cwd);
+      ensureReviewStructure(cwd);
       ensureDir(path.join(cwd, ".context", "checkpoints"));
 
       if (!fs.existsSync(intakeReadmePath(cwd))) {
@@ -1199,6 +1440,16 @@ export default function (pi: ExtensionAPI) {
       if (!fs.existsSync(complaintsLogPath(cwd))) {
         fs.writeFileSync(complaintsLogPath(cwd), "# Complaints Log\n\n");
         ctx.ui.notify("complaints-log.md created", "info");
+      }
+
+      if (!fs.existsSync(reviewSummaryPath(cwd))) {
+        fs.writeFileSync(reviewSummaryPath(cwd), REVIEW_SUMMARY_TEMPLATE);
+        ctx.ui.notify("review summary created", "info");
+      }
+
+      if (!fs.existsSync(rememberedRulesPath(cwd))) {
+        fs.writeFileSync(rememberedRulesPath(cwd), REMEMBERED_RULES_TEMPLATE);
+        ctx.ui.notify("remembered rules log created", "info");
       }
 
       const projectSettingsPath = path.join(settingsDir(cwd), "project.json");
@@ -1319,6 +1570,7 @@ export default function (pi: ExtensionAPI) {
         { label: ".context/memory/context-map.md", present: fs.existsSync(contextMapPath(cwd)) },
         { label: ".context/stories/", present: fs.existsSync(storiesDir(cwd)) },
         { label: ".context/intake/", present: fs.existsSync(intakeDir(cwd)) },
+        { label: ".context/reviews/", present: fs.existsSync(reviewsDir(cwd)) },
         { label: ".context/complaints-log.md", present: fs.existsSync(complaintsLogPath(cwd)) },
         { label: "AGENTS.md", present: fs.existsSync(agentsPath) },
         { label: ".context/settings/project.json", present: fs.existsSync(projectSettingsPath) },
@@ -1442,6 +1694,60 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ── /unlearn ─────────────────────────────────────────────────────────
+
+  pi.registerCommand("remember", {
+    description: "Promote a confirmed lesson into memory; if no rule is provided, draft one from the recent fix context",
+    handler: async (args: string, ctx: any) => {
+      const cwd = ctx.cwd;
+      ensureReviewStructure(cwd);
+
+      const rule = args.trim();
+      if (!rule) {
+        ctx.ui.notify("Drafting a remembered rule from the recent fix context", "info");
+        await pi.sendUserMessage(buildRememberInstruction(cwd), { deliverAs: "followUp" });
+        return;
+      }
+
+      const rememberLog = readIfExists(rememberedRulesPath(cwd));
+      fs.writeFileSync(rememberedRulesPath(cwd), `${rememberLog.trimEnd()}\n${rememberEntry(rule)}`.trimStart());
+      appendLearnedRules(cwd, [rule]);
+      syncReviewSummaryAndPromoteRules(cwd);
+      ctx.ui.notify(`Remembered: ${rule}`, "info");
+    },
+  });
+
+  // ── /review ─────────────────────────────────────────────────────────
+
+  pi.registerCommand("review", {
+    description: "Create a detailed code review file and sync recurring findings into summary memory",
+    handler: async (args: string, ctx: any) => {
+      const cwd = ctx.cwd;
+      ensureReviewStructure(cwd);
+
+      const created = nowISO();
+      const focus = args.trim() || `active story ${activeStoryLabelForReview(cwd)} and recent changes`;
+      const reviewFileName = `review-${compactTimestamp(created)}.md`;
+      const reviewFilePath = path.join(reviewsDir(cwd), reviewFileName);
+      fs.writeFileSync(reviewFilePath, reviewFileTemplate(cwd, focus));
+
+      syncReviewSummaryAndPromoteRules(cwd);
+      ctx.ui.notify(`Created ${reviewFileName} in .context/reviews/`, "info");
+
+      const instruction = [
+        `Run a code review and write the findings to .context/reviews/${reviewFileName}.`,
+        "",
+        "Requirements:",
+        "1. Focus on bugs, regressions, missing tests, scope drift, and workflow violations.",
+        "2. Keep findings primary. If there are no findings, replace the placeholder finding with a short 'No findings' note.",
+        "3. For every finding, fill in Severity, Category, Summary, Evidence, Recommendation, and Rule candidate.",
+        "4. Use `- Rule candidate: —` when a finding should not become a reusable rule.",
+        "5. Do not update .context/reviews/summary.md manually unless you need to add a short note outside the generated sync format — Vazir rebuilds it automatically.",
+        `6. Review focus: ${focus}.`,
+      ].join("\n");
+
+      await pi.sendUserMessage(instruction, { deliverAs: "followUp" });
+    },
+  });
 
   pi.registerCommand("unlearn", {
     description: "Remove a promoted rule from system.md",
