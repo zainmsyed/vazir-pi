@@ -37,8 +37,17 @@ interface JjCheckpointLabelStore {
 interface StoryFrontmatter {
   status: string;
   lastAccessed: string;
+  completed: string;
   file: string;
   number: number;
+}
+
+interface StoryProgressSummary {
+  story: StoryFrontmatter;
+  slug: string;
+  checklistDone: number;
+  checklistTotal: number;
+  openIssues: number;
 }
 
 interface FooterSessionSnapshot {
@@ -57,6 +66,25 @@ const JJ_CHECKPOINT_MAX_CHOICES = 12;
 const EDIT_STREAM_LIMIT = 48;
 const EDIT_WIDGET_LINE_LIMIT = 3;
 const WORKING_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
+const VAZIR_COLORS = {
+  accent: "38;2;167;139;250",
+  branch: "38;2;137;180;250",
+  dim: "38;2;108;112;134",
+  text: "38;2;205;214;244",
+  success: "38;2;166;227;161",
+  error: "38;2;243;139;168",
+  warning: "38;2;249;226;175",
+  working: "38;2;137;220;235",
+  separator: "38;2;58;58;80",
+} as const;
+
+type VazirTone = keyof typeof VAZIR_COLORS;
+
+interface TokenSummary {
+  input: number | null;
+  output: number | null;
+}
 
 // ── State ──────────────────────────────────────────────────────────────
 
@@ -65,6 +93,7 @@ const editStream: EditStreamEntry[] = [];
 const pendingEditCalls: Array<{ toolName: "write" | "edit"; file: string }> = [];
 let trackerWidgetTui: any = null;
 let bannerWidgetTui: any = null;
+let statusWidgetTui: any = null;
 let footerWidgetTui: any = null;
 let lastUserPrompt = "";
 let useJJ = false;
@@ -74,6 +103,7 @@ let currentWorkingMessage = "";
 let workingMessageTicker: ReturnType<typeof setInterval> | null = null;
 let footerRefreshTicker: ReturnType<typeof setInterval> | null = null;
 let currentFooterSnapshot: FooterSessionSnapshot | null = null;
+let liveThinkingLevelGetter: (() => string) | null = null;
 
 // ── Generic helpers ────────────────────────────────────────────────────
 
@@ -113,6 +143,130 @@ function formatSpend(entries: Array<{ type: string; message?: { role?: string; u
   return `$${total.toFixed(3)}`;
 }
 
+function safeSessionEntries(snapshot: FooterSessionSnapshot): Array<{ type: string; message?: { role?: string; usage?: { cost?: { total?: number } } } }> {
+  try {
+    return snapshot.sessionManager.getEntries?.() ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function paint(text: string, tone: VazirTone, bold = false): string {
+  if (!text) return "";
+  return `\x1b[${bold ? "1;" : ""}${VAZIR_COLORS[tone]}m${text}\x1b[0m`;
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_PATTERN, "");
+}
+
+function visibleLength(text: string): number {
+  return stripAnsi(text).length;
+}
+
+function alignFooterLine(left: string, right: string, width: number): string {
+  const safeWidth = Math.max(1, width || 1);
+  const leftLength = visibleLength(left);
+  const rightLength = visibleLength(right);
+  if (!right) return left;
+  if (leftLength + 1 + rightLength >= safeWidth) {
+    return `${left}${paint(" · ", "separator")}${right}`;
+  }
+  return `${left}${" ".repeat(safeWidth - leftLength - rightLength)}${right}`;
+}
+
+function formatRelativeAge(timestampMs: number): string {
+  const elapsedMs = Math.max(0, Date.now() - timestampMs);
+  const seconds = Math.floor(elapsedMs / 1000);
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function safeMtimeMs(filePath: string): number | null {
+  try {
+    return (fs as unknown as { statSync(path: string): { mtimeMs: number } }).statSync(filePath).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+function shortModelLabel(snapshot: FooterSessionSnapshot): string {
+  const modelLabel = latestModelLabel(snapshot);
+  const parts = modelLabel.split("/");
+  return parts[parts.length - 1] || modelLabel;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function firstNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    const numeric = numberValue(value);
+    if (numeric !== null) return numeric;
+  }
+  return null;
+}
+
+function usageTokenSummary(usage: unknown): TokenSummary {
+  const raw = objectValue(usage);
+  const tokens = objectValue(raw.tokens);
+  const input = firstNumber(
+    raw.input_tokens,
+    raw.inputTokens,
+    raw.prompt_tokens,
+    raw.promptTokens,
+    tokens.input,
+    tokens.prompt,
+  );
+  const output = firstNumber(
+    raw.output_tokens,
+    raw.outputTokens,
+    raw.completion_tokens,
+    raw.completionTokens,
+    raw.generated_tokens,
+    tokens.output,
+    tokens.completion,
+  );
+
+  return { input, output };
+}
+
+function sessionTokenSummary(snapshot: FooterSessionSnapshot): TokenSummary {
+  let inputTotal = 0;
+  let outputTotal = 0;
+  let sawInput = false;
+  let sawOutput = false;
+
+  for (const entry of safeSessionEntries(snapshot)) {
+    if (entry.type !== "message" || entry.message?.role !== "assistant") continue;
+    const usage = usageTokenSummary((entry.message as { usage?: unknown }).usage);
+    if (usage.input !== null) {
+      inputTotal += usage.input;
+      sawInput = true;
+    }
+    if (usage.output !== null) {
+      outputTotal += usage.output;
+      sawOutput = true;
+    }
+  }
+
+  return {
+    input: sawInput ? inputTotal : null,
+    output: sawOutput ? outputTotal : null,
+  };
+}
+
 function sessionBranchEntries(snapshot: FooterSessionSnapshot): Array<{ type: string; provider?: string; modelId?: string; thinkingLevel?: string; message?: { role?: string; usage?: { cost?: { total?: number } } } }> {
   try {
     return snapshot.sessionManager.getBranch();
@@ -139,6 +293,11 @@ function latestModelLabel(snapshot: FooterSessionSnapshot): string {
 }
 
 function latestThinkingLevel(snapshot: FooterSessionSnapshot): string {
+  const liveThinkingLevel = liveThinkingLevelGetter?.();
+  if (liveThinkingLevel) {
+    return liveThinkingLevel;
+  }
+
   const branchEntries = sessionBranchEntries(snapshot);
   for (let index = branchEntries.length - 1; index >= 0; index--) {
     const entry = branchEntries[index];
@@ -174,6 +333,7 @@ function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null {
 
   const statusMatch = content.match(/^\*\*Status:\*\*\s*(.+)$/m);
   const lastAccessedMatch = content.match(/^\*\*Last accessed:\*\*\s*(.+)$/m);
+  const completedMatch = content.match(/^\*\*Completed:\*\*\s*(.+)$/m);
   const fileName = path.basename(filePath);
   const numberMatch = fileName.match(/story-(\d+)\.md$/);
 
@@ -182,6 +342,7 @@ function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null {
   return {
     status: statusMatch[1].trim(),
     lastAccessed: lastAccessedMatch?.[1]?.trim() ?? "",
+    completed: completedMatch?.[1]?.trim() ?? "—",
     file: filePath,
     number: parseInt(numberMatch[1], 10),
   };
@@ -244,6 +405,81 @@ function storyPickerChoices(cwd: string): Array<{ label: string; file: string; k
   }
 
   return choices;
+}
+
+function markdownSection(content: string, heading: string): string {
+  const lines = content.split("\n");
+  const headingIndex = lines.findIndex(line => line.trim() === heading);
+  if (headingIndex < 0) return "";
+
+  const sectionLines: string[] = [];
+  for (let index = headingIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^##\s+/.test(line)) break;
+    if (/^---\s*$/.test(line) && sectionLines.length > 0) break;
+    sectionLines.push(line);
+  }
+
+  return sectionLines.join("\n").trim();
+}
+
+function checklistProgress(content: string): { done: number; total: number } {
+  const checklist = markdownSection(content, "## Checklist");
+  const items = checklist
+    .split("\n")
+    .map(line => line.trim())
+    .filter(line => /^- \[[ xX]\]\s+/.test(line));
+
+  return {
+    done: items.filter(line => /^- \[[xX]\]\s+/.test(line)).length,
+    total: items.length,
+  };
+}
+
+function countOpenIssues(content: string): number {
+  const issues = markdownSection(content, "## Issues");
+  return (issues.match(/^- \*\*Status:\*\*\s*(pending|reopened)\b/gim) || []).length;
+}
+
+function storyProgressSummary(cwd: string): StoryProgressSummary | null {
+  const story = findActiveStory(cwd) ?? nonTerminalStories(cwd).sort((a, b) => a.number - b.number)[0] ?? null;
+  if (!story) return null;
+
+  const content = readIfExists(story.file);
+  const checklist = checklistProgress(content);
+
+  return {
+    story,
+    slug: path.basename(story.file, ".md"),
+    checklistDone: checklist.done,
+    checklistTotal: checklist.total,
+    openIssues: countOpenIssues(content),
+  };
+}
+
+function progressBar(done: number, total: number, width = 10): string {
+  if (width <= 0) return "";
+  if (total <= 0) return `▐${"░".repeat(width)}▌`;
+
+  const filled = Math.max(0, Math.min(width, Math.round((done / total) * width)));
+  return `▐${"█".repeat(filled)}${"░".repeat(width - filled)}▌`;
+}
+
+function issueCountLabel(count: number): string {
+  return `${count} issue${count === 1 ? "" : "s"}`;
+}
+
+function storyStatusTone(status: string): VazirTone {
+  switch (status) {
+    case "in-progress":
+      return "warning";
+    case "complete":
+      return "success";
+    case "retired":
+      return "error";
+    default:
+      return "dim";
+  }
 }
 
 async function showScrollableText(
@@ -520,8 +756,7 @@ function vazirAsciiArt(width: number): string[] {
 function sessionBannerLines(cwd: string, width: number): string[] {
   const safeWidth = Math.max(28, width || 28);
   const project = path.basename(cwd);
-  const activeStory = findActiveStory(cwd);
-  const storyLabel = activeStory ? path.basename(activeStory.file, ".md") : "no active story";
+  const storyLabel = storyProgressSummary(cwd)?.slug ?? "no active story";
   const meta = `project · ${project}   story · ${storyLabel}   branch · ${branchLabel(cwd)}`;
 
   return [
@@ -556,24 +791,159 @@ function ensureSessionBannerMounted(ui: any, cwd: string): void {
   }
 }
 
-function sessionFooterLine(
-  snapshot: FooterSessionSnapshot,
-  theme: { fg: (label: string, text: string) => string },
-  footerData: { getGitBranch(): string | null | undefined },
-): string {
-  const cwd = snapshot.cwd;
-  const project = path.basename(cwd);
-  const activeStory = findActiveStory(cwd);
-  const storyLabel = activeStory ? path.basename(activeStory.file, ".md") : "no active story";
-  const branch = footerData.getGitBranch() ?? branchLabel(cwd);
-  const separator = theme.fg("dim", " • ");
-  const label = (text: string) => theme.fg("dim", text);
+function blankHeaderComponent() {
+  return () => ({
+    render(): string[] {
+      return [];
+    },
+    invalidate() {},
+  });
+}
+
+function separatorDot(): string {
+  return paint(" · ", "separator");
+}
+
+function storyProgressTone(summary: StoryProgressSummary): VazirTone {
+  return summary.checklistTotal > 0 && summary.checklistDone >= summary.checklistTotal ? "success" : "accent";
+}
+
+function storySavedLabel(summary: StoryProgressSummary): string | null {
+  const modifiedAt = safeMtimeMs(summary.story.file);
+  if (modifiedAt === null) return null;
+  return `last saved ${formatRelativeAge(modifiedAt)}`;
+}
+
+function footerIssueSegment(summary: StoryProgressSummary | null): string {
+  if (!summary) return "";
+  if (summary.openIssues > 0) {
+    return paint(`⚠ ${issueCountLabel(summary.openIssues)}`, "error");
+  }
+  return paint("✓ clean", "success");
+}
+
+function footerContextSegment(snapshot: FooterSessionSnapshot): string {
+  const contextUsage = snapshot.getContextUsage();
+  if (!contextUsage) return "";
+  const percent = contextUsage.percent === null ? "?" : `${contextUsage.percent.toFixed(1)}%`;
+  return paint(`${percent}/${formatTokens(contextUsage.contextWindow)}`, "dim");
+}
+
+function footerTokenOrWorkSegment(snapshot: FooterSessionSnapshot): string {
+  if (activeToolCalls > 0 && currentWorkingMessage) {
+    return `${paint(spinnerFrame(), "working")}${paint(` ${clipInline(currentWorkingMessage, 30)}`, "working")}`;
+  }
+
+  const tokens = sessionTokenSummary(snapshot);
+  if (tokens.input !== null || tokens.output !== null) {
+    const input = tokens.input === null ? "?" : formatTokens(tokens.input);
+    const output = tokens.output === null ? "?" : formatTokens(tokens.output);
+    return paint(`↑${input} ↓${output}`, "dim");
+  }
+
+  return "";
+}
+
+function footerHint(): string {
+  return activeToolCalls > 0 && currentWorkingMessage
+    ? paint("Ctrl+C to abort", "dim")
+    : paint("Ctrl+? for help", "dim");
+}
+
+function footerSeparatorLine(width: number): string {
+  return paint("━".repeat(Math.max(1, width || 1)), "separator");
+}
+
+function storyStatusWidgetLines(
+  cwd: string,
+  _theme: { fg: (label: string, text: string) => string },
+): string[] {
+  const summary = storyProgressSummary(cwd);
+
+  if (!summary) {
+    return [
+      `${paint("▸", "accent", true)} ${paint("no active story", "text")}`,
+    ];
+  }
+
+  const issueSegment = summary.openIssues > 0
+    ? paint(`⚠ ${issueCountLabel(summary.openIssues)}`, "error")
+    : paint("✓ no open issues", "success");
+  const progressSegment = `${paint(progressBar(summary.checklistDone, summary.checklistTotal), storyProgressTone(summary))} ${paint(`${summary.checklistDone}/${summary.checklistTotal} ${summary.checklistTotal === 1 ? "task" : "tasks"}`, "dim")}`;
+  const segments = [
+    `${paint("▸", "accent", true)} ${paint(summary.slug, "text")}`,
+    paint(summary.story.status, storyStatusTone(summary.story.status)),
+    progressSegment,
+    issueSegment,
+  ];
+
+  const savedLabel = activeToolCalls > 0 ? null : storySavedLabel(summary);
+  if (savedLabel) {
+    segments.push(paint(savedLabel, "dim"));
+  }
 
   return [
-    `${label("project")}: ${project}`,
-    `${label("story")}: ${storyLabel}`,
-    `${label("branch")}: ${branch}`,
-  ].join(separator);
+    segments.join(separatorDot()),
+  ];
+}
+
+function createStoryStatusWidgetComponent(cwd: string) {
+  return (_tui: { requestRender(): void }, theme: { fg: (label: string, text: string) => string }) => ({
+    render(): string[] {
+      return storyStatusWidgetLines(cwd, theme);
+    },
+    invalidate() {},
+  });
+}
+
+function createStoryStatusWidgetFactory(cwd: string) {
+  const componentFactory = createStoryStatusWidgetComponent(cwd);
+  return (tui: { requestRender(): void }, theme: { fg: (label: string, text: string) => string }) => {
+    statusWidgetTui = tui;
+    return {
+      ...componentFactory(tui, theme),
+      dispose() {
+        if (statusWidgetTui === tui) {
+          statusWidgetTui = null;
+        }
+      },
+    };
+  };
+}
+
+function ensureStoryStatusWidgetMounted(ui: any, cwd: string): void {
+  callUiMethod(ui, "setWidget", "vazir-story-status", createStoryStatusWidgetFactory(cwd), { placement: "aboveEditor" });
+}
+
+function setFooterComponent(ui: any, factory: unknown): void {
+  if (callUiMethod(ui, "setFooterFactory", factory)) return;
+  callUiMethod(ui, "setFooter", factory);
+}
+
+function sessionFooterLine(
+  snapshot: FooterSessionSnapshot,
+  _theme: { fg: (label: string, text: string) => string },
+  footerData: { getGitBranch(): string | null | undefined },
+  width: number,
+): string {
+  const cwd = snapshot.cwd;
+  const summary = storyProgressSummary(cwd);
+  const storyLabel = summary?.slug ?? "no active story";
+  const branch = clipInline(footerData.getGitBranch() ?? branchLabel(cwd), 24);
+  const modelLabel = clipInline(shortModelLabel(snapshot), 30);
+  const thinkingLevel = latestThinkingLevel(snapshot);
+  const leftSegments = [
+    paint("◈ vazir", "accent", true),
+    paint(storyLabel, "text"),
+    paint(branch, "branch"),
+    `${paint(modelLabel, "dim")} ${paint(`(${thinkingLevel})`, "dim")}`,
+    footerTokenOrWorkSegment(snapshot),
+    footerContextSegment(snapshot),
+    paint(formatSpend(safeSessionEntries(snapshot)), "success"),
+    footerIssueSegment(summary),
+  ].filter(Boolean);
+  const left = leftSegments.join(separatorDot());
+  return alignFooterLine(left, footerHint(), width);
 }
 
 function createSessionFooterComponent(snapshot: FooterSessionSnapshot) {
@@ -587,19 +957,9 @@ function createSessionFooterComponent(snapshot: FooterSessionSnapshot) {
 
     return {
       render(width: number): string[] {
-        const contextUsage = snapshot.getContextUsage();
-        const modelLabel = latestModelLabel(snapshot);
-        const thinkingLevel = latestThinkingLevel(snapshot);
-        const contextLabel = contextUsage
-          ? `${contextUsage.percent === null ? "?" : contextUsage.percent.toFixed(1)}%/${formatTokens(contextUsage.contextWindow)}`
-          : "?";
-        const spendLabel = formatSpend(snapshot.sessionManager.getEntries());
-        const grey = (text: string) => theme.fg("dim", text);
-        const accent = (text: string) => theme.fg("accent", text);
-
         return [
-          sessionFooterLine(snapshot, theme, footerData),
-          `${grey("model")}: ${accent(modelLabel)} ${grey("• thinking")}: ${accent(thinkingLevel)} ${grey("• context")}: ${contextLabel} ${grey("• spend")}: ${spendLabel}`,
+          footerSeparatorLine(width),
+          sessionFooterLine(snapshot, theme, footerData, width),
         ];
       },
       invalidate() {},
@@ -614,17 +974,19 @@ function createSessionFooterComponent(snapshot: FooterSessionSnapshot) {
 }
 
 function ensureSessionChromeMounted(ui: any, cwd: string): void {
-  ensureSessionBannerMounted(ui, cwd);
+  callUiMethod(ui, "setHeader", blankHeaderComponent());
+  ensureStoryStatusWidgetMounted(ui, cwd);
   if (currentFooterSnapshot) {
-    callUiMethod(ui, "setFooter", createSessionFooterComponent(currentFooterSnapshot));
+    setFooterComponent(ui, createSessionFooterComponent(currentFooterSnapshot));
   }
 }
 
 function startFooterRefreshTicker(): void {
   if (footerRefreshTicker || !currentFooterSnapshot) return;
   footerRefreshTicker = setInterval(() => {
+    statusWidgetTui?.requestRender();
     footerWidgetTui?.requestRender();
-  }, 250);
+  }, 120);
 }
 
 function stopFooterRefreshTicker(): void {
@@ -1059,12 +1421,14 @@ function findOrphanedGitSessions(cwd: string, currentId: string): string[] {
 function refreshWidgets() {
   trackerWidgetTui?.requestRender();
   bannerWidgetTui?.requestRender();
+  statusWidgetTui?.requestRender();
   footerWidgetTui?.requestRender();
 }
 
 // ── Extension ──────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+  liveThinkingLevelGetter = () => pi.getThinkingLevel();
 
   // Track user prompts
   pi.on("input", async (event: { text?: string }) => {
@@ -1076,22 +1440,26 @@ export default function (pi: ExtensionAPI) {
 
   // ── session_start ────────────────────────────────────────────────────
 
-  pi.on("session_start", async (_event: unknown, ctx: { cwd: string; hasUI: boolean; sessionManager?: { getSessionFile?: () => string; getEntries?: () => Array<{ type: string; message?: { role?: string; usage?: { cost?: { total?: number } } } }>; getSessionName?: () => string | undefined } | undefined; model?: { provider?: string; id?: string; reasoning?: boolean } | undefined; getContextUsage?: () => { tokens: number | null; contextWindow: number; percent: number | null } | undefined; ui: any }) => {
+  pi.on("session_start", async (_event: unknown, ctx: { cwd: string; hasUI: boolean; sessionManager?: { getSessionFile?: () => string; getBranch?: () => Array<{ type: string; provider?: string; modelId?: string; thinkingLevel?: string; message?: { role?: string; usage?: { cost?: { total?: number } } } }>; getEntries?: () => Array<{ type: string; message?: { role?: string; usage?: { cost?: { total?: number } } } }>; getSessionName?: () => string | undefined } | undefined; model?: { provider?: string; id?: string; reasoning?: boolean } | undefined; getContextUsage?: () => { tokens: number | null; contextWindow: number; percent: number | null } | undefined; ui: any }) => {
     const cwd = ctx.cwd;
     useJJ = detectJJ(cwd);
     if (useJJ) loadJjCheckpointLabels(cwd);
     activeToolCalls = 0;
     currentWorkingMessage = "";
+    const sessionManager = {
+      getBranch: ctx.sessionManager?.getBranch ?? (() => []),
+      getEntries: ctx.sessionManager?.getEntries ?? (() => []),
+      getSessionName: ctx.sessionManager?.getSessionName,
+    };
     currentFooterSnapshot = {
       cwd,
       model: ctx.model,
-      sessionManager: ctx.sessionManager ?? {
-        getEntries: () => [],
-        getSessionName: () => undefined,
-      },
+      sessionManager,
       getContextUsage: ctx.getContextUsage ?? (() => undefined),
     };
-    startFooterRefreshTicker();
+    if (ctx.hasUI) {
+      startFooterRefreshTicker();
+    }
 
     const sessionFile = (ctx.sessionManager as any)?.getSessionFile?.() ?? "";
     const match = sessionFile.match(/_([a-f0-9]+)\.jsonl$/);
@@ -1129,52 +1497,17 @@ export default function (pi: ExtensionAPI) {
     applyWorkingMessage(ctx.ui);
 
     ensureSessionChromeMounted(ctx.ui, cwd);
-
-    callUiMethod(ctx.ui, "setWidget", "vazir-tracker", (tui: { requestRender(): void }, theme: { fg: (label: string, text: string) => string }) => {
-      trackerWidgetTui = tui;
-      return {
-        render(): string[] {
-          if (changedFiles.size === 0 && editStream.length === 0) return [];
-
-          const lines: string[] = [];
-          if (changedFiles.size > 0) {
-            const parts: string[] = [];
-            for (const [, f] of changedFiles) {
-              let statusLabel: string;
-              switch (f.status) {
-                case "M": statusLabel = "M"; break;
-                case "A": statusLabel = "A"; break;
-                case "D": statusLabel = "D"; break;
-                default: statusLabel = "?"; break;
-              }
-              const added = theme.fg("success", `+${f.added}`);
-              const removed = theme.fg("error", `-${f.removed}`);
-              parts.push(`${statusLabel} ${f.file} ${added}/${removed}`);
-            }
-
-            const vcs = useJJ ? " · jj" : "";
-            lines.push((" " + parts.join("   ") + vcs + " · /diff · /fix · /reset").slice(0, 120));
-          }
-
-          if (editStream.length > 0) {
-            lines.push(` edits · /edits · ${editStream.length} events`.slice(0, 120));
-            lines.push(...recentEditStreamLines());
-          }
-
-          return lines.slice(0, 1 + 1 + EDIT_WIDGET_LINE_LIMIT);
-        },
-        invalidate() {},
-        dispose() { trackerWidgetTui = null; },
-      };
-    }, { placement: "belowEditor" });
+    trackerWidgetTui = null;
   });
 
   pi.on("session_shutdown", async (_event: unknown, ctx: { ui?: any }) => {
     activeToolCalls = 0;
     currentWorkingMessage = "";
     stopWorkingMessageTicker(ctx.ui);
-    callUiMethod(ctx.ui, "setFooter", undefined);
+    setFooterComponent(ctx.ui, undefined);
+    statusWidgetTui = null;
     currentFooterSnapshot = null;
+    liveThinkingLevelGetter = null;
     stopFooterRefreshTicker();
   });
 
@@ -1446,6 +1779,7 @@ export default function (pi: ExtensionAPI) {
 
       appendToStoryIssues(active.file, description);
       updateStoryFrontmatter(active.file, { lastAccessed: todayDate() });
+      refreshWidgets();
 
       ctx.ui.notify(`Issue logged to ${storyName}`, "info");
 
