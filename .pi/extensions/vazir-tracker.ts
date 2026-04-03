@@ -387,35 +387,36 @@ function clipInline(text: string, max = 40): string {
 
 function branchLabel(cwd: string): string {
   try {
-    if (useJJ) {
-      const label = childProcess.execSync("jj bookmark list --revision @ --no-graph", {
-        cwd,
-        encoding: "utf-8",
-        stdio: "pipe",
-      }).trim();
-      if (label) return clipInline(label, 24);
-    }
+    // Prefer git branch name when git is available in the repo.
+    try {
+      const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).toString().trim();
+      if (branch && branch !== "HEAD") return clipInline(branch, 24);
 
-    let branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", {
-      cwd,
-      encoding: "utf-8",
-      stdio: "pipe",
-    }).toString().trim();
-
-    // Normalize common HEAD/detached outputs and guard empty results
-    if (!branch || branch === "HEAD") {
-      // If detached HEAD, try to show short SHA as hint
-      try {
-        const sha = childProcess.execSync("git rev-parse --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-        if (sha) return clipInline(`detached@${sha}`, 24);
-      } catch {
-        // fallthrough
+      // If detached HEAD, show short SHA as hint
+      if (branch === "HEAD") {
+        try {
+          const sha = childProcess.execSync("git rev-parse --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+          if (sha) return clipInline(`detached@${sha}`, 24);
+        } catch {
+          // ignore
+        }
       }
-
-      return useJJ ? "jj" : "workspace";
+    } catch {
+      // git not available or not a git repo; fall through to JJ
     }
 
-    return clipInline(branch, 24);
+    // If JJ is available, prefer a JJ bookmark label when present
+    if (useJJ) {
+      try {
+        const label = childProcess.execSync("jj bookmark list --revision @ --no-graph", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        if (label) return clipInline(label, 24);
+      } catch {
+        // ignore
+      }
+      return "jj";
+    }
+
+    return "workspace";
   } catch {
     /* ignore VCS label lookup */
   }
