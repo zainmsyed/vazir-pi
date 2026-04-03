@@ -465,6 +465,14 @@ function createSessionBannerWidgetFactory(cwd: string) {
   };
 }
 
+function ensureSessionBannerMounted(ui: any, cwd: string): void {
+  const bannerComponentFactory = createSessionBannerComponent(cwd);
+  const mountedHeader = callUiMethod(ui, "setHeader", bannerComponentFactory);
+  if (!mountedHeader) {
+    callUiMethod(ui, "setWidget", "vazir-session-banner", createSessionBannerWidgetFactory(cwd), { placement: "aboveEditor" });
+  }
+}
+
 function spinnerFrame(): string {
   return WORKING_SPINNER_FRAMES[Math.floor(Date.now() / 80) % WORKING_SPINNER_FRAMES.length];
 }
@@ -949,11 +957,7 @@ export default function (pi: ExtensionAPI) {
     callUiMethod(ctx.ui, "setToolOutputExpanded", false);
     applyWorkingMessage(ctx.ui);
 
-    const bannerComponentFactory = createSessionBannerComponent(cwd);
-    const mountedHeader = callUiMethod(ctx.ui, "setHeader", bannerComponentFactory);
-    if (!mountedHeader) {
-      callUiMethod(ctx.ui, "setWidget", "vazir-session-banner", createSessionBannerWidgetFactory(cwd), { placement: "aboveEditor" });
-    }
+    ensureSessionBannerMounted(ctx.ui, cwd);
 
     callUiMethod(ctx.ui, "setWidget", "vazir-tracker", (tui: { requestRender(): void }, theme: { fg: (label: string, text: string) => string }) => {
       trackerWidgetTui = tui;
@@ -998,7 +1002,6 @@ export default function (pi: ExtensionAPI) {
     activeToolCalls = 0;
     currentWorkingMessage = "";
     stopWorkingMessageTicker(ctx.ui);
-    callUiMethod(ctx.ui, "setHeader", undefined);
   });
 
   // ── Git fallback: snapshot before agent writes ────────────────────────
@@ -1006,7 +1009,11 @@ export default function (pi: ExtensionAPI) {
   let gitCurrentCheckpointDir = "";
   let gitCheckpointCount = 0;
 
-  pi.on("before_agent_start", async (_event: unknown, ctx: { cwd: string }) => {
+  pi.on("before_agent_start", async (_event: unknown, ctx: { cwd: string; hasUI?: boolean; ui?: any }) => {
+    if (ctx.hasUI) {
+      ensureSessionBannerMounted(ctx.ui, ctx.cwd);
+    }
+
     if (useJJ) return;
 
     gitCheckpointCount++;
@@ -1069,7 +1076,11 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  pi.on("agent_end", async (_event: unknown, ctx: { cwd: string }) => {
+  pi.on("agent_end", async (_event: unknown, ctx: { cwd: string; hasUI?: boolean; ui?: any }) => {
+    if (ctx.hasUI) {
+      ensureSessionBannerMounted(ctx.ui, ctx.cwd);
+    }
+
     if (!useJJ || !lastUserPrompt.trim()) return;
 
     try {
