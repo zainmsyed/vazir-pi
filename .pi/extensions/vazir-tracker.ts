@@ -396,12 +396,26 @@ function branchLabel(cwd: string): string {
       if (label) return clipInline(label, 24);
     }
 
-    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", {
+    let branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", {
       cwd,
       encoding: "utf-8",
       stdio: "pipe",
-    }).trim();
-    if (branch) return clipInline(branch, 24);
+    }).toString().trim();
+
+    // Normalize common HEAD/detached outputs and guard empty results
+    if (!branch || branch === "HEAD") {
+      // If detached HEAD, try to show short SHA as hint
+      try {
+        const sha = childProcess.execSync("git rev-parse --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        if (sha) return clipInline(`detached@${sha}`, 24);
+      } catch {
+        // fallthrough
+      }
+
+      return useJJ ? "jj" : "workspace";
+    }
+
+    return clipInline(branch, 24);
   } catch {
     /* ignore VCS label lookup */
   }
