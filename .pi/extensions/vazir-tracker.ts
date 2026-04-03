@@ -2,7 +2,7 @@
 /// <reference path="../../types/node-runtime-ambient.d.ts" />
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey } from "@mariozechner/pi-tui";
+import * as piTui from "@mariozechner/pi-tui";
 import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
@@ -41,6 +41,17 @@ interface StoryFrontmatter {
   number: number;
 }
 
+interface FooterSessionSnapshot {
+  cwd: string;
+  model: { provider?: string; id?: string; reasoning?: boolean } | undefined;
+  sessionManager: {
+    getBranch(): Array<{ type: string; provider?: string; modelId?: string; thinkingLevel?: string; message?: { role?: string; usage?: { cost?: { total?: number } } } }>;
+    getEntries(): Array<{ type: string; message?: { role?: string; usage?: { cost?: { total?: number } } } }>;
+    getSessionName?: () => string | undefined;
+  };
+  getContextUsage: () => { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
+}
+
 const JJ_CHECKPOINT_SCAN_LIMIT = 120;
 const JJ_CHECKPOINT_MAX_CHOICES = 12;
 const EDIT_STREAM_LIMIT = 48;
@@ -54,12 +65,15 @@ const editStream: EditStreamEntry[] = [];
 const pendingEditCalls: Array<{ toolName: "write" | "edit"; file: string }> = [];
 let trackerWidgetTui: any = null;
 let bannerWidgetTui: any = null;
+let footerWidgetTui: any = null;
 let lastUserPrompt = "";
 let useJJ = false;
 let currentSessionId = "";
 let activeToolCalls = 0;
 let currentWorkingMessage = "";
 let workingMessageTicker: ReturnType<typeof setInterval> | null = null;
+let footerRefreshTicker: ReturnType<typeof setInterval> | null = null;
+let currentFooterSnapshot: FooterSessionSnapshot | null = null;
 
 // ── Generic helpers ────────────────────────────────────────────────────
 
@@ -79,6 +93,61 @@ function todayDate(): string {
 
 function nowISO(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function formatTokens(count: number): string {
+  if (count < 1000) return String(count);
+  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+  if (count < 1000000) return `${Math.round(count / 1000)}k`;
+  if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
+  return `${Math.round(count / 1000000)}M`;
+}
+
+function formatSpend(entries: Array<{ type: string; message?: { role?: string; usage?: { cost?: { total?: number } } } }>): string {
+  let total = 0;
+  for (const entry of entries) {
+    if (entry.type === "message" && entry.message?.role === "assistant") {
+      total += entry.message.usage?.cost?.total ?? 0;
+    }
+  }
+  return `$${total.toFixed(3)}`;
+}
+
+function sessionBranchEntries(snapshot: FooterSessionSnapshot): Array<{ type: string; provider?: string; modelId?: string; thinkingLevel?: string; message?: { role?: string; usage?: { cost?: { total?: number } } } }> {
+  try {
+    return snapshot.sessionManager.getBranch();
+  } catch {
+    return [];
+  }
+}
+
+function latestModelLabel(snapshot: FooterSessionSnapshot): string {
+  const branchEntries = sessionBranchEntries(snapshot);
+  for (let index = branchEntries.length - 1; index >= 0; index--) {
+    const entry = branchEntries[index];
+    if (entry.type === "model_change" && entry.provider && entry.modelId) {
+      return `${entry.provider}/${entry.modelId}`;
+    }
+  }
+
+  const model = snapshot.model;
+  if (model?.provider && model?.id) {
+    return `${model.provider}/${model.id}`;
+  }
+
+  return "no-model";
+}
+
+function latestThinkingLevel(snapshot: FooterSessionSnapshot): string {
+  const branchEntries = sessionBranchEntries(snapshot);
+  for (let index = branchEntries.length - 1; index >= 0; index--) {
+    const entry = branchEntries[index];
+    if (entry.type === "thinking_level_change" && entry.thinkingLevel) {
+      return entry.thinkingLevel;
+    }
+  }
+
+  return "off";
 }
 
 function timeOfDay(iso: string): string {
@@ -198,11 +267,11 @@ async function showScrollableText(
       },
       invalidate() {},
       handleInput(data: string) {
-        if (matchesKey(data, Key.up)) scrollOffset = Math.max(0, scrollOffset - 1);
-        else if (matchesKey(data, Key.down)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 1);
-        else if (matchesKey(data, Key.pageUp)) scrollOffset = Math.max(0, scrollOffset - 10);
-        else if (matchesKey(data, Key.pageDown)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 10);
-        else if (matchesKey(data, Key.escape)) { done(); return; }
+        if (piTui.matchesKey(data, piTui.Key.up)) scrollOffset = Math.max(0, scrollOffset - 1);
+        else if (piTui.matchesKey(data, piTui.Key.down)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 1);
+        else if (piTui.matchesKey(data, piTui.Key.pageUp)) scrollOffset = Math.max(0, scrollOffset - 10);
+        else if (piTui.matchesKey(data, piTui.Key.pageDown)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 10);
+        else if (piTui.matchesKey(data, piTui.Key.escape)) { done(); return; }
         tui.requestRender();
       },
     };
@@ -471,6 +540,83 @@ function ensureSessionBannerMounted(ui: any, cwd: string): void {
   if (!mountedHeader) {
     callUiMethod(ui, "setWidget", "vazir-session-banner", createSessionBannerWidgetFactory(cwd), { placement: "aboveEditor" });
   }
+}
+
+function sessionFooterLine(
+  snapshot: FooterSessionSnapshot,
+  theme: { fg: (label: string, text: string) => string },
+  footerData: { getGitBranch(): string | null | undefined },
+): string {
+  const cwd = snapshot.cwd;
+  const project = path.basename(cwd);
+  const activeStory = findActiveStory(cwd);
+  const storyLabel = activeStory ? path.basename(activeStory.file, ".md") : "no active story";
+  const branch = footerData.getGitBranch() ?? branchLabel(cwd);
+  const separator = theme.fg("dim", " • ");
+  const label = (text: string) => theme.fg("dim", text);
+
+  return [
+    `${label("project")}: ${project}`,
+    `${label("story")}: ${storyLabel}`,
+    `${label("branch")}: ${branch}`,
+  ].join(separator);
+}
+
+function createSessionFooterComponent(snapshot: FooterSessionSnapshot) {
+  return (
+    tui: { requestRender(): void },
+    theme: { fg: (label: string, text: string) => string },
+    footerData: { getGitBranch(): string | null | undefined; onBranchChange?: (callback: () => void) => () => void },
+  ) => {
+    footerWidgetTui = tui;
+    const unsubscribe = footerData.onBranchChange?.(() => tui.requestRender()) ?? undefined;
+
+    return {
+      render(width: number): string[] {
+        const contextUsage = snapshot.getContextUsage();
+        const modelLabel = latestModelLabel(snapshot);
+        const thinkingLevel = latestThinkingLevel(snapshot);
+        const contextLabel = contextUsage
+          ? `${contextUsage.percent === null ? "?" : contextUsage.percent.toFixed(1)}%/${formatTokens(contextUsage.contextWindow)}`
+          : "?";
+        const spendLabel = formatSpend(snapshot.sessionManager.getEntries());
+        const grey = (text: string) => theme.fg("dim", text);
+        const accent = (text: string) => theme.fg("accent", text);
+
+        return [
+          sessionFooterLine(snapshot, theme, footerData),
+          `${grey("model")}: ${accent(modelLabel)} ${grey("• thinking")}: ${accent(thinkingLevel)} ${grey("• context")}: ${contextLabel} ${grey("• spend")}: ${spendLabel}`,
+        ];
+      },
+      invalidate() {},
+      dispose() {
+        unsubscribe?.();
+        if (footerWidgetTui === tui) {
+          footerWidgetTui = null;
+        }
+      },
+    };
+  };
+}
+
+function ensureSessionChromeMounted(ui: any, cwd: string): void {
+  ensureSessionBannerMounted(ui, cwd);
+  if (currentFooterSnapshot) {
+    callUiMethod(ui, "setFooter", createSessionFooterComponent(currentFooterSnapshot));
+  }
+}
+
+function startFooterRefreshTicker(): void {
+  if (footerRefreshTicker || !currentFooterSnapshot) return;
+  footerRefreshTicker = setInterval(() => {
+    footerWidgetTui?.requestRender();
+  }, 250);
+}
+
+function stopFooterRefreshTicker(): void {
+  if (!footerRefreshTicker) return;
+  clearInterval(footerRefreshTicker);
+  footerRefreshTicker = null;
 }
 
 function spinnerFrame(): string {
@@ -899,6 +1045,7 @@ function findOrphanedGitSessions(cwd: string, currentId: string): string[] {
 function refreshWidgets() {
   trackerWidgetTui?.requestRender();
   bannerWidgetTui?.requestRender();
+  footerWidgetTui?.requestRender();
 }
 
 // ── Extension ──────────────────────────────────────────────────────────
@@ -915,12 +1062,22 @@ export default function (pi: ExtensionAPI) {
 
   // ── session_start ────────────────────────────────────────────────────
 
-  pi.on("session_start", async (_event: unknown, ctx: { cwd: string; hasUI: boolean; sessionManager?: { getSessionFile?: () => string } | undefined; ui: any }) => {
+  pi.on("session_start", async (_event: unknown, ctx: { cwd: string; hasUI: boolean; sessionManager?: { getSessionFile?: () => string; getEntries?: () => Array<{ type: string; message?: { role?: string; usage?: { cost?: { total?: number } } } }>; getSessionName?: () => string | undefined } | undefined; model?: { provider?: string; id?: string; reasoning?: boolean } | undefined; getContextUsage?: () => { tokens: number | null; contextWindow: number; percent: number | null } | undefined; ui: any }) => {
     const cwd = ctx.cwd;
     useJJ = detectJJ(cwd);
     if (useJJ) loadJjCheckpointLabels(cwd);
     activeToolCalls = 0;
     currentWorkingMessage = "";
+    currentFooterSnapshot = {
+      cwd,
+      model: ctx.model,
+      sessionManager: ctx.sessionManager ?? {
+        getEntries: () => [],
+        getSessionName: () => undefined,
+      },
+      getContextUsage: ctx.getContextUsage ?? (() => undefined),
+    };
+    startFooterRefreshTicker();
 
     const sessionFile = (ctx.sessionManager as any)?.getSessionFile?.() ?? "";
     const match = sessionFile.match(/_([a-f0-9]+)\.jsonl$/);
@@ -957,7 +1114,7 @@ export default function (pi: ExtensionAPI) {
     callUiMethod(ctx.ui, "setToolOutputExpanded", false);
     applyWorkingMessage(ctx.ui);
 
-    ensureSessionBannerMounted(ctx.ui, cwd);
+    ensureSessionChromeMounted(ctx.ui, cwd);
 
     callUiMethod(ctx.ui, "setWidget", "vazir-tracker", (tui: { requestRender(): void }, theme: { fg: (label: string, text: string) => string }) => {
       trackerWidgetTui = tui;
@@ -1002,6 +1159,9 @@ export default function (pi: ExtensionAPI) {
     activeToolCalls = 0;
     currentWorkingMessage = "";
     stopWorkingMessageTicker(ctx.ui);
+    callUiMethod(ctx.ui, "setFooter", undefined);
+    currentFooterSnapshot = null;
+    stopFooterRefreshTicker();
   });
 
   // ── Git fallback: snapshot before agent writes ────────────────────────
@@ -1011,7 +1171,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_agent_start", async (_event: unknown, ctx: { cwd: string; hasUI?: boolean; ui?: any }) => {
     if (ctx.hasUI) {
-      ensureSessionBannerMounted(ctx.ui, ctx.cwd);
+      ensureSessionChromeMounted(ctx.ui, ctx.cwd);
     }
 
     if (useJJ) return;
@@ -1072,13 +1232,15 @@ export default function (pi: ExtensionAPI) {
 
     if (event.toolName === "write" || event.toolName === "edit" || event.toolName === "bash") {
       syncChanges(ctx.cwd);
+      footerWidgetTui?.requestRender();
       refreshWidgets();
     }
   });
 
   pi.on("agent_end", async (_event: unknown, ctx: { cwd: string; hasUI?: boolean; ui?: any }) => {
+    footerWidgetTui?.requestRender();
     if (ctx.hasUI) {
-      ensureSessionBannerMounted(ctx.ui, ctx.cwd);
+      ensureSessionChromeMounted(ctx.ui, ctx.cwd);
     }
 
     if (!useJJ || !lastUserPrompt.trim()) return;
@@ -1157,11 +1319,11 @@ export default function (pi: ExtensionAPI) {
           },
           invalidate() {},
           handleInput(data: string) {
-            if (matchesKey(data, Key.up)) scrollOffset = Math.max(0, scrollOffset - 1);
-            else if (matchesKey(data, Key.down)) scrollOffset = Math.min(lines.length - 1, scrollOffset + 1);
-            else if (matchesKey(data, Key.pageUp)) scrollOffset = Math.max(0, scrollOffset - 10);
-            else if (matchesKey(data, Key.pageDown)) scrollOffset = Math.min(lines.length - 1, scrollOffset + 10);
-            else if (matchesKey(data, Key.escape)) { done(); return; }
+            if (piTui.matchesKey(data, piTui.Key.up)) scrollOffset = Math.max(0, scrollOffset - 1);
+            else if (piTui.matchesKey(data, piTui.Key.down)) scrollOffset = Math.min(lines.length - 1, scrollOffset + 1);
+            else if (piTui.matchesKey(data, piTui.Key.pageUp)) scrollOffset = Math.max(0, scrollOffset - 10);
+            else if (piTui.matchesKey(data, piTui.Key.pageDown)) scrollOffset = Math.min(lines.length - 1, scrollOffset + 10);
+            else if (piTui.matchesKey(data, piTui.Key.escape)) { done(); return; }
             tui.requestRender();
           },
         };
@@ -1216,11 +1378,11 @@ export default function (pi: ExtensionAPI) {
           },
           invalidate() {},
           handleInput(data: string) {
-            if (matchesKey(data, Key.up)) scrollOffset = Math.max(0, scrollOffset - 1);
-            else if (matchesKey(data, Key.down)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 1);
-            else if (matchesKey(data, Key.pageUp)) scrollOffset = Math.max(0, scrollOffset - 10);
-            else if (matchesKey(data, Key.pageDown)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 10);
-            else if (matchesKey(data, Key.escape)) { done(); return; }
+            if (piTui.matchesKey(data, piTui.Key.up)) scrollOffset = Math.max(0, scrollOffset - 1);
+            else if (piTui.matchesKey(data, piTui.Key.down)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 1);
+            else if (piTui.matchesKey(data, piTui.Key.pageUp)) scrollOffset = Math.max(0, scrollOffset - 10);
+            else if (piTui.matchesKey(data, piTui.Key.pageDown)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 10);
+            else if (piTui.matchesKey(data, piTui.Key.escape)) { done(); return; }
             tui.requestRender();
           },
         };
