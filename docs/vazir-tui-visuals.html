@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vazir TUI — UI/UX Mod Visuals</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0e0e12;
+    --bg2:       #16161d;
+    --bg3:       #1c1c26;
+    --border:    #2a2a3a;
+    --dim:       #3a3a50;
+    --muted:     #6c7086;
+    --text:      #cdd6f4;
+    --subtext:   #a6adc8;
+    --accent:    #a78bfa;
+    --accent2:   #89b4fa;
+    --green:     #a6e3a1;
+    --red:       #f38ba8;
+    --yellow:    #f9e2af;
+    --teal:      #89dceb;
+    --pink:      #f5c2e7;
+    --overlay:   rgba(167,139,250,0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 48px 32px;
+  }
+
+  .page-header {
+    margin-bottom: 64px;
+    text-align: center;
+  }
+
+  .page-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 42px;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  .page-title span { color: var(--accent); }
+
+  .page-sub {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    color: var(--muted);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .section-label {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 56px 0 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(560px, 1fr));
+    gap: 24px;
+  }
+
+  .grid-wide {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .card-header {
+    padding: 10px 16px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot-red { background: #ff5f57; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #28c840; }
+
+  .card-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--subtext);
+    margin-left: 4px;
+    letter-spacing: 0.05em;
+  }
+
+  .card-tag {
+    margin-left: auto;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+  }
+  .tag-ux { background: rgba(137,180,250,0.15); color: var(--accent2); }
+  .tag-eye { background: rgba(167,139,250,0.15); color: var(--accent); }
+
+  .terminal {
+    padding: 16px 20px;
+    font-size: 12.5px;
+    line-height: 1.65;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .mod-desc {
+    padding: 10px 20px 14px;
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    line-height: 1.6;
+    font-weight: 400;
+  }
+
+  /* ANSI color helpers */
+  .c-accent  { color: var(--accent); }
+  .c-accent2 { color: var(--accent2); }
+  .c-green   { color: var(--green); }
+  .c-red     { color: var(--red); }
+  .c-yellow  { color: var(--yellow); }
+  .c-teal    { color: var(--teal); }
+  .c-pink    { color: var(--pink); }
+  .c-muted   { color: var(--muted); }
+  .c-dim     { color: var(--dim); }
+  .c-text    { color: var(--text); }
+  .c-sub     { color: var(--subtext); }
+  .bold      { font-weight: 700; }
+  .italic    { font-style: italic; }
+  .dim       { opacity: 0.5; }
+  .bg-code   { background: rgba(205,214,244,0.06); padding: 0 4px; border-radius: 2px; }
+
+  /* Spinner animation */
+  .spinner-frame { display: inline-block; }
+  @keyframes spin {
+    0%   { content: "⠋"; }
+    10%  { content: "⠙"; }
+    20%  { content: "⠹"; }
+    30%  { content: "⠸"; }
+    40%  { content: "⠼"; }
+    50%  { content: "⠴"; }
+    60%  { content: "⠦"; }
+    70%  { content: "⠧"; }
+    80%  { content: "⠇"; }
+    90%  { content: "⠏"; }
+    100% { content: "⠋"; }
+  }
+  .spinner::before {
+    content: "⠋";
+    animation: spin 0.8s steps(10) infinite;
+    color: var(--teal);
+  }
+
+  /* Progress bar animation */
+  @keyframes pulse-bar {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+  .progress-bar { animation: pulse-bar 2s ease-in-out infinite; }
+
+  /* Flash animation */
+  @keyframes flash-fade {
+    0%   { opacity: 1; letter-spacing: 0.05em; }
+    60%  { opacity: 0.6; letter-spacing: 0.02em; }
+    100% { opacity: 0; letter-spacing: 0; }
+  }
+  .flash-line {
+    display: inline-block;
+    animation: flash-fade 1.2s ease-out infinite;
+    color: var(--accent);
+  }
+
+  /* Aura animation for ambient color */
+  @keyframes aura-shift {
+    0%,100% { border-color: rgba(167,139,250,0.3); box-shadow: 0 0 20px rgba(167,139,250,0.05); }
+    33%      { border-color: rgba(249,226,175,0.35); box-shadow: 0 0 20px rgba(249,226,175,0.07); }
+    66%      { border-color: rgba(166,227,161,0.3); box-shadow: 0 0 20px rgba(166,227,161,0.05); }
+  }
+
+  /* Streaming window animation */
+  @keyframes stream-cursor {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+  .stream-cursor {
+    display: inline-block;
+    width: 7px;
+    height: 13px;
+    background: var(--accent);
+    vertical-align: middle;
+    margin-left: 2px;
+    animation: stream-cursor 0.8s ease-in-out infinite;
+  }
+
+  .footer-bar {
+    background: var(--bg3);
+    border-top: 1px solid var(--border);
+    padding: 6px 20px;
+    font-size: 12px;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+  }
+
+  .header-bar {
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 20px;
+    font-size: 12px;
+  }
+
+  .separator {
+    color: var(--dim);
+    margin: 0 2px;
+  }
+
+  .chat-bubble-user {
+    display: inline-block;
+    background: rgba(137,180,250,0.1);
+    border: 1px solid rgba(137,180,250,0.2);
+    border-radius: 6px;
+    padding: 4px 12px;
+    color: var(--accent2);
+    margin-bottom: 4px;
+  }
+
+  .chat-bubble-agent {
+    padding-left: 4px;
+    border-left: 2px solid var(--accent);
+    margin-bottom: 4px;
+  }
+
+  .tool-block {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 10px;
+    margin: 4px 0;
+    display: inline-block;
+  }
+
+  .tool-block-expanded {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin: 4px 0;
+  }
+
+  .code-fence {
+    background: rgba(205,214,244,0.04);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin: 4px 0;
+    overflow: hidden;
+  }
+
+  .code-fence-header {
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+    padding: 3px 10px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .code-fence-body {
+    padding: 8px 10px;
+  }
+
+  .widget-zone {
+    background: rgba(167,139,250,0.04);
+    border-bottom: 1px solid var(--border);
+    padding: 6px 20px;
+  }
+
+  .editor-zone {
+    border-top: 1px solid var(--border);
+    padding: 8px 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .editor-prompt {
+    color: var(--accent);
+  }
+
+  .editor-cursor {
+    display: inline-block;
+    width: 7px;
+    height: 13px;
+    background: var(--text);
+    vertical-align: middle;
+    animation: stream-cursor 1s ease-in-out infinite;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="page-title"><span>◈</span> Vazir TUI Mods</div>
+  <div class="page-sub">Visual Reference · All 12 UI/UX Improvements</div>
+</div>
+
+<!-- ─── UX IMPROVEMENTS ─────────────────────────────────────── -->
+
+<div class="section-label">UX Improvements</div>
+<div class="grid">
+
+  <!-- 1. Fixed-Height Streaming Window -->
+  <div class="card">
+    <div class="card-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="card-title">1 · Fixed-Height Streaming Window</span>
+      <span class="card-tag tag-ux">UX</span>
+    </div>
+    <div class="terminal"><span class="c-muted">── chat history above ──────────────────────────────</span>
+
+<span class="c-sub">  You asked about the story workflow. Here's</span>
+<span class="c-sub">  how the plan command works — it generates a</span>
+<span class="c-sub">  PRD-level plan.md and individual story files</span>
+<span class="c-sub">  with checklists. Each story gets a scope</span>
+<span class="c-sub">  declaration and a completion summary.</span>
+<span class="c-sub">  The status set is intentionally minimal:</span>
+<span class="c-sub">  not-started, in-progress, complete, retired.</span>
+<span class="c-sub">  Active routing uses last_accessed to avoid</span>
+<span class="c-sub">  filesystem timestamp interference<span class="stream-cursor"></span></span>
+
+<span class="c-muted">────────────────────────────── fixed 9-line window ─</span></div>
+    <div class="mod-desc">Streaming output stays in a fixed N-row window. Only the last N lines are visible during generation — the terminal never grows or scrolls. On completion the full message flushes into history.</div>
+  </div>
+
+  <!-- 2. Contextual Working Messages -->
+  <div class="card">
+    <div class="card-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="card-title">2 · Contextual Working Messages</span>
+      <span class="card-tag tag-ux">UX</span>
+    </div>
+    <div class="terminal">
+<span class="c-muted">  default →</span>  <span class="c-dim">Thinking…</span>
+
+<span class="c-muted">  reading  →</span>  <span class="c-teal"><span class="spinner"></span></span>  <span class="c-sub">Reading · vazir-context.ts</span>
+
+<span class="c-muted">  writing  →</span>  <span class="c-teal"><span class="spinner"></span></span>  <span class="c-sub">Writing · story-003.md</span>
+
+<span class="c-muted">  bash     →</span>  <span class="c-teal"><span class="spinner"></span></span>  <span class="c-sub">Running · jj log --limit 5</span>
+
+<span class="c-muted">  editing  →</span>  <span class="c-teal"><span class="spinner"></span></span>  <span class="c-sub">Editing · vazir-tracker.ts</span>
+
+<span class="c-muted">  tool     →</span>  <span class="c-teal"><span class="spinner"></span></span>  <span class="c-sub">Using search_files</span>
+    </div>
+    <div class="mod-desc">Hooks <span style="font-family:monospace;color:var(--accent)">beforeToolCall</span> to set a descriptive status based on which tool is executing. Restored to default after each call.</div>
+  </div>
+
+  <!-- 3. Vazir Status Widget -->
+  <div class="card">
+    <div class="card-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="card-title">3 · Vazir Status Widget</span>
+      <span class="card-tag tag-ux">UX</span>
+    </div>
+    <div class="terminal">
+<span class="c-muted">── chat ────────────────────────────────────────────</span>
+
+</div>
+    <div class="widget-zone"><span class="c-accent bold">▸</span> <span class="c-text">story-003</span>  <span class="c-muted">·</span>  <span class="c-yellow">in-progress</span>  <span class="c-muted">·</span>  <span class="progress-bar"><span class="c-accent">▐███████░░░▌</span></span>  <span class="c-muted">3/5 tasks</span>  <span class="c-muted">·</span>  <span class="c-red">⚠ 2 issues</span></div>
+    <div class="editor-zone"><span class="editor-prompt">›</span> <span class="editor-cursor"></span></div>
+    <div class="mod-desc">Persistent widget above the editor. Always shows active story, status, task progress, and open issue count. Updated after each agent turn.</div>
+  </div>
+
+  <!-- 4. Custom Footer -->
+  <div class="card">
+    <div class="card-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="card-title">4 · Custom Footer</span>
+      <span class="card-tag tag-ux">UX</span>
+    </div>
+    <div class="terminal">
+<span class="c-muted">── chat ────────────────────────────────────────────</span>
+
+</div>
+    <div class="editor-zone"><span class="editor-prompt">›</span> <span class="editor-cursor"></span></div>
+    <div style="padding: 2px 20px; background: var(--bg3); border-top: 1px solid var(--dim); font-size:12px;">
+      <span style="color:var(--dim)">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+    </div>
+    <div class="footer-bar">
+      <span class="c-accent bold">◈ vazir</span>
+      <span class="c-muted separator">·</span>
+      <span class="c-sub">story-003</span>
+      <span class="c-muted separator">·</span>
+      <span class="c-accent2">main</span>
+      <span class="c-muted separator">·</span>
+      <span class="c-sub">haiku-3.5</span>
+      <span class="c-muted separator">·</span>
+      <span class="c-muted">↑2.1k ↓8.4k</span>
+      <span class="c-muted separator">·</span>
+      <span class="c-green">$0.0021</span>
+    </div>
+    <div class="mod-desc">Full <span style="font-family:monospace;color:var(--accent)">setFooterFactory</span> replacement. Box-drawn separator + branded status bar: wordmark, story, branch, model, tokens, cost.</div>
+  </div>
+
+  <!-- 5. Tool Output Collapsed -->
+  <div class="card">
+    <div class="card-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="card-title">5 · Tool Output Collapsed by Default</span>
+      <span class="card-tag tag-ux">UX</span>
+    </div>
+    <div class="terminal">
+<span class="c-muted">  before ─────────────────────────────────────────</span>
+
+  <span class="tool-block-expanded"><span class="c-yellow">bash</span> <span class="c-muted">·</span> <span class="c-sub">jj log --limit 5</span>
+  <span class="c-muted">@ zqxnvmop  main  2 minutes ago</span>
+  <span class="c-muted">○ ywkrtlmn  story-003  1 hour ago</span>
+  <span class="c-muted">○ pqbvzmxk  initial   yesterday</span></span>
+
+<span class="c-muted">  after ──────────────────────────────────────────</span>
+
+  <div class="tool-block"><span class="c-muted">▶</span> <span class="c-yellow">bash</span> <span class="c-muted">·</span> <span class="c-sub">jj log --limit 5</span>  <span class="c-dim">3 lines  Ctrl+O to expand</span></div>
+    </div>
+    <div class="mod-desc">One call to <span style="font-family:monospace;color:var(--accent)">setToolOutputExpanded(false)</span> on session start. Chat history becomes dramatically cleaner. <span style="color:var(--subtext)">Ctrl+O</span> expands any block.</div>
+  </div>
+
+  <!-- 6. Issue Count Badge -->
+  <div class="card">
+    <div class="card-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="card-title">6 · Issue Count Badge in Footer</span>
+      <span class="card-tag tag-ux">UX</span>
+    </div>
+    <div class="terminal">
+<span class="c-muted">  no issues →</span>
+
+</div>
+    <div class="footer-bar">
+      <span class="c-accent bold">◈ vazir</span>
+      <span class="c-muted separator">·</span>
+      <span class="c-sub">story-003</span>
+      <span class="c-muted separator">·</span>
+      <span class="c-green">haiku-3.5</span>
+    </div>
+    <div class="terminal"><span class="c-muted">  2 issues →</span>
+
+</div>
+    <div class="footer-bar">
+      <span class="c-accent bold">◈ vazir</span>
+      <span class="c-muted separator">·</span>
+      <span class="c-sub">story-003</span>
+      <span class="c-muted separator">·</span>
+      <span class="c-green">haiku-3.5</span>
+      <span class="c-muted separator">·</span>
+      <span class="c-red bold">⚠ 2 issues</span>
+    </div>
+    <div class="mod-desc">After each <span style="font-family:monospace;color:var(--accent)">message_end</span>, open issues are recounted and a named footer status slot is updated. Badge clears automatically when issues resolve.</div>
+  </div>
+
+</div>
+
+<!-- ─── EYE CANDY ────────────────────────────────────────────── -->
+
+<div class="section-label">Eye Candy</div>
+<div class="grid">
+
+  <!-- 7. Braille Spinner -->
+  <div class="card">
+    <div class="card-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="card-title">7 · Animated Braille Spinner</span>
+      <span class="card-tag tag-eye">Eye Candy</span>
+    </div>
+    <div class="terminal">
+<span class="c-muted">  default spinner →</span>  <span class="c-dim">Thinking…</span>
+
+<span class="c-muted">  braille spinner →</span>  <span class="spinner"></span>  <span class="c-sub">Reading · vazir-context.ts</span>
+
+<span class="c-muted">  frames preview  →</span>  <span class="c-teal">⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏</span>
+
+<span class="c-muted">  with pulse      →</span>  <span class="spinner"></span>  <span class="c-sub">Writing · story-003.md</span>
+    </div>
+    <div class="mod-desc">Driven entirely by <span style="font-family:monospace;color:var(--accent)">Date.now()</span> inside <span style="font-family:monospace;color:var(--accent)">render()</span> — no timers. The render loop handles all animation. 10 Braille frames at 80ms each.</div>
+  </div>
+
+  <!-- 8. Rich Markdown Theme -->
+  <div class="card">
+    <div class="card-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="card-title">8 · Rich Markdown Theme</span>
+      <span class="card-tag tag-eye">Eye Candy</span>
+    </div>
+    <div class="terminal"><span class="c-accent bold">## Story Workflow</span>
+<span class="c-dim">──────────────────────────</span>
+
+The <span class="bold c-text">/plan</span> command generates a <span class="c-pink bold">PRD-level</span> document
+and individual story files with checklists.
+
+<div class="code-fence"><div class="code-fence-header">╭─── typescript ───────────────────────────────╮</div><div class="code-fence-body"><span class="c-accent2">const</span> <span class="c-text">status</span> <span class="c-muted">=</span> <span class="c-green">"in-progress"</span><span class="c-text">;</span></div><div class="code-fence-header">╰──────────────────────────────────────────────╯</div></div>
+
+<span class="c-dim">▌</span> <span class="italic c-sub">Context beats model — a well-maintained</span>
+<span class="c-dim">▌</span> <span class="italic c-sub">.context/ folder is the core thesis.</span>
+
+<span class="c-muted dim">─────────────────────────────────────────────────</span></div>
+    <div class="mod-desc">Full <span style="font-family:monospace;color:var(--accent)">MarkdownTheme</span> replacement. Code fences get borders + language labels, headings get underlines, blockquotes get a colored gutter, bold uses accent colors.</div>
+  </div>
+
+  <!-- 9. Story Progress Bar -->
+  <div class="card">
+    <div class="card-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="card-title">9 · Story Progress Bar</span>
+      <span class="card-tag tag-eye">Eye Candy</span>
+    </div>
+    <div class="terminal">
+<span class="c-muted">  story-001  </span><span class="c-green">▐██████████▌</span>  <span class="c-muted">5/5</span>  <span class="c-green">complete</span>
+
+<span class="c-muted">  story-002  </span><span class="c-yellow">▐████████░░▌</span>  <span class="c-muted">4/5</span>  <span class="c-yellow">in-progress</span>
+
+<span class="c-muted">  story-003  </span><span class="progress-bar"><span class="c-accent">▐███████░░░▌</span></span>  <span class="c-muted">3/5</span>  <span class="c-yellow">in-progress  <span class="c-red">⚠ 2</span></span>
+
+<span class="c-muted">  story-004  </span><span class="c-dim">▐░░░░░░░░░░▌</span>  <span class="c-muted">0/5</span>  <span class="c-muted">not-started</span>
+
+<span class="c-muted">  story-005  </span><span class="c-dim">▐░░░░░░░░░░▌</span>  <span class="c-muted">—</span>   <span class="c-dim">retired</span>
+    </div>
+    <div class="mod-desc">Unicode block characters rendered inline. Color reflects status: green = complete, yellow = in-progress, dim = not started. Pulses gently on the active story.</div>
+  </div>
+
+  <!-- 10. Box-Drawn Session Header -->
+  <div class="card">
+    <div class="card-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="card-title">10 · Box-Drawn Session Header</span>
+      <span class="card-tag tag-eye">Eye Candy</span>
+    </div>
+    <div class="terminal">
+<span class="c-dim">╭──────────────────────────────────────────────────────────────╮</span>
+<span class="c-dim">│</span>  <span class="c-accent bold">◈  V A Z I R</span>   <span class="c-dim">·</span>   <span class="c-muted">context engine for non-technical builders</span>  <span class="c-dim">│</span>
+<span class="c-dim">│</span>  <span class="c-muted">project</span> <span class="c-dim">·</span> <span class="c-sub">my-app</span>   <span class="c-muted">story</span> <span class="c-dim">·</span> <span class="c-sub">003</span>   <span class="c-muted">branch</span> <span class="c-dim">·</span> <span class="c-accent2">main</span>              <span class="c-dim">│</span>
+<span class="c-dim">╰──────────────────────────────────────────────────────────────╯</span>
+
+<span class="c-muted">  Session started · haiku-3.5 · 09:41</span>
+    </div>
+    <div class="mod-desc">Rendered once into <span style="font-family:monospace;color:var(--accent)">chatContainer</span> at session start. Sets the tone and gives the terminal a sense of place. Stays at the top of all chat history.</div>
+  </div>
+
+  <!-- 11. Done Flash -->
+  <div class="card">
+    <div class="card-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="card-title">11 · "Done" Completion Flash</span>
+      <span class="card-tag tag-eye">Eye Candy</span>
+    </div>
+    <div class="terminal">
+<span class="c-sub">  ...the complaints log is never injected into</span>
+<span class="c-sub">  prompts — it exists purely for pattern tracking.</span>
+
+<span class="flash-line">██████████████████████████████████████████████████</span>
+
+<span class="c-muted">  › </span><span class="editor-cursor"></span>
+    </div>
+    <div class="mod-desc">On <span style="font-family:monospace;color:var(--accent)">message_end</span>, a 1-line overlay briefly animates through <span style="color:var(--subtext);font-family:monospace">█ ▓ ▒ ░ ·</span> over ~500ms then vanishes. A satisfying tactile "landing" signal after each generation.</div>
+  </div>
+
+  <!-- 12. Colored Bash Output -->
+  <div class="card">
+    <div class="card-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="card-title">12 · Colored Bash Output</span>
+      <span class="card-tag tag-eye">Eye Candy</span>
+    </div>
+    <div class="terminal"><span class="c-muted bold">  bash</span> <span class="c-muted">·</span> <span class="c-sub">jj diff --stat</span>
+
+  <span class="c-green">+  src/vazir-context.ts      +24 −6</span>
+  <span class="c-red">-  src/vazir-sandbox.ts      deleted</span>
+  <span class="c-accent2">   .context/story-003.md     modified</span>
+  <span class="c-muted">   package.json              +1 −0</span>
+
+  <span class="c-muted">  bash</span> <span class="c-muted">·</span> <span class="c-sub">npm run build</span>
+
+  <span class="c-muted dim">  &gt; vazir@0.1.0 build</span>
+  <span class="c-muted dim">  &gt; tsc --noEmit</span>
+  <span class="c-green bold">  ✓ compiled successfully</span>
+
+  <span class="c-muted">  bash</span> <span class="c-muted">·</span> <span class="c-sub">npm test</span>
+
+  <span class="c-red bold">  ✗ error  applyLocalRuleDedupe</span>
+  <span class="c-muted dim">    at vazir-context.ts:214</span></div>
+    <div class="mod-desc">Lightweight syntax pass on <span style="font-family:monospace;color:var(--accent)">tool_execution_update</span> for bash calls. Lines with <span style="color:var(--green)">+</span> green, <span style="color:var(--red)">-</span> red, file paths in accent, error keywords in bold red.</div>
+  </div>
+
+</div>
+
+<!-- ─── PRIORITY TABLE ─────────────────────────────────────────── -->
+
+<div class="section-label">Implementation Priority</div>
+
+<div class="card" style="max-width:700px;">
+  <div class="card-header">
+    <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+    <span class="card-title">Ordered by impact-to-effort</span>
+  </div>
+  <div class="terminal" style="padding:20px 24px;">
+<span class="c-muted">  #   mod                              effort    impact</span>
+<span class="c-muted">  ─── ─────────────────────────────── ───────── ──────</span>
+  <span class="c-accent">1</span>   <span class="c-text">Tool output collapsed by default</span>    <span class="c-green">5 min</span>     <span class="c-green bold">High</span>
+  <span class="c-accent">2</span>   <span class="c-text">Contextual working messages</span>         <span class="c-green">30 min</span>    <span class="c-green bold">High</span>
+  <span class="c-accent">3</span>   <span class="c-text">Braille spinner</span>                     <span class="c-green">30 min</span>    <span class="c-yellow">Medium</span>
+  <span class="c-accent">4</span>   <span class="c-text">Story progress bar</span>                  <span class="c-green">30 min</span>    <span class="c-yellow">Medium</span>
+  <span class="c-accent">5</span>   <span class="c-text">Box-drawn session header</span>            <span class="c-green">30 min</span>    <span class="c-yellow">Medium</span>
+  <span class="c-accent">6</span>   <span class="c-text">Vazir status widget</span>                 <span class="c-yellow">1 hr</span>      <span class="c-green bold">High</span>
+  <span class="c-accent">7</span>   <span class="c-text">Custom footer</span>                       <span class="c-yellow">1 hr</span>      <span class="c-green bold">High</span>
+  <span class="c-accent">8</span>   <span class="c-text">Issue count badge</span>                   <span class="c-yellow">1 hr</span>      <span class="c-yellow">Medium</span>
+  <span class="c-accent">9</span>   <span class="c-text">"Done" completion flash</span>             <span class="c-yellow">1 hr</span>      <span class="c-yellow">Medium</span>
+  <span class="c-accent">10</span>  <span class="c-text">Fixed-height streaming window</span>       <span class="c-red">2 hrs</span>     <span class="c-green bold">High</span>
+  <span class="c-accent">11</span>  <span class="c-text">Rich markdown theme</span>                 <span class="c-red">2 hrs</span>     <span class="c-green bold">High</span>
+  <span class="c-accent">12</span>  <span class="c-text">Colored bash output</span>                 <span class="c-red">2 hrs</span>     <span class="c-yellow">Medium</span>
+<span class="c-muted">  ─── ─────────────────────────────── ───────── ──────</span>
+      <span class="c-muted">total                               ~12–14 hrs</span>
+
+      <span class="c-sub">First 5 items alone: &lt;2 hrs · transforms the feel</span>
+  </div>
+</div>
+
+<div style="height:64px;"></div>
+
+</body>
+</html>
