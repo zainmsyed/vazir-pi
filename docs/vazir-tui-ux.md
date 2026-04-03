@@ -328,23 +328,32 @@ function colorBashLine(line: string): string {
 
 ---
 
-## Implementation Priority
+## Implementation Batches
 
-Ordered by impact-to-effort ratio:
+The catalogue is grouped into staged batches so the work can land in clean increments instead of one giant pass.
+
+| Batch | Status | Scope |
+|---|---|---|
+| Batch 1 | Complete | Tool output collapsed by default, contextual working messages, braille spinner, session header |
+| Batch 2 | Next | Vazir status widget, story progress bar, issue badge, custom footer |
+| Batch 3 | Later | Fixed-height streaming window |
+| Batch 4 | Later | Rich markdown theme, colored bash output, completion flash |
+
+Ordered by impact-to-effort ratio inside each batch:
 
 | # | Mod | Effort | Impact |
 |---|---|---|---|
 | 1 | Tool output collapsed by default | 5 min | High |
 | 2 | Contextual working messages | 30 min | High |
 | 3 | Braille spinner | 30 min | Medium |
-| 4 | Story progress bar | 30 min | Medium |
-| 5 | Box-drawn session header | 30 min | Medium |
-| 6 | Vazir status widget | 1 hr | High |
-| 7 | Custom footer | 1 hr | High |
-| 8 | Issue count badge | 1 hr | Medium |
-| 9 | "Done" completion flash | 1 hr | Medium |
-| 10 | Fixed-height streaming window | 2 hrs | High |
-| 11 | Rich markdown theme | 2 hrs | High |
-| 12 | Colored bash output | 2 hrs | Medium |
+| 4 | Box-drawn session header | 30 min | Medium |
+| 5 | Vazir status widget | 1 hr | High |
+| 6 | Story progress bar | 30 min | Medium |
+| 7 | Issue count badge | 1 hr | Medium |
+| 8 | Custom footer | 1 hr | High |
+| 9 | Fixed-height streaming window | 2 hrs | High |
+| 10 | Rich markdown theme | 2 hrs | High |
+| 11 | Colored bash output | 2 hrs | Medium |
+| 12 | "Done" completion flash | 1 hr | Medium |
 
-Total estimated: ~12–14 hours for the full set. The first five items alone take under 2 hours and transform the feel of the tool.
+Total estimated: ~12–14 hours for the full set. Batch 1 is already done; Batch 2 is the next visible polish pass, Batch 3 is isolated to the streaming window, and Batch 4 is the final visual polish pass.
