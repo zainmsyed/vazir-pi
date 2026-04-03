@@ -45,16 +45,21 @@ const JJ_CHECKPOINT_SCAN_LIMIT = 120;
 const JJ_CHECKPOINT_MAX_CHOICES = 12;
 const EDIT_STREAM_LIMIT = 48;
 const EDIT_WIDGET_LINE_LIMIT = 3;
+const WORKING_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 // ── State ──────────────────────────────────────────────────────────────
 
 const changedFiles = new Map<string, FileInfo>();
 const editStream: EditStreamEntry[] = [];
 const pendingEditCalls: Array<{ toolName: "write" | "edit"; file: string }> = [];
-let widgetTui: any = null;
+let trackerWidgetTui: any = null;
+let bannerWidgetTui: any = null;
 let lastUserPrompt = "";
 let useJJ = false;
 let currentSessionId = "";
+let activeToolCalls = 0;
+let currentWorkingMessage = "";
+let workingMessageTicker: ReturnType<typeof setInterval> | null = null;
 
 // ── Generic helpers ────────────────────────────────────────────────────
 
@@ -372,6 +377,159 @@ function recentEditStreamLines(limit = EDIT_WIDGET_LINE_LIMIT): string[] {
     .slice(-limit)
     .reverse()
     .map(formatEditStreamEntry);
+}
+
+function clipInline(text: string, max = 40): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+function branchLabel(cwd: string): string {
+  try {
+    if (useJJ) {
+      const label = childProcess.execSync("jj bookmark list --revision @ --no-graph", {
+        cwd,
+        encoding: "utf-8",
+        stdio: "pipe",
+      }).trim();
+      if (label) return clipInline(label, 24);
+    }
+
+    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", {
+      cwd,
+      encoding: "utf-8",
+      stdio: "pipe",
+    }).trim();
+    if (branch) return clipInline(branch, 24);
+  } catch {
+    /* ignore VCS label lookup */
+  }
+
+  return useJJ ? "jj" : "workspace";
+}
+
+function fitLine(text: string, width: number): string {
+  if (width <= 0) return "";
+  if (text.length === width) return text;
+  if (text.length < width) return text + " ".repeat(width - text.length);
+  if (width === 1) return text.slice(0, 1);
+  return `${text.slice(0, width - 1)}…`;
+}
+
+function sessionBannerLines(cwd: string, width: number): string[] {
+  const safeWidth = Math.max(28, width || 28);
+  const innerWidth = Math.max(0, safeWidth - 2);
+  const project = path.basename(cwd);
+  const activeStory = findActiveStory(cwd);
+  const storyLabel = activeStory ? path.basename(activeStory.file, ".md") : "no active story";
+  const meta = `project · ${project}   story · ${storyLabel}   branch · ${branchLabel(cwd)}`;
+
+  return [
+    `╭${"─".repeat(innerWidth)}╮`,
+    `│${fitLine(" ◈ VAZIR · context engine", innerWidth)}│`,
+    `│${fitLine(` ${meta}`, innerWidth)}│`,
+    `╰${"─".repeat(innerWidth)}╯`,
+  ];
+}
+
+function createSessionBannerComponent(cwd: string) {
+  return (_tui: { requestRender(): void }, _theme: unknown) => ({
+    render(width: number): string[] {
+      return sessionBannerLines(cwd, width);
+    },
+    invalidate() {},
+  });
+}
+
+function createSessionBannerWidgetFactory(cwd: string) {
+  const headerComponentFactory = createSessionBannerComponent(cwd);
+  return (tui: { requestRender(): void }, theme: unknown) => {
+    bannerWidgetTui = tui;
+    return headerComponentFactory(tui, theme);
+  };
+}
+
+function spinnerFrame(): string {
+  return WORKING_SPINNER_FRAMES[Math.floor(Date.now() / 80) % WORKING_SPINNER_FRAMES.length];
+}
+
+function describeToolActivity(toolName: string | undefined, input: unknown): string {
+  const name = (toolName || "tool").toLowerCase();
+  const raw = (input ?? {}) as Record<string, unknown>;
+  const filePath = toolPathFromInput(input);
+  const command = typeof raw.command === "string" ? raw.command : "";
+  const query = typeof raw.query === "string" ? raw.query : "";
+
+  if (name === "read" || name === "read_file") {
+    return `Reading · ${path.basename(filePath)}`;
+  }
+  if (name === "write" || name === "write_file") {
+    return `Writing · ${path.basename(filePath)}`;
+  }
+  if (name === "edit" || name === "str_replace" || name === "apply_patch") {
+    return `Editing · ${path.basename(filePath)}`;
+  }
+  if (name === "bash") {
+    return `Running · ${clipInline(command || "shell command")}`;
+  }
+  if (name.includes("search") || name === "grep") {
+    return `Searching · ${clipInline(query || "workspace")}`;
+  }
+  if (filePath !== "(unknown file)") {
+    return `Using ${toolName} · ${path.basename(filePath)}`;
+  }
+
+  return `Using ${toolName || "tool"}`;
+}
+
+function callUiMethod(ui: any, methodName: string, ...args: unknown[]): boolean {
+  const method = ui?.[methodName];
+  if (typeof method !== "function") return false;
+  method(...args);
+  return true;
+}
+
+function applyWorkingMessage(ui: any): void {
+  if (activeToolCalls > 0 && currentWorkingMessage) {
+    callUiMethod(ui, "setWorkingMessage", currentWorkingMessage);
+    return;
+  }
+
+  callUiMethod(ui, "setWorkingMessage");
+}
+
+function ensureWorkingMessageTicker(ui: any): void {
+  if (workingMessageTicker || typeof ui?.setWorkingMessage !== "function") return;
+  workingMessageTicker = setInterval(() => {
+    applyWorkingMessage(ui);
+  }, 80);
+}
+
+function stopWorkingMessageTicker(ui: any): void {
+  if (workingMessageTicker) {
+    clearInterval(workingMessageTicker);
+    workingMessageTicker = null;
+  }
+  callUiMethod(ui, "setWorkingMessage");
+}
+
+function beginToolActivity(ui: any, toolName: string | undefined, input: unknown): void {
+  activeToolCalls += 1;
+  currentWorkingMessage = describeToolActivity(toolName, input);
+  applyWorkingMessage(ui);
+  ensureWorkingMessageTicker(ui);
+}
+
+function endToolActivity(ui: any): void {
+  activeToolCalls = Math.max(0, activeToolCalls - 1);
+  if (activeToolCalls === 0) {
+    currentWorkingMessage = "";
+    stopWorkingMessageTicker(ui);
+    return;
+  }
+
+  applyWorkingMessage(ui);
 }
 
 // ── JJ helpers ─────────────────────────────────────────────────────────
@@ -713,9 +871,12 @@ function findOrphanedGitSessions(cwd: string, currentId: string): string[] {
   return fs.readdirSync(root, { withFileTypes: true }).map((entry: { name: string }) => entry.name).filter((id: string) => id !== currentId);
 }
 
-// ── refreshWidget ──────────────────────────────────────────────────────
+// ── refreshWidgets ─────────────────────────────────────────────────────
 
-function refreshWidget() { widgetTui?.requestRender(); }
+function refreshWidgets() {
+  trackerWidgetTui?.requestRender();
+  bannerWidgetTui?.requestRender();
+}
 
 // ── Extension ──────────────────────────────────────────────────────────
 
@@ -735,6 +896,8 @@ export default function (pi: ExtensionAPI) {
     const cwd = ctx.cwd;
     useJJ = detectJJ(cwd);
     if (useJJ) loadJjCheckpointLabels(cwd);
+    activeToolCalls = 0;
+    currentWorkingMessage = "";
 
     const sessionFile = (ctx.sessionManager as any)?.getSessionFile?.() ?? "";
     const match = sessionFile.match(/_([a-f0-9]+)\.jsonl$/);
@@ -768,9 +931,17 @@ export default function (pi: ExtensionAPI) {
     // ── Mount widget ─────────────────────────────────────────────────
     if (!ctx.hasUI) return;
     syncChanges(cwd);
+    callUiMethod(ctx.ui, "setToolOutputExpanded", false);
+    applyWorkingMessage(ctx.ui);
 
-    ctx.ui.setWidget("vazir-tracker", (tui: { requestRender(): void }, theme: { fg: (label: string, text: string) => string }) => {
-      widgetTui = tui;
+    const bannerComponentFactory = createSessionBannerComponent(cwd);
+    const mountedHeader = callUiMethod(ctx.ui, "setHeader", bannerComponentFactory);
+    if (!mountedHeader) {
+      callUiMethod(ctx.ui, "setWidget", "vazir-session-banner", createSessionBannerWidgetFactory(cwd), { placement: "aboveEditor" });
+    }
+
+    callUiMethod(ctx.ui, "setWidget", "vazir-tracker", (tui: { requestRender(): void }, theme: { fg: (label: string, text: string) => string }) => {
+      trackerWidgetTui = tui;
       return {
         render(): string[] {
           if (changedFiles.size === 0 && editStream.length === 0) return [];
@@ -803,9 +974,16 @@ export default function (pi: ExtensionAPI) {
           return lines.slice(0, 1 + 1 + EDIT_WIDGET_LINE_LIMIT);
         },
         invalidate() {},
-        dispose() { widgetTui = null; },
+        dispose() { trackerWidgetTui = null; },
       };
     }, { placement: "belowEditor" });
+  });
+
+  pi.on("session_shutdown", async (_event: unknown, ctx: { ui?: any }) => {
+    activeToolCalls = 0;
+    currentWorkingMessage = "";
+    stopWorkingMessageTicker(ctx.ui);
+    callUiMethod(ctx.ui, "setHeader", undefined);
   });
 
   // ── Git fallback: snapshot before agent writes ────────────────────────
@@ -829,13 +1007,15 @@ export default function (pi: ExtensionAPI) {
     gitCurrentCheckpointDir = dir;
   });
 
-  pi.on("tool_call", async (event: { toolName?: string; input?: { path?: string } }, ctx: { cwd: string }) => {
+  pi.on("tool_call", async (event: { toolName?: string; input?: { path?: string } }, ctx: { cwd: string; ui?: any }) => {
+    beginToolActivity(ctx.ui, event.toolName, event.input);
+
     if (event.toolName === "write" || event.toolName === "edit") {
       const toolName = event.toolName;
       const file = toolPathFromInput(event.input);
       pendingEditCalls.push({ toolName, file });
       recordEditStreamEntry("start", toolName, file);
-      refreshWidget();
+      refreshWidgets();
     }
 
     if (useJJ) return;
@@ -860,7 +1040,9 @@ export default function (pi: ExtensionAPI) {
   });
 
   // Sync widget after any file-writing tool
-  pi.on("tool_result", async (event: { toolName?: string }, ctx: { cwd: string }) => {
+  pi.on("tool_result", async (event: { toolName?: string }, ctx: { cwd: string; ui?: any }) => {
+    endToolActivity(ctx.ui);
+
     if (event.toolName === "write" || event.toolName === "edit") {
       const toolName = event.toolName;
       recordEditStreamEntry("done", toolName, claimPendingEditCall(toolName));
@@ -868,7 +1050,7 @@ export default function (pi: ExtensionAPI) {
 
     if (event.toolName === "write" || event.toolName === "edit" || event.toolName === "bash") {
       syncChanges(ctx.cwd);
-      refreshWidget();
+      refreshWidgets();
     }
   });
 
@@ -1129,7 +1311,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       syncChanges(cwd);
-      refreshWidget();
+      refreshWidgets();
       return;
     }
 
@@ -1153,7 +1335,7 @@ export default function (pi: ExtensionAPI) {
     if (restoreChoice === "Previous checkpoint — undo last agent turn") {
       gitRestoreCheckpoint(cwd, checkpoints[0].dir);
       syncChanges(cwd);
-      refreshWidget();
+      refreshWidgets();
       ctx.ui.notify("Restored to previous checkpoint", "info");
     } else if (restoreChoice === "Choose checkpoint — pick from list") {
       const labels = checkpoints.map(cp => {
@@ -1165,7 +1347,7 @@ export default function (pi: ExtensionAPI) {
         const chosen = checkpoints[labels.indexOf(pick)];
         gitRestoreCheckpoint(cwd, chosen.dir);
         syncChanges(cwd);
-        refreshWidget();
+        refreshWidgets();
         ctx.ui.notify(`Restored checkpoint #${chosen.n}`, "info");
       }
     }
