@@ -335,7 +335,7 @@ The catalogue is grouped into staged batches so the work can land in clean incre
 | Batch | Status | Scope |
 |---|---|---|
 | Batch 1 | Complete | Tool output collapsed by default, contextual working messages, braille spinner, session header |
-| Batch 2 | Next | Vazir status widget, story progress bar, issue badge, custom footer |
+| Batch 2 | Complete | Vazir status widget, story progress bar, issue badge, custom footer |
 | Batch 3 | Later | Fixed-height streaming window |
 | Batch 4 | Later | Rich markdown theme, colored bash output, completion flash |
 
@@ -356,4 +356,4 @@ Ordered by impact-to-effort ratio inside each batch:
 | 11 | Colored bash output | 2 hrs | Medium |
 | 12 | "Done" completion flash | 1 hr | Medium |
 
-Total estimated: ~12–14 hours for the full set. Batch 1 is already done; Batch 2 is the next visible polish pass, Batch 3 is isolated to the streaming window, and Batch 4 is the final visual polish pass.
+Total estimated: ~12–14 hours for the full set. Batch 1 and Batch 2 are already done; Batch 3 is isolated to the streaming window, and Batch 4 is the final visual polish pass.

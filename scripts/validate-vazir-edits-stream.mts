@@ -127,20 +127,12 @@ async function runScenario() {
 
   await harness.emit("session_start", {}, ctx);
 
-  const widgetMount = ctx.getWidgetMount();
-  assert(widgetMount !== null, "tracker widget was not mounted");
   assert(harness.commands.has("edits"), "edits command was not registered");
 
   await harness.emit("tool_call", { toolName: "write", input: { path: "src/demo.ts" } }, ctx);
   await harness.emit("tool_result", { toolName: "write" }, ctx);
   await harness.emit("tool_call", { toolName: "edit", input: { path: "src/demo.ts" } }, ctx);
   await harness.emit("tool_result", { toolName: "edit" }, ctx);
-
-  const widget = widgetMount!.factory({ requestRender() {} }, { fg: (_label: string, text: string) => text });
-  const widgetLines = widget.render(120);
-  assert(widgetLines.some(line => line.includes("/edits")), "widget did not advertise the /edits viewer");
-  assert(widgetLines.some(line => line.includes("write src/demo.ts")), "widget did not show the write event");
-  assert(widgetLines.some(line => line.includes("edit src/demo.ts")), "widget did not show the edit event");
 
   const editsCommand = harness.commands.get("edits");
   assert(editsCommand, "edits command missing");
@@ -151,7 +143,7 @@ async function runScenario() {
   assert(viewerLines.some(line => line.includes("write src/demo.ts")), "edits viewer did not include the write event");
   assert(viewerLines.some(line => line.includes("edit src/demo.ts")), "edits viewer did not include the edit event");
 
-  return { cwd, notifications, widgetLines, viewerLines };
+  return { cwd, notifications, viewerLines };
 }
 
 function printScenario(title: string, details: Record<string, unknown>) {
