@@ -501,19 +501,32 @@ function fitLine(text: string, width: number): string {
   return `${text.slice(0, width - 1)}…`;
 }
 
+function vazirAsciiArt(width: number): string[] {
+  const art = `__/\\\________/\\\_____/\\\\\\\\\\\_____/\\\\\\\\\\\\\\\\\\__/\\\\\\\\\\\\\\\____/\\\\\\\\\\\_____        
+ _\/\\\_______\/\\\___/\\\\\\\\\\\\\\\\\__\\////////////\\\__\\/////\\\///___/\\\///////\\\___       
+  _\//\\\______/\\\___/\\\/////////\\\___________/\\\\/_______\/\\\_____\/\\\_____\/\\\___      
+   __\//\\\____/\\\___\/\\\_______\/\\\_________/\\\\/_________\/\\\_____\/\\\\\\\\\\\/_____     
+    ___\//\\\__/\\\____\/\\\\\\\\\\\\\\\\\_______/\\\\/___________\/\\\_____\/\\\//////\\\____    
+     ____\//\\\/\\\_____\/\\\/////////\\\_____/\\\\/_____________\/\\\_____\/\\\____\//\\\___   
+      _____\//\\\\\______\/\\\_______\/\\\___/\\\\/_______________\/\\\_____\/\\\_____\//\\\__  
+       ______\//\\\_______\/\\\_______\/\\\__/\\\\\\\\\\\\\\\\\__/\\\\\\\\\\\\\\\_\/\\\______\//\\\_ 
+        _______\///________\///________\///__\///////////////__\///////////__\///________\///__
+`;
+
+  return art.split("\n").map(line => fitLine(line, width));
+}
+
 function sessionBannerLines(cwd: string, width: number): string[] {
   const safeWidth = Math.max(28, width || 28);
-  const innerWidth = Math.max(0, safeWidth - 2);
   const project = path.basename(cwd);
   const activeStory = findActiveStory(cwd);
   const storyLabel = activeStory ? path.basename(activeStory.file, ".md") : "no active story";
   const meta = `project · ${project}   story · ${storyLabel}   branch · ${branchLabel(cwd)}`;
 
   return [
-    `╭${"─".repeat(innerWidth)}╮`,
-    `│${fitLine(" ◈ VAZIR · context engine", innerWidth)}│`,
-    `│${fitLine(` ${meta}`, innerWidth)}│`,
-    `╰${"─".repeat(innerWidth)}╯`,
+    ...vazirAsciiArt(safeWidth),
+    fitLine("", safeWidth),
+    fitLine(meta, safeWidth),
   ];
 }
 
