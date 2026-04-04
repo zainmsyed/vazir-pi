@@ -66,6 +66,7 @@ const JJ_CHECKPOINT_MAX_CHOICES = 12;
 const EDIT_STREAM_LIMIT = 48;
 const EDIT_WIDGET_LINE_LIMIT = 3;
 const WORKING_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const CHANGE_SYNC_INTERVAL_MS = 1000;
 const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
 const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/vazir-init", description: "bootstrap .context and seed the project brain" },
@@ -125,6 +126,7 @@ let currentFooterSnapshot: FooterSessionSnapshot | null = null;
 let liveThinkingLevelGetter: (() => string) | null = null;
 let commandHelpOpen = false;
 let commandHelpInputUnsubscribe: (() => void) | null = null;
+let lastChangeSyncAt = 0;
 
 // ── Generic helpers ────────────────────────────────────────────────────
 
@@ -1062,6 +1064,10 @@ function ensureSessionChromeMounted(ui: any, cwd: string): void {
 function startFooterRefreshTicker(): void {
   if (footerRefreshTicker || !currentFooterSnapshot) return;
   footerRefreshTicker = setInterval(() => {
+    if (currentFooterSnapshot && Date.now() - lastChangeSyncAt >= CHANGE_SYNC_INTERVAL_MS) {
+      syncChanges(currentFooterSnapshot.cwd);
+      lastChangeSyncAt = Date.now();
+    }
     statusWidgetTui?.requestRender();
     footerWidgetTui?.requestRender();
   }, 120);
@@ -1538,6 +1544,7 @@ export default function (pi: ExtensionAPI) {
       sessionManager,
       getContextUsage: ctx.getContextUsage ?? (() => undefined),
     };
+    lastChangeSyncAt = 0;
     if (ctx.hasUI) {
       startFooterRefreshTicker();
       registerCommandHelpShortcut(ctx);
@@ -1590,6 +1597,7 @@ export default function (pi: ExtensionAPI) {
     statusWidgetTui = null;
     currentFooterSnapshot = null;
     liveThinkingLevelGetter = null;
+    lastChangeSyncAt = 0;
     stopFooterRefreshTicker();
   });
 
