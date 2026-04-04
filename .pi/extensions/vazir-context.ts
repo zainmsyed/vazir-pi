@@ -5,6 +5,19 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import {
+  complaintsLogPath,
+  detectJJ,
+  findActiveStory,
+  listStories,
+  nonTerminalStories,
+  nowISO,
+  readIfExists,
+  storiesDir,
+  todayDate,
+  type StoryFrontmatter,
+  updateStoryFrontmatter,
+} from "../lib/vazir-helpers.ts";
 
 const SOURCE_FILE_EXTENSIONS = new Set([
   ".c",
@@ -107,6 +120,33 @@ const JJ_OVERVIEW_URL = "https://www.jj-vcs.dev/latest/";
 const MAX_INTAKE_PREVIEW_BYTES = 4000;
 const MAX_INTAKE_PREVIEW_LINES = 12;
 const REVIEW_PROMOTION_THRESHOLD = 2;
+const PREVIEWABLE_TEXT_EXTENSIONS = new Set([
+  ".md",
+  ".txt",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".csv",
+  ".tsv",
+  ".xml",
+  ".html",
+  ".js",
+  ".ts",
+  ".jsx",
+  ".tsx",
+  ".py",
+  ".rb",
+  ".go",
+  ".rs",
+  ".java",
+  ".c",
+  ".cpp",
+  ".h",
+  ".sql",
+  ".sh",
+]);
+const GENERAL_APPROVALS = new Set(["yes", "y", "done", "approved", "looks good", "ship it"]);
 
 let lastUserPrompt = "";
 let useJJ = false;
@@ -117,14 +157,6 @@ type InitFileStatus = {
   label: string;
   present: boolean;
 };
-
-interface StoryFrontmatter {
-  status: string;
-  lastAccessed: string;
-  completed: string;
-  file: string;
-  number: number;
-}
 
 interface SeedStorySpec {
   title: string;
@@ -146,20 +178,12 @@ function settingsDir(cwd: string) {
   return path.join(cwd, ".context", "settings");
 }
 
-function storiesDir(cwd: string) {
-  return path.join(cwd, ".context", "stories");
-}
-
 function intakeBriefPath(cwd: string) {
   return path.join(storiesDir(cwd), "intake-brief.md");
 }
 
 function intakeDir(cwd: string) {
   return path.join(cwd, ".context", "intake");
-}
-
-function complaintsLogPath(cwd: string) {
-  return path.join(cwd, ".context", "complaints-log.md");
 }
 
 function reviewsDir(cwd: string) {
@@ -231,12 +255,6 @@ const REMEMBERED_RULES_TEMPLATE = [
   "",
 ].join("\n");
 
-// ── Generic helpers ────────────────────────────────────────────────────
-
-function readIfExists(filePath: string): string {
-  return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : "";
-}
-
 function ensureDir(dirPath: string) {
   fs.mkdirSync(dirPath, { recursive: true });
 }
@@ -269,25 +287,8 @@ function baseName(filePath: string): string {
   return normalized.split("/").pop() || normalized;
 }
 
-function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function nowISO(): string {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
 function compactTimestamp(iso: string): string {
   return iso.replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
-}
-
-function detectJJ(cwd: string): boolean {
-  try {
-    childProcess.execSync("jj root", { cwd, stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function detectGitRepo(cwd: string): boolean {
@@ -316,33 +317,7 @@ function fileExtension(filePath: string): string {
 }
 
 function isPreviewableTextFile(filePath: string): boolean {
-  const ext = fileExtension(filePath);
-  return new Set([
-    ".md",
-    ".txt",
-    ".json",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".csv",
-    ".tsv",
-    ".xml",
-    ".html",
-    ".js",
-    ".ts",
-    ".jsx",
-    ".tsx",
-    ".py",
-    ".rb",
-    ".go",
-    ".rs",
-    ".java",
-    ".c",
-    ".cpp",
-    ".h",
-    ".sql",
-    ".sh",
-  ]).has(ext);
+  return PREVIEWABLE_TEXT_EXTENSIONS.has(fileExtension(filePath));
 }
 
 function clipTextPreview(content: string): string {
@@ -454,63 +429,11 @@ function listIntakeFiles(cwd: string): string[] {
   return files.sort((left, right) => left.localeCompare(right));
 }
 
-// ── Story helpers ──────────────────────────────────────────────────────
-
-function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null {
-  const content = readIfExists(filePath);
-  if (!content) return null;
-
-  const statusMatch = content.match(/^\*\*Status:\*\*\s*(.+)$/m);
-  const lastAccessedMatch = content.match(/^\*\*Last accessed:\*\*\s*(.+)$/m);
-  const completedMatch = content.match(/^\*\*Completed:\*\*\s*(.+)$/m);
-  const fileName = path.basename(filePath);
-  const numberMatch = fileName.match(/story-(\d+)\.md$/);
-
-  if (!statusMatch || !numberMatch) return null;
-
-  return {
-    status: statusMatch[1].trim(),
-    lastAccessed: lastAccessedMatch?.[1]?.trim() ?? "",
-    completed: completedMatch?.[1]?.trim() ?? "—",
-    file: filePath,
-    number: parseInt(numberMatch[1], 10),
-  };
-}
-
-function listStories(cwd: string): StoryFrontmatter[] {
-  const dir = storiesDir(cwd);
-  if (!fs.existsSync(dir)) return [];
-
-  return fs.readdirSync(dir)
-    .filter((name: string) => /^story-\d+\.md$/.test(name))
-    .map((name: string) => parseStoryFrontmatter(path.join(dir, name)))
-    .filter((s: StoryFrontmatter | null): s is StoryFrontmatter => s !== null);
-}
-
-function findActiveStory(cwd: string): StoryFrontmatter | null {
-  const stories = listStories(cwd);
-  const inProgress = stories.filter(s => s.status === "in-progress");
-
-  if (inProgress.length === 0) return null;
-  if (inProgress.length === 1) return inProgress[0];
-
-  // Multiple in-progress: pick most recent last_accessed, break ties by highest number
-  inProgress.sort((a, b) => {
-    const dateCmp = b.lastAccessed.localeCompare(a.lastAccessed);
-    if (dateCmp !== 0) return dateCmp;
-    return b.number - a.number;
-  });
-
-  return inProgress[0];
-}
-
 function findWorkableStory(cwd: string): StoryFrontmatter | null {
   const active = findActiveStory(cwd);
   if (active) return active;
 
-  const candidates = listStories(cwd)
-    .filter(story => story.status !== "complete" && story.status !== "retired")
-    .sort((a, b) => a.number - b.number);
+  const candidates = nonTerminalStories(cwd).sort((a, b) => a.number - b.number);
 
   return candidates[0] ?? null;
 }
@@ -521,32 +444,11 @@ function snapshotStoryFrontmatter(cwd: string): Map<string, { status: string; co
   );
 }
 
-function updateStoryFrontmatter(
-  storyPath: string,
-  updates: { status?: StoryFrontmatter["status"]; lastAccessed?: string },
-): void {
-  const content = readIfExists(storyPath);
-  if (!content) return;
-
-  let updated = content;
-  if (updates.status) {
-    updated = updated.replace(/^[*][*]Status:[*][*]\s*.+$/m, `**Status:** ${updates.status}  `);
-  }
-  if (updates.lastAccessed) {
-    updated = updated.replace(/^[*][*]Last accessed:[*][*]\s*.+$/m, `**Last accessed:** ${updates.lastAccessed}  `);
-  }
-
-  if (updated !== content) {
-    fs.writeFileSync(storyPath, updated);
-  }
-}
-
 function userExplicitlyApprovedStatusChange(prompt: string, nextStatus: string): boolean {
   const normalized = prompt.trim().toLowerCase();
   if (!normalized) return false;
 
-  const generalApprovals = new Set(["yes", "y", "done", "approved", "looks good", "ship it"]);
-  if (generalApprovals.has(normalized)) return true;
+  if (GENERAL_APPROVALS.has(normalized)) return true;
 
   if (nextStatus === "complete") {
     return [
@@ -1354,6 +1256,7 @@ export default function (pi: ExtensionAPI) {
     syncReviewSummaryAndPromoteRules(ctx.cwd);
     clearLegacyPendingLearnings(ctx.cwd);
     applyLocalRuleDedupe(ctx.cwd);
+    storyFrontmatterSnapshots.delete(ctx.cwd);
   });
 
   // ── agent_end: zero-token index.md structural updates ─────────────────
@@ -1519,7 +1422,7 @@ export default function (pi: ExtensionAPI) {
       let jjAvailable = false;
       if (gitReady) {
         try {
-          childProcess.execSync("jj --version", { cwd, stdio: "pipe" });
+          childProcess.execFileSync("jj", ["--version"], { cwd, stdio: "pipe" });
           jjAvailable = true;
         } catch {
           ctx.ui.notify(
@@ -1532,15 +1435,15 @@ export default function (pi: ExtensionAPI) {
       try {
         if (jjAvailable) {
           try {
-            childProcess.execSync("jj root", { cwd, stdio: "pipe" });
+            childProcess.execFileSync("jj", ["root"], { cwd, stdio: "pipe" });
             ctx.ui.notify("JJ already initialised", "info");
             jjLine = "☑ JJ (Jujutsu): active";
             jjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
           } catch {
-            childProcess.execSync("jj git init --colocate", { cwd, stdio: "pipe" });
+            childProcess.execFileSync("jj", ["git", "init", "--colocate"], { cwd, stdio: "pipe" });
             for (const branch of ["main", "master"]) {
               try {
-                childProcess.execSync(`jj bookmark track ${branch}@origin`, { cwd, stdio: "pipe" });
+                childProcess.execFileSync("jj", ["bookmark", "track", `${branch}@origin`], { cwd, stdio: "pipe" });
                 break;
               } catch {
                 // Try the next common default branch.
@@ -1693,7 +1596,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── /unlearn ─────────────────────────────────────────────────────────
+  // ── /remember ────────────────────────────────────────────────────────
 
   pi.registerCommand("remember", {
     description: "Promote a confirmed lesson into memory; if no rule is provided, draft one from the recent fix context",
