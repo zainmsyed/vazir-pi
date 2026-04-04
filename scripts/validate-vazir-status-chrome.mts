@@ -68,10 +68,27 @@ function stripAnsi(text: string | undefined): string {
 function createProject(prefix: string): string {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   fs.mkdirSync(path.join(cwd, ".context", "stories"), { recursive: true });
+  fs.mkdirSync(path.join(cwd, ".context", "memory"), { recursive: true });
+  fs.mkdirSync(path.join(cwd, ".context", "settings"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, ".context", "memory", "system.md"), "# System\n");
+  fs.writeFileSync(path.join(cwd, ".context", "settings", "project.json"), "{}\n");
   childProcess.execSync("git init -q", { cwd, stdio: "pipe" });
   childProcess.execSync("git config user.name 'Vazir Test'", { cwd, stdio: "pipe" });
   childProcess.execSync("git config user.email 'vazir-test@example.com'", { cwd, stdio: "pipe" });
   childProcess.execSync("git commit --allow-empty -qm init", { cwd, stdio: "pipe" });
+  return cwd;
+}
+
+function createPlainFolder(prefix: string): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+function createBootstrappedPlainFolder(prefix: string): string {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  fs.mkdirSync(path.join(cwd, ".context", "memory"), { recursive: true });
+  fs.mkdirSync(path.join(cwd, ".context", "settings"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, ".context", "memory", "system.md"), "# System\n");
+  fs.writeFileSync(path.join(cwd, ".context", "settings", "project.json"), "{}\n");
   return cwd;
 }
 
@@ -345,6 +362,114 @@ async function runScenario() {
   };
 }
 
+async function runCleanFolderScenario() {
+  const cwd = createPlainFolder("vazir-status-clean-folder-");
+  const notifications: Notification[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications);
+  const theme: Theme = { fg: (_label: string, text: string) => text };
+
+  await harness.emit("session_start", {}, ctx);
+
+  assert(ctx.getToolOutputExpanded() === false, "tool output was not collapsed on clean-folder session start");
+  assert(
+    notifications.some(note => note.message.includes("Run /vazir-init")),
+    "clean-folder startup did not tell the user to run /vazir-init",
+  );
+
+  const statusMount = ctx.getWidgetMount("vazir-story-status");
+  const footerFactory = ctx.getFooterFactory();
+  assert(statusMount !== null, "clean-folder startup did not mount the story status widget");
+  assert(footerFactory !== null, "clean-folder startup did not mount the footer");
+
+  const statusComponent = statusMount!.factory({ requestRender() {} }, theme);
+  const statusLines = statusComponent.render(140).map(stripAnsi);
+  assert(statusLines.some(line => line.includes("run /vazir-init")), "clean-folder status widget did not show /vazir-init guidance");
+
+  let gitBranchCalls = 0;
+  let branchSubscriptions = 0;
+
+  const footerComponent = footerFactory!(
+    { requestRender() {} },
+    theme,
+    {
+      getGitBranch() {
+        gitBranchCalls += 1;
+        return undefined;
+      },
+      onBranchChange() {
+        branchSubscriptions += 1;
+        return () => {};
+      },
+    },
+  );
+  const footerLines = footerComponent.render(140).map(stripAnsi);
+  assert(footerLines[1]?.includes("setup required"), "clean-folder footer did not show setup-required guidance");
+  assert(footerLines[1]?.includes("run /vazir-init"), "clean-folder footer did not show /vazir-init guidance");
+  assert(gitBranchCalls === 0, "clean-folder footer should not call the host git branch helper");
+  assert(branchSubscriptions === 0, "clean-folder footer should not subscribe to host branch-change events");
+
+  await harness.emit("session_shutdown", {}, ctx);
+
+  return {
+    cwd,
+    notifications,
+    statusLines,
+    footerLines,
+  };
+}
+
+async function runBootstrappedPlainFolderScenario() {
+  const cwd = createBootstrappedPlainFolder("vazir-status-no-git-");
+  const notifications: Notification[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications);
+  const theme: Theme = { fg: (_label: string, text: string) => text };
+
+  await harness.emit("session_start", {}, ctx);
+
+  const statusMount = ctx.getWidgetMount("vazir-story-status");
+  const footerFactory = ctx.getFooterFactory();
+  assert(statusMount !== null, "bootstrapped no-git startup did not mount the story status widget");
+  assert(footerFactory !== null, "bootstrapped no-git startup did not mount the footer");
+
+  const statusComponent = statusMount!.factory({ requestRender() {} }, theme);
+  const statusLines = statusComponent.render(140).map(stripAnsi);
+  assert(statusLines.some(line => line.includes("no active story")), "bootstrapped no-git status widget should render the normal empty state");
+
+  let gitBranchCalls = 0;
+  let branchSubscriptions = 0;
+
+  const footerComponent = footerFactory!(
+    { requestRender() {} },
+    theme,
+    {
+      getGitBranch() {
+        gitBranchCalls += 1;
+        return undefined;
+      },
+      onBranchChange() {
+        branchSubscriptions += 1;
+        return () => {};
+      },
+    },
+  );
+  const footerLines = footerComponent.render(140).map(stripAnsi);
+  assert(footerLines[1]?.includes("no active story"), "bootstrapped no-git footer should include the normal empty-story label");
+  assert(footerLines[1]?.includes("no-git"), "bootstrapped no-git footer should show a no-git branch label");
+  assert(gitBranchCalls === 0, "bootstrapped no-git footer should not call the host git branch helper");
+  assert(branchSubscriptions === 0, "bootstrapped no-git footer should not subscribe to host branch-change events");
+
+  await harness.emit("session_shutdown", {}, ctx);
+
+  return {
+    cwd,
+    notifications,
+    statusLines,
+    footerLines,
+  };
+}
+
 function printScenario(title: string, details: Record<string, unknown>) {
   console.log(title);
   for (const [key, value] of Object.entries(details)) {
@@ -370,7 +495,11 @@ function printScenario(title: string, details: Record<string, unknown>) {
 
 try {
   const scenario = await runScenario();
+  const cleanFolder = await runCleanFolderScenario();
+  const bootstrappedPlainFolder = await runBootstrappedPlainFolderScenario();
   printScenario("Status Chrome", scenario);
+  printScenario("Clean Folder Startup", cleanFolder);
+  printScenario("Bootstrapped Plain Folder", bootstrappedPlainFolder);
 } finally {
   for (const moduleDir of stubModuleDirs.reverse()) {
     fs.rmSync(moduleDir, { recursive: true, force: true });

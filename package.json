@@ -1,0 +1,8 @@
+{
+  "name": "vazir-pi",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types ./scripts/run-validations.mts"
+  }
+}

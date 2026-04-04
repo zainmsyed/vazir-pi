@@ -6,6 +6,20 @@ import * as piTui from "@mariozechner/pi-tui";
 import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import {
+  complaintsLogPath,
+  compareStoriesByRecencyDesc,
+  detectJJ,
+  findActiveStory,
+  listStories,
+  nonTerminalStories,
+  nowISO,
+  readIfExists,
+  storiesDir,
+  todayDate,
+  type StoryFrontmatter,
+  updateStoryFrontmatter,
+} from "../lib/vazir-helpers.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -34,14 +48,6 @@ interface JjCheckpointLabelStore {
   labels: Record<string, string>;
 }
 
-interface StoryFrontmatter {
-  status: string;
-  lastAccessed: string;
-  completed: string;
-  file: string;
-  number: number;
-}
-
 interface StoryProgressSummary {
   story: StoryFrontmatter;
   slug: string;
@@ -68,6 +74,7 @@ const EDIT_WIDGET_LINE_LIMIT = 3;
 const WORKING_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const CHANGE_SYNC_INTERVAL_MS = 1000;
 const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
+// Keep this list in sync with command registration across vazir-context.ts and this file.
 const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/vazir-init", description: "bootstrap .context and seed the project brain" },
   { command: "/plan", description: "review intake, ask delta questions, and generate stories" },
@@ -111,8 +118,6 @@ interface CommandHelpEntry {
 const changedFiles = new Map<string, FileInfo>();
 const editStream: EditStreamEntry[] = [];
 const pendingEditCalls: Array<{ toolName: "write" | "edit"; file: string }> = [];
-let trackerWidgetTui: any = null;
-let bannerWidgetTui: any = null;
 let statusWidgetTui: any = null;
 let footerWidgetTui: any = null;
 let lastUserPrompt = "";
@@ -128,25 +133,16 @@ let liveThinkingLevelGetter: (() => string) | null = null;
 let commandHelpOpen = false;
 let commandHelpInputUnsubscribe: (() => void) | null = null;
 let lastChangeSyncAt = 0;
+let storyProgressCacheCwd = "";
+let storyProgressCache: StoryProgressSummary | null | undefined = undefined;
+let hasGitRepo = false;
 
 // ── Generic helpers ────────────────────────────────────────────────────
-
-function readIfExists(filePath: string): string {
-  return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : "";
-}
 
 function parentDirectory(filePath: string): string {
   const normalized = filePath.replace(/\\/g, "/");
   const index = normalized.lastIndexOf("/");
   return index >= 0 ? normalized.slice(0, index) : ".";
-}
-
-function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function nowISO(): string {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 function formatTokens(count: number): string {
@@ -225,7 +221,16 @@ function alignFooterLine(left: string, right: string, width: number): string {
   const separator = paint(" · ", "separator");
   const combined = right ? `${left}${separator}${right}` : left;
   if (visibleLength(combined) > safeWidth) {
-    return truncateAnsi(combined, safeWidth);
+    if (!right) {
+      return truncateAnsi(combined, safeWidth);
+    }
+
+    const reservedWidth = visibleLength(separator) + visibleLength(right);
+    const leftWidth = Math.max(0, safeWidth - reservedWidth);
+    if (leftWidth === 0) {
+      return truncateAnsi(right, safeWidth);
+    }
+    return `${truncateAnsi(left, leftWidth)}${separator}${right}`;
   }
 
   const leftLength = visibleLength(left);
@@ -380,70 +385,38 @@ function timeOfDay(iso: string): string {
   return iso.slice(11, 19);
 }
 
-function storiesDir(cwd: string): string {
-  return path.join(cwd, ".context", "stories");
+function detectGitRepo(cwd: string): boolean {
+  try {
+    childProcess.execSync("git rev-parse --git-dir", { cwd, encoding: "utf-8", stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function planPath(cwd: string): string {
   return path.join(storiesDir(cwd), "plan.md");
 }
 
-function complaintsLogPath(cwd: string): string {
-  return path.join(cwd, ".context", "complaints-log.md");
+function systemMemoryPath(cwd: string): string {
+  return path.join(cwd, ".context", "memory", "system.md");
+}
+
+function projectSettingsPath(cwd: string): string {
+  return path.join(cwd, ".context", "settings", "project.json");
+}
+
+function isVazirInitialized(cwd: string): boolean {
+  return fs.existsSync(systemMemoryPath(cwd)) || fs.existsSync(projectSettingsPath(cwd));
 }
 
 // ── Story helpers ──────────────────────────────────────────────────────
 
-function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null {
-  const content = readIfExists(filePath);
-  if (!content) return null;
-
-  const statusMatch = content.match(/^\*\*Status:\*\*\s*(.+)$/m);
-  const lastAccessedMatch = content.match(/^\*\*Last accessed:\*\*\s*(.+)$/m);
-  const completedMatch = content.match(/^\*\*Completed:\*\*\s*(.+)$/m);
-  const fileName = path.basename(filePath);
-  const numberMatch = fileName.match(/story-(\d+)\.md$/);
-
-  if (!statusMatch || !numberMatch) return null;
-
-  return {
-    status: statusMatch[1].trim(),
-    lastAccessed: lastAccessedMatch?.[1]?.trim() ?? "",
-    completed: completedMatch?.[1]?.trim() ?? "—",
-    file: filePath,
-    number: parseInt(numberMatch[1], 10),
-  };
-}
-
-function listStories(cwd: string): StoryFrontmatter[] {
-  const dir = storiesDir(cwd);
-  if (!fs.existsSync(dir)) return [];
-
-  return fs.readdirSync(dir)
-    .filter((name: string) => /^story-\d+\.md$/.test(name))
-    .map((name: string) => parseStoryFrontmatter(path.join(dir, name)))
-    .filter((s: StoryFrontmatter | null): s is StoryFrontmatter => s !== null);
-}
-
-function findActiveStory(cwd: string): StoryFrontmatter | null {
-  const stories = listStories(cwd);
-  const inProgress = stories.filter(s => s.status === "in-progress");
-
-  if (inProgress.length === 0) return null;
-  if (inProgress.length === 1) return inProgress[0];
-
-  // Multiple in-progress: pick most recent last_accessed, break ties by highest number
-  inProgress.sort((a, b) => {
-    const dateCmp = b.lastAccessed.localeCompare(a.lastAccessed);
-    if (dateCmp !== 0) return dateCmp;
-    return b.number - a.number;
-  });
-
-  return inProgress[0];
-}
-
-function nonTerminalStories(cwd: string): StoryFrontmatter[] {
-  return listStories(cwd).filter(story => story.status !== "complete" && story.status !== "retired");
+function invalidateStoryProgressCache(cwd?: string): void {
+  if (!cwd || storyProgressCacheCwd === cwd) {
+    storyProgressCacheCwd = "";
+    storyProgressCache = undefined;
+  }
 }
 
 function storyPickerLabel(story: StoryFrontmatter): string {
@@ -509,19 +482,31 @@ function countOpenIssues(content: string): number {
 }
 
 function storyProgressSummary(cwd: string): StoryProgressSummary | null {
+  if (storyProgressCacheCwd === cwd && storyProgressCache !== undefined) {
+    return storyProgressCache;
+  }
+
   const story = findActiveStory(cwd) ?? nonTerminalStories(cwd).sort((a, b) => a.number - b.number)[0] ?? null;
-  if (!story) return null;
+  if (!story) {
+    storyProgressCacheCwd = cwd;
+    storyProgressCache = null;
+    return null;
+  }
 
   const content = readIfExists(story.file);
   const checklist = checklistProgress(content);
 
-  return {
+  const summary = {
     story,
     slug: path.basename(story.file, ".md"),
     checklistDone: checklist.done,
     checklistTotal: checklist.total,
     openIssues: countOpenIssues(content),
   };
+
+  storyProgressCacheCwd = cwd;
+  storyProgressCache = summary;
+  return summary;
 }
 
 function progressBar(done: number, total: number, width = 10): string {
@@ -606,6 +591,11 @@ async function showCommandHelp(ctx: { ui: any }): Promise<void> {
 }
 
 function registerCommandHelpShortcut(ctx: { ui: { onTerminalInput(handler: (data: string) => { consume?: boolean; data?: string } | undefined): () => void } }): void {
+  if (typeof ctx.ui.onTerminalInput !== "function") {
+    commandHelpInputUnsubscribe = null;
+    return;
+  }
+
   commandHelpInputUnsubscribe?.();
   commandHelpInputUnsubscribe = ctx.ui.onTerminalInput((data: string) => {
     if (!isCommandHelpShortcut(data) || commandHelpOpen) {
@@ -635,26 +625,6 @@ async function viewSelectedStoryOrPlan(
   await showScrollableText(ctx, title, label, content);
 }
 
-function updateStoryFrontmatter(
-  storyPath: string,
-  updates: { status?: StoryFrontmatter["status"]; lastAccessed?: string },
-): void {
-  const content = readIfExists(storyPath);
-  if (!content) return;
-
-  let updated = content;
-  if (updates.status) {
-    updated = updated.replace(/^[*][*]Status:[*][*]\s*.+$/m, `**Status:** ${updates.status}  `);
-  }
-  if (updates.lastAccessed) {
-    updated = updated.replace(/^[*][*]Last accessed:[*][*]\s*.+$/m, `**Last accessed:** ${updates.lastAccessed}  `);
-  }
-
-  if (updated !== content) {
-    fs.writeFileSync(storyPath, updated);
-  }
-}
-
 async function resolveStoryForFix(
   cwd: string,
   ui: any,
@@ -664,12 +634,7 @@ async function resolveStoryForFix(
     return { story: active, reason: "resolved" };
   }
 
-  const candidates = nonTerminalStories(cwd)
-    .sort((a, b) => {
-      const dateCmp = b.lastAccessed.localeCompare(a.lastAccessed);
-      if (dateCmp !== 0) return dateCmp;
-      return b.number - a.number;
-    });
+  const candidates = nonTerminalStories(cwd).sort(compareStoriesByRecencyDesc);
 
   if (candidates.length === 0) {
     return { story: null, reason: "missing" };
@@ -797,6 +762,10 @@ function clipInline(text: string, max = 40): string {
 }
 
 function branchLabel(cwd: string): string {
+  if (!hasGitRepo && !useJJ) {
+    return isVazirInitialized(cwd) ? "no-git" : "run /vazir-init";
+  }
+
   try {
     // Prefer git branch name when git is available in the repo.
     try {
@@ -835,68 +804,6 @@ function branchLabel(cwd: string): string {
   return useJJ ? "jj" : "workspace";
 }
 
-function fitLine(text: string, width: number): string {
-  if (width <= 0) return "";
-  if (text.length === width) return text;
-  if (text.length < width) return text + " ".repeat(width - text.length);
-  if (width === 1) return text.slice(0, 1);
-  return `${text.slice(0, width - 1)}…`;
-}
-
-function vazirAsciiArt(width: number): string[] {
-  const art = [
-    "░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░░▒▓████████▓▒░▒▓█▓▒░▒▓███████▓▒░  ",
-    "░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░░▓█▓▒░ ",
-    " ░▒▓█▓▒▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░    ░▒▓██▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ ",
-    " ░▒▓█▓▒▒▓█▓▒░░▒▓████████▓▒░  ░▒▓██▓▒░  ░▒▓█▓▒░▒▓███████▓▒░  ",
-    "  ░▒▓█▓▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░░▒▓██▓▒░    ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ ",
-    "  ░▒▓█▓▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░      ░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ ",
-    "   ░▒▓██▓▒░  ░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ ",
-    "                                                            ",
-    "                                                            ",
-  ];
-
-  return art.map(line => fitLine(line, width));
-}
-
-function sessionBannerLines(cwd: string, width: number): string[] {
-  const safeWidth = Math.max(28, width || 28);
-  const project = path.basename(cwd);
-  const storyLabel = storyProgressSummary(cwd)?.slug ?? "no active story";
-  const meta = `project · ${project}   story · ${storyLabel}   branch · ${branchLabel(cwd)}`;
-
-  return [
-    ...vazirAsciiArt(safeWidth),
-    fitLine("", safeWidth),
-    fitLine(meta, safeWidth),
-  ];
-}
-
-function createSessionBannerComponent(cwd: string) {
-  return (_tui: { requestRender(): void }, _theme: unknown) => ({
-    render(width: number): string[] {
-      return sessionBannerLines(cwd, width);
-    },
-    invalidate() {},
-  });
-}
-
-function createSessionBannerWidgetFactory(cwd: string) {
-  const headerComponentFactory = createSessionBannerComponent(cwd);
-  return (tui: { requestRender(): void }, theme: unknown) => {
-    bannerWidgetTui = tui;
-    return headerComponentFactory(tui, theme);
-  };
-}
-
-function ensureSessionBannerMounted(ui: any, cwd: string): void {
-  const bannerComponentFactory = createSessionBannerComponent(cwd);
-  const mountedHeader = callUiMethod(ui, "setHeader", bannerComponentFactory);
-  if (!mountedHeader) {
-    callUiMethod(ui, "setWidget", "vazir-session-banner", createSessionBannerWidgetFactory(cwd), { placement: "aboveEditor" });
-  }
-}
-
 function blankHeaderComponent() {
   return () => ({
     render(): string[] {
@@ -923,9 +830,9 @@ function storySavedLabel(summary: StoryProgressSummary): string | null {
 function footerIssueSegment(summary: StoryProgressSummary | null): string {
   if (!summary) return "";
   if (summary.openIssues > 0) {
-    return paint(`⚠ ${issueCountLabel(summary.openIssues)}`, "error");
+    return paint(issueCountLabel(summary.openIssues), "error");
   }
-  return paint("✓ clean", "success");
+  return paint("clean", "success");
 }
 
 function footerGitStatusSegment(): string {
@@ -939,10 +846,6 @@ function footerGitStatusSegment(): string {
 }
 
 function footerSpendSegment(snapshot: FooterSessionSnapshot): string {
-  if (activeToolCalls > 0 && currentWorkingMessage) {
-    return "";
-  }
-
   return paint(formatSpend(safeSessionEntries(snapshot)), "success");
 }
 
@@ -971,7 +874,7 @@ function footerTokenOrWorkSegment(snapshot: FooterSessionSnapshot): string {
 function footerHint(): string {
   return activeToolCalls > 0 && currentWorkingMessage
     ? paint("Ctrl+C to abort", "dim")
-    : paint("Ctrl+? for Vazir commands", "dim");
+    : paint("Ctrl+? for help", "dim");
 }
 
 function footerSeparatorLine(width: number): string {
@@ -982,6 +885,12 @@ function storyStatusWidgetLines(
   cwd: string,
   _theme: { fg: (label: string, text: string) => string },
 ): string[] {
+  if (!isVazirInitialized(cwd)) {
+    return [
+      `${paint("▸", "accent", true)} ${paint("run /vazir-init to bootstrap Vazir", "text")}`,
+    ];
+  }
+
   const summary = storyProgressSummary(cwd);
 
   if (!summary) {
@@ -1051,21 +960,41 @@ function sessionFooterLine(
   width: number,
 ): string {
   const cwd = snapshot.cwd;
+  if (!isVazirInitialized(cwd)) {
+    const left = [
+      paint("◈ vazir", "accent", true),
+      paint("setup required", "warning"),
+      paint("run /vazir-init", "text"),
+    ].join(separatorDot());
+    return alignFooterLine(left, footerHint(), width);
+  }
+
   const summary = storyProgressSummary(cwd);
   const storyLabel = summary?.slug ?? "no active story";
-  const branch = clipInline(footerData.getGitBranch() ?? branchLabel(cwd), 24);
+  const branch = clipInline(hasGitRepo ? (footerData.getGitBranch() ?? branchLabel(cwd)) : branchLabel(cwd), 24);
   const modelLabel = clipInline(shortModelLabel(snapshot), 30);
   const thinkingLevel = latestThinkingLevel(snapshot);
-  const leftSegments = [
-    paint("◈ vazir", "accent", true),
-    paint(storyLabel, "text"),
-    paint(branch, "branch"),
-    footerGitStatusSegment(),
-    `${paint(modelLabel, "dim")} ${paint(`(${thinkingLevel})`, "dim")}`,
-    footerTokenOrWorkSegment(snapshot),
-    footerContextSegment(snapshot),
-    footerSpendSegment(snapshot),
-  ].filter(Boolean);
+  const leftSegments = activeToolCalls > 0 && currentWorkingMessage
+    ? [
+        paint("◈ vazir", "accent", true),
+        paint(storyLabel, "text"),
+        paint(branch, "branch"),
+        footerIssueSegment(summary),
+        footerTokenOrWorkSegment(snapshot),
+        footerContextSegment(snapshot),
+        footerSpendSegment(snapshot),
+      ].filter(Boolean)
+    : [
+        paint("◈ vazir", "accent", true),
+        paint(storyLabel, "text"),
+        paint(branch, "branch"),
+        footerIssueSegment(summary),
+        footerGitStatusSegment(),
+        `${paint(modelLabel, "dim")} ${paint(`(${thinkingLevel})`, "dim")}`,
+        footerTokenOrWorkSegment(snapshot),
+        footerContextSegment(snapshot),
+        footerSpendSegment(snapshot),
+      ].filter(Boolean);
   const left = leftSegments.join(separatorDot());
   return alignFooterLine(left, footerHint(), width);
 }
@@ -1077,7 +1006,9 @@ function createSessionFooterComponent(snapshot: FooterSessionSnapshot) {
     footerData: { getGitBranch(): string | null | undefined; onBranchChange?: (callback: () => void) => () => void },
   ) => {
     footerWidgetTui = tui;
-    const unsubscribe = footerData.onBranchChange?.(() => tui.requestRender()) ?? undefined;
+    const unsubscribe = hasGitRepo
+      ? footerData.onBranchChange?.(() => tui.requestRender()) ?? undefined
+      : undefined;
 
     return {
       render(width: number): string[] {
@@ -1115,6 +1046,7 @@ function startFooterRefreshTicker(): void {
     statusWidgetTui?.requestRender();
     footerWidgetTui?.requestRender();
   }, 120);
+  (footerRefreshTicker as unknown as { unref?: () => void }).unref?.();
 }
 
 function stopFooterRefreshTicker(): void {
@@ -1177,6 +1109,7 @@ function ensureWorkingMessageTicker(ui: any): void {
   workingMessageTicker = setInterval(() => {
     applyWorkingMessage(ui);
   }, 80);
+  (workingMessageTicker as unknown as { unref?: () => void }).unref?.();
 }
 
 function stopWorkingMessageTicker(ui: any): void {
@@ -1206,15 +1139,6 @@ function endToolActivity(ui: any): void {
 }
 
 // ── JJ helpers ─────────────────────────────────────────────────────────
-
-function detectJJ(cwd: string): boolean {
-  try {
-    childProcess.execSync("jj root", { cwd, stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const jjOpPromptMap = new Map<string, string>();
 
@@ -1274,10 +1198,7 @@ function autoDescribeCurrentJjChange(cwd: string, prompt: string) {
   const trimmedPrompt = prompt.trim();
   if (!trimmedPrompt) return;
 
-  childProcess.execSync(`jj describe -m ${JSON.stringify(trimmedPrompt.slice(0, 72))}`, {
-    cwd,
-    stdio: "pipe",
-  });
+  childProcess.execFileSync("jj", ["describe", "-m", trimmedPrompt.slice(0, 72)], { cwd, stdio: "pipe" });
 }
 
 function isJjDescribeOperation(op: { description: string }): boolean {
@@ -1367,13 +1288,13 @@ function jjCheckpointChoices(cwd: string): Array<{ id: string; description: stri
       }
 
       const directLabel = jjOpPromptMap.get(op.id);
-      const adjacentDescribeLabel = index > 0 && isJjDescribeOperation(ops[index - 1])
+      const previousDescribeLabel = index > 0 && isJjDescribeOperation(ops[index - 1])
         ? jjOpPromptMap.get(ops[index - 1].id)
         : undefined;
 
       return {
         ...op,
-        label: directLabel ?? adjacentDescribeLabel,
+        label: directLabel ?? previousDescribeLabel,
       };
     })
     .filter(Boolean) as Array<{ id: string; description: string; ago: string; label?: string }>;
@@ -1391,7 +1312,7 @@ function jjDiffStat(cwd: string): string {
 
 function jjDiffFile(cwd: string, file: string): string {
   try {
-    return childProcess.execSync(`jj diff --no-color -- "${file}"`, { cwd, encoding: "utf-8" });
+    return childProcess.execFileSync("jj", ["diff", "--no-color", "--", file], { cwd, encoding: "utf-8" });
   } catch {
     return "";
   }
@@ -1406,15 +1327,15 @@ function jjHasChanges(cwd: string): boolean {
 }
 
 function jjRestoreCheckpoint(cwd: string, opId: string) {
-  childProcess.execSync(`jj op restore ${opId}`, { cwd, stdio: "pipe" });
-  childProcess.execSync("jj restore --from @-", { cwd, stdio: "pipe" });
+  childProcess.execFileSync("jj", ["op", "restore", opId], { cwd, stdio: "pipe" });
+  childProcess.execFileSync("jj", ["restore", "--from", "@-"], { cwd, stdio: "pipe" });
 }
 
 // ── Git helpers ────────────────────────────────────────────────────────
 
 function syncFromGit(cwd: string) {
   try {
-    const statusOut = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8" });
+    const statusOut = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" });
     const statusMap = new Map<string, string>();
 
     for (const line of statusOut.split("\n")) {
@@ -1432,7 +1353,7 @@ function syncFromGit(cwd: string) {
 
     let statOut = "";
     try {
-      statOut = childProcess.execSync("git diff --stat HEAD", { cwd, encoding: "utf-8" }).trim();
+      statOut = childProcess.execSync("git diff --stat HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
     } catch {
       statOut = "";
     }
@@ -1485,13 +1406,21 @@ function syncFromJJ(cwd: string) {
 }
 
 function syncChanges(cwd: string) {
+  invalidateStoryProgressCache(cwd);
+  if (!hasGitRepo && !useJJ) {
+    changedFiles.clear();
+    return;
+  }
+
   if (useJJ) syncFromJJ(cwd);
   else syncFromGit(cwd);
 }
 
 function isGitClean(cwd: string): boolean {
+  if (!hasGitRepo) return true;
+
   try {
-    return childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8" }).trim() === "";
+    return childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim() === "";
   } catch {
     return true;
   }
@@ -1547,8 +1476,6 @@ function findOrphanedGitSessions(cwd: string, currentId: string): string[] {
 // ── refreshWidgets ─────────────────────────────────────────────────────
 
 function refreshWidgets() {
-  trackerWidgetTui?.requestRender();
-  bannerWidgetTui?.requestRender();
   statusWidgetTui?.requestRender();
   footerWidgetTui?.requestRender();
 }
@@ -1570,7 +1497,8 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event: unknown, ctx: { cwd: string; hasUI: boolean; sessionManager?: { getSessionFile?: () => string; getBranch?: () => Array<{ type: string; provider?: string; modelId?: string; thinkingLevel?: string; message?: { role?: string; usage?: { cost?: { total?: number } } } }>; getEntries?: () => Array<{ type: string; message?: { role?: string; usage?: { cost?: { total?: number } } } }>; getSessionName?: () => string | undefined } | undefined; model?: { provider?: string; id?: string; reasoning?: boolean } | undefined; getContextUsage?: () => { tokens: number | null; contextWindow: number; percent: number | null } | undefined; ui: any }) => {
     const cwd = ctx.cwd;
-    useJJ = detectJJ(cwd);
+    hasGitRepo = detectGitRepo(cwd);
+    useJJ = hasGitRepo ? detectJJ(cwd) : false;
     if (useJJ) loadJjCheckpointLabels(cwd);
     commandHelpInputUnsubscribe?.();
     commandHelpInputUnsubscribe = null;
@@ -1591,6 +1519,9 @@ export default function (pi: ExtensionAPI) {
     liveModelGetter = () => (pi as { getModel?: () => { provider?: string; id?: string; reasoning?: boolean } | null | undefined }).getModel?.() ?? ctx.model;
     lastChangeSyncAt = 0;
     if (ctx.hasUI) {
+      if (!isVazirInitialized(cwd)) {
+        ctx.ui.notify("Vazir is not initialized here. Run /vazir-init to bootstrap .context and optional git/JJ setup.", "info");
+      }
       startFooterRefreshTicker();
       registerCommandHelpShortcut(ctx);
     }
@@ -1607,7 +1538,7 @@ export default function (pi: ExtensionAPI) {
           "warning",
         );
       }
-    } else {
+    } else if (hasGitRepo) {
       const orphans = findOrphanedGitSessions(cwd, currentSessionId);
       if (orphans.length > 0) {
         if (!isGitClean(cwd)) {
@@ -1631,12 +1562,12 @@ export default function (pi: ExtensionAPI) {
     applyWorkingMessage(ctx.ui);
 
     ensureSessionChromeMounted(ctx.ui, cwd);
-    trackerWidgetTui = null;
   });
 
   pi.on("session_shutdown", async (_event: unknown, ctx: { ui?: any }) => {
     activeToolCalls = 0;
     currentWorkingMessage = "";
+    hasGitRepo = false;
     stopWorkingMessageTicker(ctx.ui);
     setFooterComponent(ctx.ui, undefined);
     statusWidgetTui = null;
@@ -1657,7 +1588,7 @@ export default function (pi: ExtensionAPI) {
       ensureSessionChromeMounted(ctx.ui, ctx.cwd);
     }
 
-    if (useJJ) return;
+    if (useJJ || !hasGitRepo) return;
 
     gitCheckpointCount++;
     const dir = path.join(sessionCheckpointDir(ctx.cwd, currentSessionId), String(gitCheckpointCount));
@@ -1773,10 +1704,10 @@ export default function (pi: ExtensionAPI) {
           const content = fs.readFileSync(path.join(ctx.cwd, chosen.file), "utf-8");
           diffText = content.split("\n").map((l: string) => `+ ${l}`).join("\n");
         } else {
-          diffText = childProcess.execSync(
-            `git diff --no-color HEAD -- "${chosen.file}"`,
-            { cwd: ctx.cwd, encoding: "utf-8" },
-          );
+          diffText = childProcess.execFileSync("git", ["diff", "--no-color", "HEAD", "--", chosen.file], {
+            cwd: ctx.cwd,
+            encoding: "utf-8",
+          });
         }
       } catch (e: any) {
         ctx.ui.notify(`Failed to get diff: ${e.message}`, "error");
@@ -1916,6 +1847,7 @@ export default function (pi: ExtensionAPI) {
 
       appendToStoryIssues(active.file, description);
       updateStoryFrontmatter(active.file, { lastAccessed: todayDate() });
+      invalidateStoryProgressCache(cwd);
       refreshWidgets();
 
       ctx.ui.notify(`Issue logged to ${storyName}`, "info");
