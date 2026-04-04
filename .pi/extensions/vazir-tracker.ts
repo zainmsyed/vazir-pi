@@ -188,13 +188,51 @@ function visibleLength(text: string): number {
   return stripAnsi(text).length;
 }
 
+function truncateAnsi(text: string, width: number): string {
+  const safeWidth = Math.max(0, width || 0);
+  if (safeWidth === 0) return "";
+
+  let visible = 0;
+  let index = 0;
+  let result = "";
+  while (index < text.length && visible < safeWidth) {
+    if (text[index] === "\x1b") {
+      const match = text.slice(index).match(/^\x1b\[[0-9;]*m/);
+      if (match) {
+        result += match[0];
+        index += match[0].length;
+        continue;
+      }
+    }
+
+    const codePoint = text.codePointAt(index);
+    if (codePoint === undefined) break;
+    const glyph = String.fromCodePoint(codePoint);
+    result += glyph;
+    index += glyph.length;
+    visible += 1;
+  }
+
+  if (visible < visibleLength(text)) {
+    result += "\x1b[0m";
+  }
+
+  return result;
+}
+
 function alignFooterLine(left: string, right: string, width: number): string {
   const safeWidth = Math.max(1, width || 1);
+  const separator = paint(" · ", "separator");
+  const combined = right ? `${left}${separator}${right}` : left;
+  if (visibleLength(combined) > safeWidth) {
+    return truncateAnsi(combined, safeWidth);
+  }
+
   const leftLength = visibleLength(left);
   const rightLength = visibleLength(right);
   if (!right) return left;
   if (leftLength + 1 + rightLength >= safeWidth) {
-    return `${left}${paint(" · ", "separator")}${right}`;
+    return combined;
   }
   return `${left}${" ".repeat(safeWidth - leftLength - rightLength)}${right}`;
 }
