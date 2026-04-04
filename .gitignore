@@ -1,19 +1,63 @@
+# OS
 .DS_Store
-.npm-cache/
+
+# Node
 node_modules/
+.npm-cache/
 
 # JJ metadata
 .jj/
 
-# Pi-coding-agent transient state
+# Pi-coding-agent transient state (workspace-specific)
+.context/
 .context/chat/
 .context/history/
 .context/sandbox/
-
-# Vazir transient data (checkpoints are session-scoped)
-.context/
 .context/checkpoints/
-AGENTS.md
 
-.context
-.context/
+# Editor/IDE
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Logs and temp
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tmp
+*.temp
+*.swp
+
+# Environment files
+.env
+.env.*.local
+.env.local
+
+# Build / output
+dist/
+build/
+out/
+coverage/
+.nyc_output/
+*.tgz
+*.zip
+
+# Archives / backups / bundles
+repo-backup.bundle
+*.bundle
+
+# Misc caches
+.cache/
+.parcel-cache/
+.pnp.*
+.venv/
+venv/
+__pycache__/
+
+# Pi runtime caches (do not ignore .pi/extensions or .pi/skills)
+.pi/cache/
+.pi/tmp/
+
