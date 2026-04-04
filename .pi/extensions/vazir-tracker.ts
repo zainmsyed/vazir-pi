@@ -67,6 +67,20 @@ const EDIT_STREAM_LIMIT = 48;
 const EDIT_WIDGET_LINE_LIMIT = 3;
 const WORKING_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
+const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
+  { command: "/vazir-init", description: "bootstrap .context and seed the project brain" },
+  { command: "/plan", description: "review intake, ask delta questions, and generate stories" },
+  { command: "/story", description: "pick a plan or story file and open it in a scrollable view" },
+  { command: "/fix", description: "log an issue to the active story, then attempt a fix" },
+  { command: "/remember", description: "promote a reusable lesson into persistent memory" },
+  { command: "/review", description: "write a review file and sync recurring rule candidates" },
+  { command: "/unlearn", description: "remove a promoted rule from system memory" },
+  { command: "/consolidate", description: "cluster complaints and promote repeated rule candidates" },
+  { command: "/diff", description: "show the diff for one changed file" },
+  { command: "/edits", description: "show the recent file edit stream" },
+  { command: "/checkpoint", description: "pick a JJ checkpoint to restore" },
+  { command: "/reset", description: "alias for /checkpoint" },
+];
 const VAZIR_COLORS = {
   accent: "38;2;167;139;250",
   branch: "38;2;137;180;250",
@@ -84,6 +98,11 @@ type VazirTone = keyof typeof VAZIR_COLORS;
 interface TokenSummary {
   input: number | null;
   output: number | null;
+}
+
+interface CommandHelpEntry {
+  command: string;
+  description: string;
 }
 
 // ── State ──────────────────────────────────────────────────────────────
@@ -104,6 +123,8 @@ let workingMessageTicker: ReturnType<typeof setInterval> | null = null;
 let footerRefreshTicker: ReturnType<typeof setInterval> | null = null;
 let currentFooterSnapshot: FooterSessionSnapshot | null = null;
 let liveThinkingLevelGetter: (() => string) | null = null;
+let commandHelpOpen = false;
+let commandHelpInputUnsubscribe: (() => void) | null = null;
 
 // ── Generic helpers ────────────────────────────────────────────────────
 
@@ -514,6 +535,45 @@ async function showScrollableText(
   });
 }
 
+function isCommandHelpShortcut(data: string): boolean {
+  return [
+    piTui.Key.ctrl("?"),
+    piTui.Key.ctrl("/"),
+    piTui.Key.ctrlShift("/"),
+    piTui.Key.shiftCtrl("/"),
+  ].some(key => piTui.matchesKey(data, key));
+}
+
+function commandHelpBody(): string {
+  const lines = [
+    "Vazir command list",
+    "",
+    ...VAZIR_COMMAND_HELP.map(entry => `${entry.command.padEnd(14)} ${entry.description}`),
+    "",
+    "Use Esc to close and PgUp/PgDn to scroll if the list grows.",
+  ];
+  return lines.join("\n");
+}
+
+async function showCommandHelp(ctx: { ui: any }): Promise<void> {
+  await showScrollableText(ctx, "Vazir commands", "Ctrl+? or Esc to close", commandHelpBody());
+}
+
+function registerCommandHelpShortcut(ctx: { ui: { onTerminalInput(handler: (data: string) => { consume?: boolean; data?: string } | undefined): () => void } }): void {
+  commandHelpInputUnsubscribe?.();
+  commandHelpInputUnsubscribe = ctx.ui.onTerminalInput((data: string) => {
+    if (!isCommandHelpShortcut(data) || commandHelpOpen) {
+      return undefined;
+    }
+
+    commandHelpOpen = true;
+    void showCommandHelp(ctx).finally(() => {
+      commandHelpOpen = false;
+    });
+    return { consume: true };
+  });
+}
+
 async function viewSelectedStoryOrPlan(
   ctx: { cwd: string; ui: any },
   selectedFile: string,
@@ -847,7 +907,7 @@ function footerTokenOrWorkSegment(snapshot: FooterSessionSnapshot): string {
 function footerHint(): string {
   return activeToolCalls > 0 && currentWorkingMessage
     ? paint("Ctrl+C to abort", "dim")
-    : paint("Ctrl+? for help", "dim");
+    : paint("Ctrl+? for Vazir commands", "dim");
 }
 
 function footerSeparatorLine(width: number): string {
@@ -1444,6 +1504,9 @@ export default function (pi: ExtensionAPI) {
     const cwd = ctx.cwd;
     useJJ = detectJJ(cwd);
     if (useJJ) loadJjCheckpointLabels(cwd);
+    commandHelpInputUnsubscribe?.();
+    commandHelpInputUnsubscribe = null;
+    commandHelpOpen = false;
     activeToolCalls = 0;
     currentWorkingMessage = "";
     const sessionManager = {
@@ -1459,6 +1522,7 @@ export default function (pi: ExtensionAPI) {
     };
     if (ctx.hasUI) {
       startFooterRefreshTicker();
+      registerCommandHelpShortcut(ctx);
     }
 
     const sessionFile = (ctx.sessionManager as any)?.getSessionFile?.() ?? "";
