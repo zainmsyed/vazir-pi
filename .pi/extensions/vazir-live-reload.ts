@@ -69,9 +69,9 @@ function setStatus(text: string | undefined): void {
 function directorySnapshot(extDir: string): string {
   const entries = fs.existsSync(extDir)
     ? fs.readdirSync(extDir)
-        .filter(name => shouldHandleFile(name))
+        .filter((name: string) => shouldHandleFile(name))
         .sort()
-        .map(name => {
+        .map((name: string) => {
           const filePath = path.join(extDir, name);
           try {
             const stats = fs.statSync(filePath);
@@ -111,6 +111,7 @@ function queueReload(reason: string): void {
     pendingReloadTimer = null;
     void triggerReload(reason);
   }, WATCH_DEBOUNCE_MS);
+  (pendingReloadTimer as unknown as { unref?: () => void }).unref?.();
 }
 
 function startWatcher(extDir: string): void {
@@ -119,8 +120,8 @@ function startWatcher(extDir: string): void {
   lastSnapshot = directorySnapshot(extDir);
   setStatus("live reload: armed");
 
-  watcher = fs.watch(extDir, (eventType, filename) => {
-    const resolvedFilename = typeof filename === "string" ? filename : filename?.toString("utf-8") ?? null;
+  watcher = fs.watch(extDir, (eventType: string, filename: unknown) => {
+    const resolvedFilename = typeof filename === "string" ? filename : filename == null ? null : String(filename);
     if (!shouldHandleFile(resolvedFilename)) return;
     queueReload(`${resolvedFilename} (${eventType})`);
   });
@@ -132,6 +133,7 @@ function startWatcher(extDir: string): void {
     lastSnapshot = nextSnapshot;
     queueReload("extension directory changed (poll)");
   }, POLL_INTERVAL_MS);
+  (pollTimer as unknown as { unref?: () => void }).unref?.();
 }
 
 let piApi: ExtensionAPI;

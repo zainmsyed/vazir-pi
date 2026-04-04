@@ -8,6 +8,35 @@ const fs = require("node:fs") as typeof import("node:fs");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 
 const originalExecSync = childProcess.execSync;
+const originalExecFileSync = childProcess.execFileSync;
+let importNonce = 0;
+const repoRoot = "/home/zain/Documents/coding/vazir-pi";
+
+function ensureStubModule(moduleName: string, content: string): string | null {
+  const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
+  if (fs.existsSync(moduleDir)) {
+    return null;
+  }
+
+  fs.mkdirSync(moduleDir, { recursive: true });
+  fs.writeFileSync(path.join(moduleDir, "package.json"), JSON.stringify({ name: moduleName, type: "commonjs" }, null, 2));
+  fs.writeFileSync(path.join(moduleDir, "index.js"), content);
+  return moduleDir;
+}
+
+const stubModuleDirs = [
+  ensureStubModule("@mariozechner/pi-tui", [
+    "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape', ctrl: value => value, ctrlShift: value => value, shiftCtrl: value => value };",
+    "exports.matchesKey = (data, key) => data === key;",
+    "exports.Container = class {};",
+    "exports.Text = class {};",
+    "",
+  ].join("\n")),
+  ensureStubModule("@mariozechner/pi-coding-agent", [
+    "exports.DynamicBorder = class {};",
+    "",
+  ].join("\n")),
+].filter((dir): dir is string => dir !== null);
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -16,6 +45,7 @@ function assert(condition: boolean, message: string): void {
 function createProject(prefix: string): string {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   fs.mkdirSync(path.join(cwd, ".context", "settings"), { recursive: true });
+  childProcess.execSync("git init -q", { cwd, stdio: "pipe" });
   return cwd;
 }
 
@@ -23,6 +53,10 @@ function installJjStub(logLines: string[], currentOpId: string, onDescribe?: (me
   let currentOp = currentOpId;
 
   childProcess.execSync = ((command: string, options?: { encoding?: BufferEncoding }) => {
+    if (command.startsWith("git rev-parse --git-dir")) {
+      return options?.encoding ? ".git\n" : Buffer.from(".git\n");
+    }
+
     if (command.startsWith("jj root")) {
       return options?.encoding ? "/tmp/fake-jj-root\n" : Buffer.from("/tmp/fake-jj-root\n");
     }
@@ -57,15 +91,51 @@ function installJjStub(logLines: string[], currentOpId: string, onDescribe?: (me
 
     throw new Error(`Unexpected command: ${command}`);
   }) as typeof childProcess.execSync;
+
+  childProcess.execFileSync = ((command: string, args?: string[], options?: { encoding?: BufferEncoding }) => {
+    const argList = args ?? [];
+
+    if (command === "jj" && argList[0] === "describe" && argList[1] === "-m") {
+      const message = argList[2] ?? "";
+      onDescribe?.(message);
+      currentOp = "cccccccc";
+      return options?.encoding ? "" : Buffer.from("");
+    }
+
+    if (command === "jj" && argList[0] === "op" && argList[1] === "restore") {
+      return options?.encoding ? "" : Buffer.from("");
+    }
+
+    if (command === "jj" && argList[0] === "restore" && argList[1] === "--from" && argList[2] === "@-") {
+      return options?.encoding ? "" : Buffer.from("");
+    }
+
+    if (command === "jj" && argList[0] === "diff" && argList[1] === "--no-color") {
+      return options?.encoding ? "" : Buffer.from("");
+    }
+
+    throw new Error(`Unexpected execFileSync: ${command} ${argList.join(" ")}`);
+  }) as typeof childProcess.execFileSync;
 }
 
 function restoreExecSync() {
   childProcess.execSync = originalExecSync;
+  childProcess.execFileSync = originalExecFileSync;
 }
 
 async function loadHarness() {
   const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-tracker.ts";
-  const extensionModule = await import(`${pathToFileURL(extensionPath).href}?t=${Date.now()}`);
+  const nonce = ++importNonce;
+  const extensionDir = path.dirname(extensionPath);
+  const tempTrackerPath = path.join(extensionDir, `.validate-vazir-tracker-${process.pid}-${nonce}.ts`);
+  const trackerSource = fs.readFileSync(extensionPath, "utf-8").replace(
+    'from "../lib/vazir-helpers.ts";',
+    `from "../lib/vazir-helpers.ts?t=${nonce}";`,
+  );
+  fs.writeFileSync(tempTrackerPath, trackerSource);
+
+  const extensionModule = await import(`${pathToFileURL(tempTrackerPath).href}?t=${Date.now()}-${nonce}`);
+  fs.rmSync(tempTrackerPath, { force: true });
   const register = extensionModule.default;
 
   const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
@@ -411,61 +481,95 @@ async function runPersistenceScenario() {
   }
 }
 
-const persisted = await runPersistedLabelScenario();
-const describeBackfill = await runDescribeBackfillScenario();
-const fallback = await runUnlabeledFallbackScenario();
-const longHistory = await runLongHistoryScenario();
-const recencyOrdering = await runRecencyOrderingScenario();
-const skipCurrentSnapshot = await runSkipCurrentSnapshotScenario();
-const saved = await runPersistenceScenario();
+const scenarioName = process.env.VAZIR_CHECKPOINT_SCENARIO;
 
-console.log("Persisted JJ Labels");
-console.log(`cwd: ${persisted.cwd}`);
-console.log("options:");
-for (const option of persisted.options) {
-  console.log(`  - ${option}`);
+if (scenarioName) {
+  const scenarios: Record<string, () => Promise<unknown>> = {
+    persisted: runPersistedLabelScenario,
+    describeBackfill: runDescribeBackfillScenario,
+    fallback: runUnlabeledFallbackScenario,
+    longHistory: runLongHistoryScenario,
+    recencyOrdering: runRecencyOrderingScenario,
+    skipCurrentSnapshot: runSkipCurrentSnapshotScenario,
+    saved: runPersistenceScenario,
+  };
+
+  const run = scenarios[scenarioName];
+  assert(Boolean(run), `Unknown checkpoint scenario: ${scenarioName}`);
+  const result = await run();
+  console.log(JSON.stringify({ scenario: scenarioName, result }));
+} else {
+  function runScenarioInSubprocess(name: string): unknown {
+    const raw = childProcess.execFileSync(process.execPath, ["--experimental-strip-types", process.argv[1]], {
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        VAZIR_CHECKPOINT_SCENARIO: name,
+      },
+    }).trim();
+    return JSON.parse(raw).result;
+  }
+
+  const persisted = runScenarioInSubprocess("persisted") as Awaited<ReturnType<typeof runPersistedLabelScenario>>;
+  const describeBackfill = runScenarioInSubprocess("describeBackfill") as Awaited<ReturnType<typeof runDescribeBackfillScenario>>;
+  const fallback = runScenarioInSubprocess("fallback") as Awaited<ReturnType<typeof runUnlabeledFallbackScenario>>;
+  const longHistory = runScenarioInSubprocess("longHistory") as Awaited<ReturnType<typeof runLongHistoryScenario>>;
+  const recencyOrdering = runScenarioInSubprocess("recencyOrdering") as Awaited<ReturnType<typeof runRecencyOrderingScenario>>;
+  const skipCurrentSnapshot = runScenarioInSubprocess("skipCurrentSnapshot") as Awaited<ReturnType<typeof runSkipCurrentSnapshotScenario>>;
+  const saved = runScenarioInSubprocess("saved") as Awaited<ReturnType<typeof runPersistenceScenario>>;
+
+  console.log("Persisted JJ Labels");
+  console.log(`cwd: ${persisted.cwd}`);
+  console.log("options:");
+  for (const option of persisted.options) {
+    console.log(`  - ${option}`);
+  }
+  console.log("");
+
+  console.log("Describe Label Backfill");
+  console.log(`cwd: ${describeBackfill.cwd}`);
+  console.log("options:");
+  for (const option of describeBackfill.options) {
+    console.log(`  - ${option}`);
+  }
+  console.log("");
+
+  console.log("Unlabeled JJ Fallback");
+  console.log(`cwd: ${fallback.cwd}`);
+  console.log("options:");
+  for (const option of fallback.options) {
+    console.log(`  - ${option}`);
+  }
+  console.log("");
+
+  console.log("Long JJ History");
+  console.log(`cwd: ${longHistory.cwd}`);
+  console.log(`optionCount: ${longHistory.optionCount}`);
+  console.log(`first: ${longHistory.first}`);
+  console.log(`last: ${longHistory.last}`);
+  console.log("");
+
+  console.log("Recency Ordering");
+  console.log(`cwd: ${recencyOrdering.cwd}`);
+  console.log("options:");
+  for (const option of recencyOrdering.options) {
+    console.log(`  - ${option}`);
+  }
+  console.log("");
+
+  console.log("Skip Current Snapshot");
+  console.log(`cwd: ${skipCurrentSnapshot.cwd}`);
+  console.log("options:");
+  for (const option of skipCurrentSnapshot.options) {
+    console.log(`  - ${option}`);
+  }
+  console.log("");
+
+  console.log("Saved JJ Label");
+  console.log(`cwd: ${saved.cwd}`);
+  console.log(`savedLabel: ${saved.savedLabel}`);
 }
-console.log("");
 
-console.log("Describe Label Backfill");
-console.log(`cwd: ${describeBackfill.cwd}`);
-console.log("options:");
-for (const option of describeBackfill.options) {
-  console.log(`  - ${option}`);
+for (const moduleDir of stubModuleDirs.reverse()) {
+  fs.rmSync(moduleDir, { recursive: true, force: true });
 }
-console.log("");
-
-console.log("Unlabeled JJ Fallback");
-console.log(`cwd: ${fallback.cwd}`);
-console.log("options:");
-for (const option of fallback.options) {
-  console.log(`  - ${option}`);
-}
-console.log("");
-
-console.log("Long JJ History");
-console.log(`cwd: ${longHistory.cwd}`);
-console.log(`optionCount: ${longHistory.optionCount}`);
-console.log(`first: ${longHistory.first}`);
-console.log(`last: ${longHistory.last}`);
-console.log("");
-
-console.log("Recency Ordering");
-console.log(`cwd: ${recencyOrdering.cwd}`);
-console.log("options:");
-for (const option of recencyOrdering.options) {
-  console.log(`  - ${option}`);
-}
-console.log("");
-
-console.log("Skip Current Snapshot");
-console.log(`cwd: ${skipCurrentSnapshot.cwd}`);
-console.log("options:");
-for (const option of skipCurrentSnapshot.options) {
-  console.log(`  - ${option}`);
-}
-console.log("");
-
-console.log("Saved JJ Label");
-console.log(`cwd: ${saved.cwd}`);
-console.log(`savedLabel: ${saved.savedLabel}`);
