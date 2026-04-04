@@ -882,6 +882,24 @@ function footerIssueSegment(summary: StoryProgressSummary | null): string {
   return paint("✓ clean", "success");
 }
 
+function footerGitStatusSegment(): string {
+  const dirtyCount = changedFiles.size;
+  if (dirtyCount <= 0) {
+    return paint("✓ clean", "success");
+  }
+
+  const tone: VazirTone = dirtyCount <= 5 ? "warning" : "error";
+  return paint(`${dirtyCount} uncommitted`, tone);
+}
+
+function footerSpendSegment(snapshot: FooterSessionSnapshot): string {
+  if (activeToolCalls > 0 && currentWorkingMessage) {
+    return "";
+  }
+
+  return paint(formatSpend(safeSessionEntries(snapshot)), "success");
+}
+
 function footerContextSegment(snapshot: FooterSessionSnapshot): string {
   const contextUsage = snapshot.getContextUsage();
   if (!contextUsage) return "";
@@ -996,11 +1014,11 @@ function sessionFooterLine(
     paint("◈ vazir", "accent", true),
     paint(storyLabel, "text"),
     paint(branch, "branch"),
+    footerGitStatusSegment(),
     `${paint(modelLabel, "dim")} ${paint(`(${thinkingLevel})`, "dim")}`,
     footerTokenOrWorkSegment(snapshot),
     footerContextSegment(snapshot),
-    paint(formatSpend(safeSessionEntries(snapshot)), "success"),
-    footerIssueSegment(summary),
+    footerSpendSegment(snapshot),
   ].filter(Boolean);
   const left = leftSegments.join(separatorDot());
   return alignFooterLine(left, footerHint(), width);
@@ -1649,6 +1667,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_end", async (_event: unknown, ctx: { cwd: string; hasUI?: boolean; ui?: any }) => {
+    syncChanges(ctx.cwd);
     footerWidgetTui?.requestRender();
     if (ctx.hasUI) {
       ensureSessionChromeMounted(ctx.ui, ctx.cwd);
