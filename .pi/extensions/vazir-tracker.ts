@@ -123,6 +123,7 @@ let currentWorkingMessage = "";
 let workingMessageTicker: ReturnType<typeof setInterval> | null = null;
 let footerRefreshTicker: ReturnType<typeof setInterval> | null = null;
 let currentFooterSnapshot: FooterSessionSnapshot | null = null;
+let liveModelGetter: (() => { provider?: string; id?: string; reasoning?: boolean } | null | undefined) | null = null;
 let liveThinkingLevelGetter: (() => string) | null = null;
 let commandHelpOpen = false;
 let commandHelpInputUnsubscribe: (() => void) | null = null;
@@ -299,6 +300,11 @@ function sessionBranchEntries(snapshot: FooterSessionSnapshot): Array<{ type: st
 }
 
 function latestModelLabel(snapshot: FooterSessionSnapshot): string {
+  const liveModel = liveModelGetter?.();
+  if (liveModel?.provider && liveModel?.id) {
+    return `${liveModel.provider}/${liveModel.id}`;
+  }
+
   const branchEntries = sessionBranchEntries(snapshot);
   for (let index = branchEntries.length - 1; index >= 0; index--) {
     const entry = branchEntries[index];
@@ -1544,6 +1550,7 @@ export default function (pi: ExtensionAPI) {
       sessionManager,
       getContextUsage: ctx.getContextUsage ?? (() => undefined),
     };
+    liveModelGetter = () => (pi as { getModel?: () => { provider?: string; id?: string; reasoning?: boolean } | null | undefined }).getModel?.() ?? ctx.model;
     lastChangeSyncAt = 0;
     if (ctx.hasUI) {
       startFooterRefreshTicker();
@@ -1596,6 +1603,7 @@ export default function (pi: ExtensionAPI) {
     setFooterComponent(ctx.ui, undefined);
     statusWidgetTui = null;
     currentFooterSnapshot = null;
+    liveModelGetter = null;
     liveThinkingLevelGetter = null;
     lastChangeSyncAt = 0;
     stopFooterRefreshTicker();
