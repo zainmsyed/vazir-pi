@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
-const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context.ts";
+const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context/index.ts";
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;
 

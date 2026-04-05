@@ -8,8 +8,8 @@ const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 const cp = require("node:child_process") as typeof import("node:child_process");
 
-const contextExt = await import(pathToFileURL("/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context.ts").href + `?t=${Date.now()}`);
-const trackerExt = await import(pathToFileURL("/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-tracker.ts").href + `?t=${Date.now()}`);
+const contextExt = await import(pathToFileURL("/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context/index.ts").href + `?t=${Date.now()}`);
+const trackerExt = await import(pathToFileURL("/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-tracker/index.ts").href + `?t=${Date.now()}`);
 
 const registerContext = contextExt.default;
 const registerTracker = trackerExt.default;

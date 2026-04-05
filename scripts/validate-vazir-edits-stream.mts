@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
 const repoRoot = "/home/zain/Documents/coding/vazir-pi";
-const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker.ts");
+const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "index.ts");
 
 function ensureStubModule(moduleName: string, content: string): string {
   const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
