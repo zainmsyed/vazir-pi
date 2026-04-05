@@ -24,7 +24,7 @@ globalThis.fetch = (async () => ({
 
 process.env.ANTHROPIC_API_KEY = "test-key";
 
-const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context.ts";
+const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context/index.ts";
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;
 

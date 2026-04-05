@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
 const repoRoot = "/home/zain/Documents/coding/vazir-pi";
-const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker.ts");
+const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "index.ts");
 
 function ensureStubModule(moduleName: string, content: string): string {
   const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
@@ -111,7 +111,7 @@ function writeStory(cwd: string): string {
     "The status widget and footer show the active story state.",
     "",
     "## Scope — files this story may touch",
-    "- .pi/extensions/vazir-tracker.ts",
+    "- .pi/extensions/vazir-tracker/index.ts",
     "",
     "## Out of scope — do not touch",
     "- docs/",

@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 const childProcess = require("node:child_process") as typeof import("node:child_process");
 
-const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-tracker.ts";
+const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-tracker/index.ts";
 const extensionModule = await import(`${pathToFileURL(extensionPath).href}?t=${Date.now()}`);
 const register = extensionModule.default;
 

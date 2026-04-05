@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
-const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context.ts";
+const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context/index.ts";
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;
 
@@ -137,8 +137,8 @@ async function runBlockedScenario() {
   assert(story.includes("**Status:** in-progress"), "unauthorized completion should be reverted to in-progress");
   assert(story.includes("**Completed:** —"), "unauthorized completion date should be reverted");
   assert(
-    notifications.some(note => note.message.includes("Blocked unauthorized story status change")),
-    "missing warning for unauthorized completion",
+    notifications.some(note => note.message.includes("reverted to")),
+    "missing revert warning for unauthorized completion",
   );
 
   return { cwd, notifications, story };
