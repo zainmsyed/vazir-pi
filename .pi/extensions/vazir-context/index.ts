@@ -16,6 +16,7 @@ import {
   todayDate,
   updateStoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
+import { refreshVcsState } from "../vazir-tracker/index.ts";
 import {
   activeStoryLabelForReview,
   appendLearnedRules,
@@ -447,6 +448,10 @@ export default function (pi: ExtensionAPI) {
       if (shouldRequestModelDraft || indexSummary.undescribed > 0) {
         await pi.sendUserMessage(buildContextMapDraftInstruction(cwd), { deliverAs: "followUp" });
       }
+
+      // Refresh the footer immediately so the VCS state (branch, commit counter)
+      // reflects the new git/JJ setup without requiring a manual /reload.
+      refreshVcsState(cwd);
     },
   });
 
