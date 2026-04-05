@@ -124,7 +124,7 @@ function restoreExecSync() {
 }
 
 async function loadHarness() {
-  const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-tracker.ts";
+  const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-tracker/index.ts";
   const nonce = ++importNonce;
   const extensionDir = path.dirname(extensionPath);
   const tempTrackerPath = path.join(extensionDir, `.validate-vazir-tracker-${process.pid}-${nonce}.ts`);

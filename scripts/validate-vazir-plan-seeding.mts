@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
-const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context.ts";
+const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context/index.ts";
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;
 
@@ -108,11 +108,11 @@ async function runFreshPlanScenario() {
     assert(missing.length === 0, `${file} is missing required sections: ${missing.join(", ")}`);
   }
   assert(sentMessages.length === 1, "plan should send one follow-up message to the model");
-  assert(sentMessages[0].message.includes("starter story files"), "planning instruction did not mention starter story files");
-  assert(sentMessages[0].message.includes("Read .context/stories/intake-brief.md before asking any questions."), "planning instruction did not mention intake brief review");
+  assert(sentMessages[0].message.includes("seeded story files"), "planning instruction did not mention seeded story files");
+  assert(sentMessages[0].message.includes("Read .context/stories/intake-brief.md now."), "planning instruction did not mention intake brief review");
   assert(sentMessages[0].message.includes(".context/intake/prd/product-brief.md"), "planning instruction did not list the intake file");
   assert(
-    sentMessages[0].message.includes("exactly one clarifying question at a time"),
+    sentMessages[0].message.includes("ONE AT A TIME"),
     "planning instruction did not request sequential questions",
   );
   const intakeBrief = fs.readFileSync(intakeBriefPath, "utf-8");
