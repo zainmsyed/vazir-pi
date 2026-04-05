@@ -11,7 +11,8 @@ This repository is the Vazir proof of concept built on `@mariozechner/pi-coding-
 
 ## Expected Project Shape
 
-- `.pi/extensions/` holds the workflow extensions, especially `vazir-context.ts`, `vazir-backup.ts`, and `vazir-workflow.ts`.
+- `.pi/extensions/` holds the workflow extensions as folders, with each extension entrypoint in `index.ts` and related helpers alongside it. Treat flat `.ts.bak` files as archived legacy copies, not active structure.
+- Current active modules are split by responsibility, for example `vazir-context/index.ts` + `helpers.ts` and `vazir-tracker/index.ts` + `chrome.ts` + `vcs.ts`.
 - `.pi/skills/` holds routing-mode skills such as `vazir-base`, `vazir-one-shot`, `vazir-step-by-step`, and `vazir-interview`.
 - `AGENTS.md` provides cross-framework project context.
 - `.context/` is the persistent project brain: `memory/`, `learnings/`, `history/`, `prd/`, `templates/`, and `settings/`.
