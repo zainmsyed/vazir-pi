@@ -13,8 +13,11 @@
 - Avoid introducing routers or APIs; pi handles the connections
 
 ## Key Paths
-- .pi/extensions/vazir-context.ts — Context injection, /vazir-init, /plan, /remember, /review, /unlearn, /consolidate
-- .pi/extensions/vazir-tracker.ts — Change tracker, story picker, /diff, /fix, /reset
+- .pi/extensions/vazir-context/index.ts — Context injection, /vazir-init, /plan, /remember, /review, /unlearn, /consolidate
+- .pi/extensions/vazir-context/helpers.ts — Shared context/injection helpers and file-path utilities
+- .pi/extensions/vazir-tracker/index.ts — Change tracker, story picker, /diff, /fix, /reset
+- .pi/extensions/vazir-tracker/chrome.ts — Session chrome, footer/status rendering, render refresh hooks
+- .pi/extensions/vazir-tracker/vcs.ts — Git/JJ detection, checkpoint handling, change syncing
 - .pi/skills/vazir-base/SKILL.md — Always-on agent constraints
 - .context/stories/ — Story files (plan.md + story-NNN.md)
 - .context/reviews/ — Detailed review files, remembered rules log, running summary
