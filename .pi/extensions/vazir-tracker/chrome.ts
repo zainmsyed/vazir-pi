@@ -698,6 +698,13 @@ function branchLabel(cwd: string): string {
         } catch {
           // ignore
         }
+        // Empty repo (no commits yet) — symbolic-ref gives the configured default branch name.
+        try {
+          const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+          if (symRef) return clipInline(symRef, 24);
+        } catch {
+          // ignore
+        }
       }
     } catch {
       // git not available; fall through to JJ

@@ -8,7 +8,8 @@ const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
 const repoRoot = "/home/zain/Documents/coding/vazir-pi";
-const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "index.ts");
+const trackerExtensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "index.ts");
+const contextExtensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-context", "index.ts");
 
 function ensureStubModule(moduleName: string, content: string): string {
   const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
@@ -31,8 +32,10 @@ const stubModuleDirs = [
   ].join("\n")),
 ];
 
-const extensionModule = await import(`${pathToFileURL(extensionPath).href}?t=${Date.now()}`);
-const register = extensionModule.default;
+const trackerExtensionModule = await import(`${pathToFileURL(trackerExtensionPath).href}?t=${Date.now()}`);
+const contextExtensionModule = await import(`${pathToFileURL(contextExtensionPath).href}?t=${Date.now()}`);
+const registerTracker = trackerExtensionModule.default;
+const registerContext = contextExtensionModule.default;
 
 type Notification = { message: string; level: string };
 type Theme = { fg: (label: string, text: string) => string };
@@ -155,7 +158,7 @@ function writeStory(cwd: string): string {
   return storyPath;
 }
 
-function makePi() {
+function makePi(registerExtensions: Array<(pi: any) => void> = [registerTracker]) {
   const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
   const eventHandlers = new Map<string, Array<(event: any, ctx: any) => Promise<any>>>();
   const sentMessages: string[] = [];
@@ -181,7 +184,9 @@ function makePi() {
     },
   };
 
-  register(pi as any);
+  for (const registerExtension of registerExtensions) {
+    registerExtension(pi as any);
+  }
 
   return {
     commands,
@@ -198,10 +203,11 @@ function makePi() {
   };
 }
 
-function makeCtx(cwd: string, notifications: Notification[]) {
+function makeCtx(cwd: string, notifications: Notification[], options?: { selectResponses?: string[] }) {
   const widgetMounts = new Map<string, WidgetMount>();
   let footerFactory: FooterFactory | null = null;
   let toolOutputExpanded: boolean | null = null;
+  const selectResponses = [...(options?.selectResponses ?? [])];
 
   const ctx = {
     cwd,
@@ -257,7 +263,7 @@ function makeCtx(cwd: string, notifications: Notification[]) {
         return undefined;
       },
       async select() {
-        return undefined;
+        return selectResponses.shift();
       },
     },
     getWidgetMount(key: string) {
@@ -272,6 +278,10 @@ function makeCtx(cwd: string, notifications: Notification[]) {
   };
 
   return ctx;
+}
+
+async function wait(ms: number) {
+  await new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function runScenario() {
@@ -470,6 +480,88 @@ async function runBootstrappedPlainFolderScenario() {
   };
 }
 
+async function runInitRefreshScenario() {
+  const cwd = createPlainFolder("vazir-status-init-refresh-");
+  const notifications: Notification[] = [];
+  const harness = makePi([registerTracker, registerContext]);
+  const ctx = makeCtx(cwd, notifications, { selectResponses: ["Yes — initialise git"] });
+  const theme: Theme = { fg: (_label: string, text: string) => text };
+
+  await harness.emit("session_start", {}, ctx);
+
+  const statusMount = ctx.getWidgetMount("vazir-story-status");
+  const footerFactory = ctx.getFooterFactory();
+  assert(statusMount !== null, "init-refresh scenario did not mount the story status widget");
+  assert(footerFactory !== null, "init-refresh scenario did not mount the footer");
+
+  let footerRenderRequests = 0;
+  const footerComponent = footerFactory!(
+    { requestRender() { footerRenderRequests += 1; } },
+    theme,
+    {
+      // Return null so the footer falls back to branchLabel(cwd), which runs
+      // git rev-parse directly. Returning "no-git" here would show "no-git"
+      // even after /vazir-init initialises the repo.
+      getGitBranch() {
+        return null;
+      },
+      onBranchChange() {
+        return () => {};
+      },
+    },
+  );
+
+  const beforeInitLines = footerComponent.render(140).map(stripAnsi);
+  assert(beforeInitLines[1]?.includes("run /vazir-init"), "init-refresh footer did not start in setup-required state");
+
+  const initCommand = harness.commands.get("vazir-init");
+  assert(Boolean(initCommand), "vazir-init command was not registered in init-refresh scenario");
+  await initCommand!.handler("", ctx);
+
+  const branch = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  const afterInitLines = footerComponent.render(140).map(stripAnsi);
+  // Determine expected VCS label: if /vazir-init also ran jj git init --colocate the footer
+  // shows "jj" (no bookmarks yet), otherwise it shows the git branch name.
+  let jjRootInCwd = false;
+  try {
+    childProcess.execSync("jj root", { cwd, encoding: "utf-8", stdio: "pipe" });
+    jjRootInCwd = true;
+  } catch {
+    // JJ not active in this folder
+  }
+  const expectedVcsLabel = jjRootInCwd ? "jj" : branch;
+  assert(footerRenderRequests > 0, "vazir-init did not request a footer rerender");
+  assert(afterInitLines[1]?.includes(expectedVcsLabel), `footer did not switch to the live VCS label (${expectedVcsLabel}) after /vazir-init without reload`);
+  assert(!afterInitLines[1]?.includes("no-git"), "footer still showed no-git after /vazir-init");
+  assert(afterInitLines[1]?.includes("uncommitted"), "footer did not show an uncommitted counter after /vazir-init");
+
+  childProcess.execSync("git config user.name 'Vazir Test'", { cwd, stdio: "pipe" });
+  childProcess.execSync("git config user.email 'vazir-test@example.com'", { cwd, stdio: "pipe" });
+  fs.writeFileSync(path.join(cwd, "scratch.txt"), "dirty\n");
+  await wait(1300);
+
+  const dirtyLines = footerComponent.render(140).map(stripAnsi);
+  assert(dirtyLines[1]?.includes("1 uncommitted"), "footer did not show a dirty counter after a filesystem change without reload");
+
+  childProcess.execSync("git add -A", { cwd, stdio: "pipe" });
+  childProcess.execSync("git commit -qm save", { cwd, stdio: "pipe" });
+  await wait(1300);
+
+  const cleanLines = footerComponent.render(140).map(stripAnsi);
+  assert(cleanLines[1]?.includes("✓ clean"), "footer did not return to clean after commit without reload");
+
+  await harness.emit("session_shutdown", {}, ctx);
+
+  return {
+    cwd,
+    notifications,
+    beforeInitLines,
+    afterInitLines,
+    dirtyLines,
+    cleanLines,
+  };
+}
+
 function printScenario(title: string, details: Record<string, unknown>) {
   console.log(title);
   for (const [key, value] of Object.entries(details)) {
@@ -497,9 +589,11 @@ try {
   const scenario = await runScenario();
   const cleanFolder = await runCleanFolderScenario();
   const bootstrappedPlainFolder = await runBootstrappedPlainFolderScenario();
+  const initRefresh = await runInitRefreshScenario();
   printScenario("Status Chrome", scenario);
   printScenario("Clean Folder Startup", cleanFolder);
   printScenario("Bootstrapped Plain Folder", bootstrappedPlainFolder);
+  printScenario("Init Refresh", initRefresh);
 } finally {
   for (const moduleDir of stubModuleDirs.reverse()) {
     fs.rmSync(moduleDir, { recursive: true, force: true });
