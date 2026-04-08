@@ -230,6 +230,7 @@ assert(createdReview.includes("**Scope:** story"), "story-scoped reviews should 
 assert(createdReview.includes("**Story:** story-003"), "new review files should reference the selected story");
 assert(createdReview.includes("## Checklist"), "new review files should include a checklist section");
 assert(createdReview.includes("Check for dead code, duplication, and simplification opportunities"), "new review files should include simplification and dead-code checks");
+assert(createdReview.includes("## Recommended Fixes"), "new review files should include a recommended-fixes checklist section");
 assert(createdReview.includes("## Completion Summary"), "new review files should include a completion summary section");
 assert(
   harness.sentMessages[0].message.includes("Treat the review file as the source of truth"),
@@ -238,6 +239,10 @@ assert(
 assert(
   harness.sentMessages[0].message.includes("Do not change story status"),
   "review follow-up should keep story completion user-controlled",
+);
+assert(
+  harness.sentMessages[0].message.includes("Add or update one checklist item per finding in `## Recommended Fixes`"),
+  "review follow-up should require checklist tracking for recommended fixes",
 );
 assert(
   harness.sentMessages[0].message.includes("**Status:** complete"),
@@ -340,6 +345,11 @@ fs.writeFileSync(
     "",
     "---",
     "",
+    "## Recommended Fixes",
+    "- [x] medium — Update auth helper imports when renaming helpers",
+    "",
+    "---",
+    "",
     "## Completion Summary",
     "One regression found and documented.",
     "",
@@ -384,6 +394,11 @@ fs.writeFileSync(
     "",
     "---",
     "",
+    "## Recommended Fixes",
+    "- [x] high — Include import updates in auth helper rename refactors",
+    "",
+    "---",
+    "",
     "## Completion Summary",
     "Second review confirmed the same regression pattern.",
     "",
@@ -425,6 +440,11 @@ fs.writeFileSync(
     "- Evidence: review still in progress",
     "- Recommendation: only summarize completed reviews",
     "- Rule candidate: draft reviews should not affect learned rules until complete",
+    "",
+    "---",
+    "",
+    "## Recommended Fixes",
+    "- [ ] low — Delay summary promotion until the review is complete",
     "",
     "---",
     "",

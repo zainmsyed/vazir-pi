@@ -34,6 +34,10 @@ const register = extensionModule.default;
 
 type Notification = { message: string; level: string };
 type SelectCall = { prompt: string; options: string[] };
+type InternalMessage = {
+  message: { customType: string; content: string; display: boolean; details?: unknown };
+  options?: unknown;
+};
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -101,7 +105,8 @@ function writeNotStartedStory(cwd: string, number: number, lastAccessed: string)
 function makePi() {
   const eventHandlers = new Map<string, Array<(event: any, ctx: any) => Promise<any>>>();
   const commands = new Map<string, unknown>();
-  const sentMessages: Array<{ message: string; options?: unknown }> = [];
+  const sentUserMessages: Array<{ message: string; options?: unknown }> = [];
+  const sentInternalMessages: InternalMessage[] = [];
 
   const pi = {
     on(name: string, handler: (event: any, ctx: any) => Promise<any>) {
@@ -113,14 +118,18 @@ function makePi() {
       commands.set(name, definition);
     },
     async sendUserMessage(message: string, options?: unknown) {
-      sentMessages.push({ message, options });
+      sentUserMessages.push({ message, options });
+    },
+    sendMessage(message: InternalMessage["message"], options?: unknown) {
+      sentInternalMessages.push({ message, options });
     },
   };
 
   register(pi as any);
 
   return {
-    sentMessages,
+    sentInternalMessages,
+    sentUserMessages,
     async emit(name: string, event: any, ctx: any) {
       const handlers = eventHandlers.get(name) ?? [];
       for (const handler of handlers) {
@@ -133,14 +142,17 @@ function makePi() {
 function makeCtx(
   cwd: string,
   notifications: Notification[],
-  options: { hasUI?: boolean; selectResponses?: string[]; selectCalls?: SelectCall[] } = {},
+  options: { hasUI?: boolean; isIdle?: boolean; selectResponses?: string[]; selectCalls?: SelectCall[] } = {},
 ) {
-  const { hasUI = false, selectResponses = [], selectCalls = [] } = options;
+  const { hasUI = false, isIdle = true, selectResponses = [], selectCalls = [] } = options;
   let selectIndex = 0;
 
   return {
     cwd,
     hasUI,
+    isIdle() {
+      return isIdle;
+    },
     ui: {
       notify(message: string, level: string) {
         notifications.push({ message, level });
@@ -258,15 +270,20 @@ async function runCompletionReviewPromptScenario() {
   assert(review.includes("**Status:** in-progress"), "prompt-created review should start in-progress");
   assert(review.includes("**Scope:** story"), "prompt-created review should stay scoped to the completed story");
   assert(review.includes("**Story:** story-001"), "prompt-created review should point at the completed story");
-  assert(harness.sentMessages.length === 1, "accepting the completion prompt should send one follow-up message");
-  assert(harness.sentMessages[0].message.includes(".context/reviews/"), "review follow-up should mention the review path");
+  assert(review.includes("## Recommended Fixes"), "prompt-created review should include the recommended-fixes checklist section");
+  assert(harness.sentUserMessages.length === 0, "accepting the completion prompt should not inject a visible follow-up user message");
+  assert(harness.sentInternalMessages.length === 1, "accepting the completion prompt should dispatch one hidden internal review turn");
+  assert(harness.sentInternalMessages[0].message.customType === "vazir-internal-request", "completion prompt should use the internal request message type");
+  assert(harness.sentInternalMessages[0].message.display === false, "completion prompt should hide the internal review turn from the TUI");
+  assert(harness.sentInternalMessages[0].message.content.includes(".context/reviews/"), "review follow-up should mention the review path");
+  assert(harness.sentInternalMessages[0].message.content.includes("## Recommended Fixes"), "completion review follow-up should require checklist tracking for recommended fixes");
 
   return {
     cwd,
     notifications,
     selectCalls,
     reviewFiles,
-    sentMessages: harness.sentMessages.map(entry => entry.message),
+    sentInternalMessages: harness.sentInternalMessages.map(entry => entry.message.content),
   };
 }
 
