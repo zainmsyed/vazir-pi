@@ -66,7 +66,7 @@ pi-coding-agent (base)
         │   ├── story-001.md         # One file per story — checklist + issues + completion
         │   ├── story-002.md
         │   └── ...
-      ├── reviews/                 # Detailed review files + remembered rules log + running summary
+      ├── reviews/                 # Structured review files + remembered rules log + running summary
       ├── complaints-log.md        # Persistent cross-session issue log — never injected
         ├── checkpoints/             # Git fallback only
         └── settings/
@@ -171,6 +171,78 @@ Every story file (`story-NNN.md`) follows this exact structure. The template is 
 ## Completion Summary
 [Agent writes this when user marks complete. Covers what was built, key decisions, gotchas, and approach. If force-completed by user, lists unverified checklist items. This feeds the learning system — write it to be useful in a future session.]
 ```
+
+---
+
+## Optional Code Review Workflow
+
+Code review is opt-in. It is not a required story status and it does not block story completion.
+Running a review never changes story status; stories still become `complete` only when the user explicitly says so.
+Manual `/review` runs are informational only and never gate later story completion.
+
+Two entry points:
+
+- Manual: the user runs `/review [focus]` at any time, then chooses whether the review should cover a specific story or the whole codebase. If they choose a story, Vazir lists in-progress stories first, then completed stories in descending completion order.
+- Post-completion prompt: when a story closes through `/complete-story`, Vazir can start a story-scoped review before final closure. If the review finds issues, Vazir surfaces them and asks the user whether to keep the story open or close it anyway. Declining leaves the story open for more work.
+
+Whole-codebase reviews are always manual. Vazir should never trigger a comprehensive repository review automatically.
+
+## Guided Story Completion
+
+`/complete-story` is the explicit closeout command for an in-progress story.
+
+Flow:
+
+- Vazir inspects the target story's checklist, issue statuses, and completion summary.
+- If there are unchecked checklist items, open issues (`pending`, `unresolved`, `reopened`), or no completion summary, Vazir does not close the story. Instead it asks the agent to review the story, fill in the missing closeout details, and report blockers clearly.
+- If that follow-up pass makes the story ready, Vazir returns to the user with the closeout prompt instead of requiring a second `/complete-story` command.
+- If the story looks ready, Vazir asks whether to close it now, start a story-scoped code review first, or keep working.
+- Completing through `/complete-story` is still user-directed: the command is the user's explicit approval to close the story if the readiness checks pass.
+
+Every code review gets its own file in `.context/reviews/`:
+
+```markdown
+# Code Review YYYY-MM-DDTHH:MM:SSZ
+
+**Status:** in-progress | complete  
+**Created:** YYYY-MM-DDTHH:MM:SSZ  
+**Completed:** —  
+**Scope:** story | whole-codebase  
+**Story:** story-NNN | —  
+**Focus:** [what this review is examining]  
+**Trigger:** manual | post-story-completion
+
+---
+
+## Goal
+[Inspect the requested scope for bugs, regressions, missing tests, dead code, simplification opportunities, scope drift, and workflow violations.]
+
+## Checklist
+- [ ] Inspect the relevant diff and touched files
+- [ ] Check for bugs, regressions, and edge cases
+- [ ] Check tests and verification gaps
+- [ ] Check for dead code, duplication, and simplification opportunities
+- [ ] Capture reusable rule candidates where warranted
+- [ ] Write the completion summary and mark the review complete
+
+---
+
+## Findings
+### Finding 1
+- Severity: medium
+- Category: bug
+- Summary:
+- Evidence:
+- Recommendation:
+- Rule candidate: —
+
+---
+
+## Completion Summary
+[Short wrap-up. If there are no findings, say so directly and note residual risk or verification gaps.]
+```
+
+Only completed review files feed `.context/reviews/summary.md` and rule promotion into `system.md`. Legacy review files without explicit status are treated as completed for backward compatibility.
 
 ---
 
@@ -467,7 +539,8 @@ automatic: true
 | `/story` | `vazir-tracker.ts` | Pick the plan or a story file and open it in a scrollable terminal viewer |
 | `/fix [description]` | `vazir-tracker.ts` | Warn re: secrets, log issue to active story + `complaints-log.md`, attempt fix, track status |
 | `/remember [rule]` | `vazir-context.ts` | Promote a confirmed reusable lesson into `system.md` immediately and record it in the running review summary; if no rule is provided, draft one from recent fix context |
-| `/review [focus]` | `vazir-context.ts` | Create a detailed review markdown file and sync recurring rule candidates into summary memory |
+| `/review [focus]` | `vazir-context.ts` | Create a structured review file, ask whether the review should cover a specific story or the whole codebase, and sync completed review rule candidates into summary memory |
+| `/complete-story` | `vazir-context.ts` | Inspect the active in-progress story for completion readiness, then complete it and optionally start a story review |
 | `/unlearn [rule]` | `vazir-context.ts` | Show numbered list of promoted rules, remove selected rule from `system.md` |
 | `/consolidate` | `vazir-context.ts` | Preview + apply rule consolidation, cluster `complaints-log.md`, promote threshold hits |
 | `/diff` | `vazir-tracker.ts` | Show JJ or git diff for current changes |

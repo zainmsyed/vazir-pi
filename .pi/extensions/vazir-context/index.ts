@@ -6,6 +6,7 @@ import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import {
+  compareStoriesByRecencyDesc,
   complaintsLogPath,
   detectJJ,
   findActiveStory,
@@ -18,31 +19,39 @@ import {
 } from "../../lib/vazir-helpers.ts";
 import { refreshVcsState } from "../vazir-tracker/index.ts";
 import {
-  activeStoryLabelForReview,
   appendLearnedRules,
   applyLocalRuleDedupe,
+  assessStoryCompletionReadiness,
+  buildConsolidationInstruction,
   buildContextMapDraftInstruction,
   buildInitSummary,
   buildIntakeBrief,
   buildRememberInstruction,
-  buildConsolidationInstruction,
+  buildReviewInstruction,
   clearLegacyPendingLearnings,
-  compactTimestamp,
   contextMapPath,
+  createReviewDraft,
+  formatReviewFindingSummary,
+  parseReviewFrontmatter,
+  reviewFindingsFromFile,
+  activeStoryLabelForManualReview,
+  defaultReviewFocus,
+  defaultStoryLabelForReview,
   detectGitRepo,
   draftContextMap,
   ensureDir,
   ensureIntakeStructure,
-  intakeDir,
   ensureReviewStructure,
   ensureSeedStories,
   findWorkableStory,
   indexPath,
   INTAKE_README_TEMPLATE,
   intakeBriefPath,
+  intakeDir,
   intakeReadmePath,
   learnedRuleLinesFromMd,
   listIntakeFiles,
+  manualReviewStoryChoiceLabel,
   malformedStoryFiles,
   memoryDir,
   nextStoryNumber,
@@ -50,11 +59,11 @@ import {
   rememberEntry,
   rememberedRulesPath,
   restoreStoryFrontmatter,
-  reviewFileTemplate,
   reviewsDir,
   reviewSummaryPath,
   REMEMBERED_RULES_TEMPLATE,
   REVIEW_SUMMARY_TEMPLATE,
+  selectableStoriesForManualReview,
   seededPlanTemplate,
   settingsDir,
   snapshotStoryFrontmatter,
@@ -65,6 +74,7 @@ import {
   undescribedIndexFiles,
   userExplicitlyApprovedStatusChange,
   walkSourceFiles,
+  type ReviewFindingSummary,
   writeIndex,
 } from "./helpers.ts";
 
@@ -119,6 +129,8 @@ let lastUserPrompt = "";
 let useJJ = false;
 let pendingInitSummary: string | null = null;
 const storyFrontmatterSnapshots = new Map<string, Map<string, { status: string; completed: string }>>();
+const pendingCompleteStoryRequests = new Map<string, { storyFile: string; reviewFile?: string }>();
+type ManualReviewScope = "story" | "whole-codebase";
 
 export default function (pi: ExtensionAPI) {
   pi.on("input", async (event: any) => {
@@ -131,6 +143,225 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event: any, ctx: any) => {
     useJJ = detectJJ(ctx.cwd);
   });
+
+  function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function matchReviewPrefix(input: string, prefixes: string[]): string | null {
+    for (const prefix of prefixes) {
+      const match = input.match(new RegExp(`^${escapeRegExp(prefix)}(?:\\s+review)?(?:\\s*:\\s*|\\s+-\\s+|\\s+)?(.*)$`, "i"));
+      if (match) return match[1].trim();
+    }
+
+    return null;
+  }
+
+  function parseManualReviewRequest(args: string): { scope: ManualReviewScope | null; focus: string } {
+    const trimmed = args.trim();
+    if (!trimmed) return { scope: null, focus: "" };
+
+    const wholeCodebaseFocus = matchReviewPrefix(trimmed, [
+      "whole codebase",
+      "whole repo",
+      "whole repository",
+      "whole project",
+      "comprehensive",
+      "codebase",
+      "repo",
+      "repository",
+      "full",
+    ]);
+    if (wholeCodebaseFocus != null) return { scope: "whole-codebase", focus: wholeCodebaseFocus };
+
+    const storyFocus = matchReviewPrefix(trimmed, ["in-progress story", "active story", "current story", "story"]);
+    if (storyFocus != null) return { scope: "story", focus: storyFocus };
+
+    return { scope: null, focus: trimmed };
+  }
+
+  async function chooseSpecificStoryForReview(ctx: any, cwd: string): Promise<string | null> {
+    const stories = selectableStoriesForManualReview(cwd);
+    if (stories.length === 0) {
+      ctx.ui.notify("No in-progress or completed stories are available for review yet.", "info");
+      return null;
+    }
+
+    const labels = stories.map(manualReviewStoryChoiceLabel);
+    const choice = await ctx.ui.select("Which story should this review cover?", [...labels, "Cancel"]);
+    if (choice == null || choice === "Cancel") return null;
+
+    const selected = stories[labels.indexOf(choice)];
+    return selected ? path.basename(selected.file, ".md") : null;
+  }
+
+  async function chooseManualReviewScope(
+    ctx: any,
+    cwd: string,
+  ): Promise<{ scope: ManualReviewScope; storyLabel: string } | null> {
+    const storyOption = "Specific story";
+    const wholeCodebaseOption = "Whole codebase";
+    const options = [storyOption, wholeCodebaseOption, "Cancel"];
+    const choice = await ctx.ui.select("What scope should this review cover?", options);
+
+    if (choice == null || choice === "Cancel") return null;
+    if (choice === wholeCodebaseOption) return { scope: "whole-codebase", storyLabel: "—" };
+    if (choice === storyOption) {
+      const storyLabel = await chooseSpecificStoryForReview(ctx, cwd);
+      if (!storyLabel) return null;
+      return { scope: "story", storyLabel };
+    }
+    return null;
+  }
+
+  async function resolveStoryForCompletion(ctx: any, cwd: string): Promise<string | null> {
+    const inProgressStories = listStories(cwd)
+      .filter(story => story.status === "in-progress")
+      .sort(compareStoriesByRecencyDesc);
+
+    if (inProgressStories.length === 0) {
+      ctx.ui.notify("No in-progress story is available to complete.", "info");
+      return null;
+    }
+
+    if (inProgressStories.length === 1) return inProgressStories[0].file;
+
+    const labels = inProgressStories.map(story => `${path.basename(story.file, ".md")} — last accessed ${story.lastAccessed}`);
+    const choice = await ctx.ui.select("Which in-progress story do you want to complete?", [...labels, "Cancel"]);
+    if (choice == null || choice === "Cancel") return null;
+
+    const selected = inProgressStories[labels.indexOf(choice)];
+    return selected?.file ?? null;
+  }
+
+  function buildCompleteStoryInstruction(
+    storyLabel: string,
+    readiness: { uncheckedChecklistItems: string[]; openIssueStatuses: string[]; hasCompletionSummary: boolean },
+  ): string {
+    const blockers: string[] = [];
+    if (readiness.uncheckedChecklistItems.length > 0) {
+      blockers.push(`${readiness.uncheckedChecklistItems.length} unchecked checklist item${readiness.uncheckedChecklistItems.length === 1 ? "" : "s"}`);
+    }
+    if (readiness.openIssueStatuses.length > 0) {
+      blockers.push(`${readiness.openIssueStatuses.length} open issue${readiness.openIssueStatuses.length === 1 ? "" : "s"} (${[...new Set(readiness.openIssueStatuses)].join(", ")})`);
+    }
+    if (!readiness.hasCompletionSummary) {
+      blockers.push("missing completion summary");
+    }
+
+    return [
+      `Review .context/stories/${storyLabel}.md for completion readiness.`,
+      "",
+      `Current blockers: ${blockers.join("; ")}.`,
+      "",
+      "Your job:",
+      "1. Review the story checklist, issues, and completion summary.",
+      "2. Resolve or clearly explain any remaining blockers inside the story file.",
+      "3. If the implementation is done but the summary is weak or missing, write a useful Completion Summary.",
+      "4. Do not mark the story complete yet. Vazir will handle the final closeout prompt.",
+      "5. Report whether the story is ready and what, if anything, still blocks completion.",
+    ].join("\n");
+  }
+
+  function listCompletionBlockers(readiness: {
+    uncheckedChecklistItems: string[];
+    openIssueStatuses: string[];
+    hasCompletionSummary: boolean;
+  }): string[] {
+    const blockers: string[] = [];
+    if (readiness.uncheckedChecklistItems.length > 0) {
+      blockers.push(`${readiness.uncheckedChecklistItems.length} unchecked checklist item${readiness.uncheckedChecklistItems.length === 1 ? "" : "s"}`);
+    }
+    if (readiness.openIssueStatuses.length > 0) {
+      blockers.push(`${readiness.openIssueStatuses.length} open issue${readiness.openIssueStatuses.length === 1 ? "" : "s"} (${[...new Set(readiness.openIssueStatuses)].join(", ")})`);
+    }
+    if (!readiness.hasCompletionSummary) {
+      blockers.push("missing completion summary");
+    }
+    return blockers;
+  }
+
+  function completeStoryNow(ctx: any, storyPath: string): void {
+    const storyLabel = path.basename(storyPath, ".md");
+    updateStoryFrontmatter(storyPath, {
+      status: "complete",
+      lastAccessed: todayDate(),
+      completed: todayDate(),
+    });
+    ctx.ui.notify(`${storyLabel} marked complete`, "info");
+  }
+
+  async function promptReadyCloseout(ctx: any, storyPath: string): Promise<"review" | "close" | "not-yet" | null> {
+    const storyLabel = path.basename(storyPath, ".md");
+
+    if (!ctx.hasUI) {
+      ctx.ui.notify(`${storyLabel} is ready to complete. Re-run /complete-story in an interactive session to close it out.`, "info");
+      return null;
+    }
+
+    const choice = await ctx.ui.select(`${storyLabel} is ready. What would you like to do?`, [
+      "Start code review before closing",
+      "Close story now",
+      "Not yet, keep working",
+    ]);
+
+    if (choice == null) return null;
+    if (choice === "Start code review before closing") return "review";
+    if (choice === "Close story now") return "close";
+    return "not-yet";
+  }
+
+  async function promptReviewFindingsCloseout(
+    ctx: any,
+    storyPath: string,
+    findings: ReviewFindingSummary[],
+  ): Promise<"keep-open" | "close" | "not-yet" | null> {
+    const storyLabel = path.basename(storyPath, ".md");
+    const hasFindings = findings.length > 0;
+    const promptLines = hasFindings
+      ? [
+          `Review complete. ${findings.length} finding${findings.length === 1 ? "" : "s"}:`,
+          ...findings.map(finding => formatReviewFindingSummary(finding)),
+          "",
+          "Do these require work before closing?",
+        ]
+      : ["Review complete. No findings.", "Close the story now?"];
+
+    if (!ctx.hasUI) {
+      ctx.ui.notify(
+        hasFindings
+          ? `${storyLabel} review is complete and has findings. Re-run /complete-story in an interactive session to decide whether to close it.`
+          : `${storyLabel} review is complete. Re-run /complete-story in an interactive session to close it out.`,
+        "info",
+      );
+      return null;
+    }
+
+    const choice = await ctx.ui.select(promptLines.join("\n"), hasFindings
+      ? ["Yes, keep story open", "No, close story now (findings noted)", "Not yet, keep working"]
+      : ["Close story now", "Not yet, keep working"]);
+
+    if (choice == null) return null;
+    if (hasFindings) {
+      if (choice === "Yes, keep story open") return "keep-open";
+      if (choice === "No, close story now (findings noted)") return "close";
+      return "not-yet";
+    }
+
+    if (choice === "Close story now") return "close";
+    return "not-yet";
+  }
+
+  async function startReviewFlow(
+    ctx: any,
+    options: { focus: string; scope?: ManualReviewScope; storyLabel?: string; trigger?: string },
+  ): Promise<ReturnType<typeof createReviewDraft>> {
+    const review = createReviewDraft(ctx.cwd, options);
+    syncReviewSummaryAndPromoteRules(ctx.cwd);
+    ctx.ui.notify(`Created ${review.fileName} in .context/reviews/`, "info");
+    await pi.sendUserMessage(buildReviewInstruction(review), { deliverAs: "followUp" });
+    return review;
+  }
 
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     storyFrontmatterSnapshots.set(ctx.cwd, snapshotStoryFrontmatter(ctx.cwd));
@@ -182,6 +413,7 @@ export default function (pi: ExtensionAPI) {
     clearLegacyPendingLearnings(ctx.cwd);
     applyLocalRuleDedupe(ctx.cwd);
     storyFrontmatterSnapshots.delete(ctx.cwd);
+    pendingCompleteStoryRequests.delete(ctx.cwd);
   });
 
   // ── agent_end: zero-token index.md structural updates ─────────────────
@@ -204,10 +436,17 @@ export default function (pi: ExtensionAPI) {
       previous: { status: string; completed: string };
       nextStatus: string;
     }> = [];
+    const newlyCompletedStories: Array<{ storyFile: string; storyLabel: string }> = [];
     if (snapshot) {
       for (const story of listStories(cwd)) {
         const previous = snapshot.get(story.file);
         if (!previous) continue;
+        if (story.status === "complete" && story.status !== previous.status) {
+          newlyCompletedStories.push({
+            storyFile: story.file,
+            storyLabel: path.basename(story.file, ".md"),
+          });
+        }
         if (story.status !== "complete" && story.status !== "retired") continue;
         if (story.status === previous.status) continue;
         if (userExplicitlyApprovedStatusChange(lastUserPrompt, story.status)) continue;
@@ -225,7 +464,7 @@ export default function (pi: ExtensionAPI) {
       let shouldRevert: boolean;
       if (ctx.hasUI) {
         const choice = await ctx.ui.select(
-          `The agent marked ${change.basename} as "${change.nextStatus}". Did you mean to close this story?`,
+          `The agent marked ${change.basename} as "${change.nextStatus}". Did you mean to close this story? If yes, Vazir can optionally start a review next.`,
           [
             `Yes — keep it as ${change.nextStatus}`,
             `No — revert to ${change.previous.status}`,
@@ -240,6 +479,77 @@ export default function (pi: ExtensionAPI) {
         restoreStoryFrontmatter(change.storyFile, change.previous);
         ctx.ui.notify(`${change.basename} reverted to "${change.previous.status}"`, "warning");
       }
+    }
+
+    const pendingCompleteStory = pendingCompleteStoryRequests.get(cwd);
+    if (pendingCompleteStory) {
+      const storyLabel = path.basename(pendingCompleteStory.storyFile, ".md");
+      const readiness = assessStoryCompletionReadiness(pendingCompleteStory.storyFile);
+      const blockers = listCompletionBlockers(readiness);
+
+      if (pendingCompleteStory.reviewFile) {
+        const reviewFrontmatter = parseReviewFrontmatter(pendingCompleteStory.reviewFile);
+        if (reviewFrontmatter?.status !== "complete") {
+          return;
+        }
+
+        const findings = reviewFindingsFromFile(pendingCompleteStory.reviewFile);
+        const decision = await promptReviewFindingsCloseout(ctx, pendingCompleteStory.storyFile, findings);
+        if (decision == null) return;
+
+        pendingCompleteStoryRequests.delete(cwd);
+        if (decision === "close") {
+          completeStoryNow(ctx, pendingCompleteStory.storyFile);
+        }
+        return;
+      }
+
+      if (blockers.length > 0) {
+        return;
+      }
+
+      const decision = await promptReadyCloseout(ctx, pendingCompleteStory.storyFile);
+      if (decision == null) return;
+
+      if (decision === "review") {
+        const review = await startReviewFlow(ctx, {
+          focus: `${storyLabel} completion review`,
+          scope: "story",
+          storyLabel,
+          trigger: "complete-story",
+        });
+        pendingCompleteStoryRequests.set(cwd, { storyFile: pendingCompleteStory.storyFile, reviewFile: review.filePath });
+        return;
+      }
+
+      pendingCompleteStoryRequests.delete(cwd);
+      if (decision === "close") {
+        completeStoryNow(ctx, pendingCompleteStory.storyFile);
+      }
+    }
+
+    const currentStoryStatuses = new Map(listStories(cwd).map(story => [story.file, story.status]));
+    for (const completedStory of newlyCompletedStories) {
+      if (currentStoryStatuses.get(completedStory.storyFile) !== "complete") continue;
+
+      if (!ctx.hasUI) {
+        ctx.ui.notify(`${completedStory.storyLabel} marked complete. Run /review to create a code review file.`, "info");
+        continue;
+      }
+
+      const choice = await ctx.ui.select(
+        `${completedStory.storyLabel} is complete. Start a code review now?`,
+        ["Yes — create a code review file", "No — maybe later"],
+      );
+      if (choice == null || !choice.startsWith("Yes")) continue;
+
+      await startReviewFlow(ctx, {
+        focus: `${completedStory.storyLabel} completion review`,
+        scope: "story",
+        storyLabel: completedStory.storyLabel,
+        trigger: "post-story-completion",
+      });
+      break;
     }
 
     const idxPath = indexPath(cwd);
@@ -604,33 +914,88 @@ export default function (pi: ExtensionAPI) {
   // ── /review ─────────────────────────────────────────────────────────
 
   pi.registerCommand("review", {
-    description: "Create a detailed code review file and sync recurring findings into summary memory",
+    description: "Create a structured code review file for the current story or a manually triggered whole-codebase review",
     handler: async (args: string, ctx: any) => {
       const cwd = ctx.cwd;
       ensureReviewStructure(cwd);
 
-      const created = nowISO();
-      const focus = args.trim() || `active story ${activeStoryLabelForReview(cwd)} and recent changes`;
-      const reviewFileName = `review-${compactTimestamp(created)}.md`;
-      const reviewFilePath = path.join(reviewsDir(cwd), reviewFileName);
-      fs.writeFileSync(reviewFilePath, reviewFileTemplate(cwd, focus));
+      const parsed = parseManualReviewRequest(args);
+      const defaultStoryLabel = activeStoryLabelForManualReview(cwd);
+      let scope = parsed.scope;
+      let storyLabel = scope === "whole-codebase" ? "—" : defaultStoryLabel;
 
-      syncReviewSummaryAndPromoteRules(cwd);
-      ctx.ui.notify(`Created ${reviewFileName} in .context/reviews/`, "info");
+      if (scope === "story" && ctx.hasUI) {
+        const selectedStoryLabel = await chooseSpecificStoryForReview(ctx, cwd);
+        if (!selectedStoryLabel) return;
+        storyLabel = selectedStoryLabel;
+      }
 
-      const instruction = [
-        `Run a code review and write the findings to .context/reviews/${reviewFileName}.`,
-        "",
-        "Requirements:",
-        "1. Focus on bugs, regressions, missing tests, scope drift, and workflow violations.",
-        "2. Keep findings primary. If there are no findings, replace the placeholder finding with a short 'No findings' note.",
-        "3. For every finding, fill in Severity, Category, Summary, Evidence, Recommendation, and Rule candidate.",
-        "4. Use `- Rule candidate: —` when a finding should not become a reusable rule.",
-        "5. Do not update .context/reviews/summary.md manually unless you need to add a short note outside the generated sync format — Vazir rebuilds it automatically.",
-        `6. Review focus: ${focus}.`,
-      ].join("\n");
+      if (!scope && ctx.hasUI) {
+        const selection = await chooseManualReviewScope(ctx, cwd);
+        if (!selection) return;
+        scope = selection.scope;
+        storyLabel = selection.storyLabel;
+      }
 
-      await pi.sendUserMessage(instruction, { deliverAs: "followUp" });
+      if (!scope) {
+        scope = defaultStoryLabel === "—" ? "whole-codebase" : "story";
+        storyLabel = scope === "story" ? defaultStoryLabel : "—";
+      }
+
+      if (scope === "story" && storyLabel === "—") {
+        ctx.ui.notify("No active story is available for a story-scoped review; switching to a whole-codebase review.", "warning");
+        scope = "whole-codebase";
+      }
+
+      const focus = parsed.focus || defaultReviewFocus(cwd, { scope, storyLabel });
+      await startReviewFlow(ctx, { focus, scope, storyLabel, trigger: "manual" });
+    },
+  });
+
+  pi.registerCommand("complete-story", {
+    description: "Check an in-progress story for completion readiness, then complete it and optionally start a code review",
+    handler: async (_args: string, ctx: any) => {
+      const cwd = ctx.cwd;
+      const storyPath = await resolveStoryForCompletion(ctx, cwd);
+      if (!storyPath) return;
+
+      const storyLabel = path.basename(storyPath, ".md");
+      const readiness = assessStoryCompletionReadiness(storyPath);
+      const blockers = listCompletionBlockers(readiness);
+
+      if (blockers.length > 0) {
+        pendingCompleteStoryRequests.set(cwd, { storyFile: storyPath });
+        ctx.ui.notify(
+          `${storyLabel} is not ready to complete yet. Vazir will review the remaining checklist, issues, and summary first.`,
+          "warning",
+        );
+        await pi.sendUserMessage(buildCompleteStoryInstruction(storyLabel, readiness), { deliverAs: "followUp" });
+        return;
+      }
+
+      if (!ctx.hasUI) {
+        ctx.ui.notify(`Run /review after marking ${storyLabel} complete if you want a code review file.`, "info");
+        return;
+      }
+
+      const choice = await promptReadyCloseout(ctx, storyPath);
+      if (choice == null) return;
+
+      if (choice === "review") {
+        const review = await startReviewFlow(ctx, {
+          focus: `${storyLabel} completion review`,
+          scope: "story",
+          storyLabel,
+          trigger: "complete-story",
+        });
+        pendingCompleteStoryRequests.set(cwd, { storyFile: storyPath, reviewFile: review.filePath });
+        return;
+      }
+
+      pendingCompleteStoryRequests.delete(cwd);
+      if (choice === "close") {
+        completeStoryNow(ctx, storyPath);
+      }
     },
   });
 
