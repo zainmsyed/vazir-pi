@@ -7,6 +7,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.dirname(scriptDir);
 const validations = [
   "validate-vazir-checkpoint-labels.mts",
+  "validate-vazir-complete-story.mts",
   "validate-vazir-edits-stream.mts",
   "validate-vazir-fix-routing.mts",
   "validate-vazir-init.mts",

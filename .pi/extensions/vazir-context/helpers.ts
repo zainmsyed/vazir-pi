@@ -5,6 +5,8 @@ import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import {
+  compareStoriesByCompletionDesc,
+  compareStoriesByRecencyDesc,
   complaintsLogPath,
   findActiveStory,
   listStories,
@@ -100,6 +102,8 @@ export const PREVIEWABLE_TEXT_EXTENSIONS = new Set([
 ]);
 export const GENERAL_APPROVALS = new Set(["yes", "y", "done", "approved", "looks good", "ship it"]);
 
+export type ReviewScope = "story" | "whole-codebase";
+
 
 export type InitFileStatus = {
   label: string;
@@ -114,6 +118,39 @@ export interface SeedStorySpec {
   outOfScope: string[];
   dependencies: string[];
   checklist: string[];
+}
+
+export interface ReviewDraft {
+  created: string;
+  focus: string;
+  scope: ReviewScope;
+  storyLabel: string;
+  trigger: string;
+  fileName: string;
+  filePath: string;
+}
+
+export interface ReviewFrontmatter {
+  status: string;
+  created: string;
+  completed: string;
+  scope: string;
+  story: string;
+  focus: string;
+  trigger: string;
+  file: string;
+}
+
+export interface ReviewFindingSummary {
+  severity: string;
+  category: string;
+  summary: string;
+}
+
+export interface StoryCompletionReadiness {
+  uncheckedChecklistItems: string[];
+  openIssueStatuses: string[];
+  hasCompletionSummary: boolean;
 }
 
 // ── Path helpers ───────────────────────────────────────────────────────
@@ -941,6 +978,111 @@ export function reviewDetailFiles(cwd: string): string[] {
     .sort((a: string, b: string) => a.localeCompare(b));
 }
 
+export function parseReviewFrontmatter(filePath: string): ReviewFrontmatter | null {
+  const content = readIfExists(filePath);
+  if (!content) return null;
+
+  const statusMatch = content.match(/^\*\*Status:\*\*\s*(.+)$/m);
+  const createdMatch = content.match(/^\*\*Created:\*\*\s*(.+)$/m);
+  if (!statusMatch || !createdMatch) return null;
+
+  const completedMatch = content.match(/^\*\*Completed:\*\*\s*(.+)$/m);
+  const scopeMatch = content.match(/^\*\*Scope:\*\*\s*(.+)$/m);
+  const storyMatch = content.match(/^\*\*Story:\*\*\s*(.+)$/m);
+  const focusMatch = content.match(/^\*\*Focus:\*\*\s*(.+)$/m);
+  const triggerMatch = content.match(/^\*\*Trigger:\*\*\s*(.+)$/m);
+  const story = storyMatch?.[1]?.trim() ?? "—";
+
+  return {
+    status: statusMatch[1].trim(),
+    created: createdMatch[1].trim(),
+    completed: completedMatch?.[1]?.trim() ?? "—",
+    scope: scopeMatch?.[1]?.trim() ?? (story !== "—" ? "story" : "whole-codebase"),
+    story,
+    focus: focusMatch?.[1]?.trim() ?? "",
+    trigger: triggerMatch?.[1]?.trim() ?? "manual",
+    file: filePath,
+  };
+}
+
+export function reviewContributesToSummary(filePath: string): boolean {
+  const review = parseReviewFrontmatter(filePath);
+  if (!review) return true;
+  return review.status === "complete";
+}
+
+export function reviewFindingsFromFile(filePath: string): ReviewFindingSummary[] {
+  const content = readIfExists(filePath);
+  if (!content) return [];
+
+  const lines = content.split("\n");
+  const findings: ReviewFindingSummary[] = [];
+  let inFindings = false;
+  let current: ReviewFindingSummary | null = null;
+
+  function pushCurrentFinding(): void {
+    if (!current) return;
+    const summary = current.summary.trim();
+    if (!summary || /^no findings$/i.test(summary)) return;
+    findings.push({
+      severity: current.severity.trim(),
+      category: current.category.trim(),
+      summary,
+    });
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!inFindings) {
+      if (trimmed === "## Findings") inFindings = true;
+      continue;
+    }
+
+    if (trimmed.startsWith("## ") && trimmed !== "## Findings") {
+      pushCurrentFinding();
+      break;
+    }
+
+    if (trimmed.startsWith("### Finding ")) {
+      pushCurrentFinding();
+      current = { severity: "", category: "", summary: "" };
+      continue;
+    }
+
+    if (!current) continue;
+
+    const severity = line.match(/^\- Severity:\s*(.+)$/)?.[1]?.trim();
+    if (severity !== undefined) {
+      current.severity = severity;
+      continue;
+    }
+
+    const category = line.match(/^\- Category:\s*(.+)$/)?.[1]?.trim();
+    if (category !== undefined) {
+      current.category = category;
+      continue;
+    }
+
+    const summary = line.match(/^\- Summary:\s*(.+)$/)?.[1]?.trim();
+    if (summary !== undefined) {
+      current.summary = summary;
+    }
+  }
+
+  pushCurrentFinding();
+
+  return findings;
+}
+
+export function formatReviewFindingSummary(finding: ReviewFindingSummary): string {
+  const severity = finding.severity.trim() || "unspecified";
+  const category = finding.category.trim();
+  const summary = finding.summary.trim();
+  if (category) return `- ${severity}: ${summary} (${category})`;
+  return `- ${severity}: ${summary}`;
+}
+
 export function ruleCandidatesFromMarkdown(content: string): string[] {
   return content
     .split("\n")
@@ -950,7 +1092,10 @@ export function ruleCandidatesFromMarkdown(content: string): string[] {
 
 export function collectReviewAggregates(cwd: string): ReviewAggregate[] {
   const aggregates = new Map<string, ReviewAggregate>();
-  const sources = [...reviewDetailFiles(cwd), rememberedRulesPath(cwd)].filter(filePath => fs.existsSync(filePath));
+  const sources = [
+    ...reviewDetailFiles(cwd).filter(filePath => reviewContributesToSummary(filePath)),
+    rememberedRulesPath(cwd),
+  ].filter(filePath => fs.existsSync(filePath));
 
   for (const filePath of sources) {
     const sourceName = path.basename(filePath);
@@ -1032,6 +1177,89 @@ export function rememberEntry(rule: string): string {
   ].join("\n");
 }
 
+export function mostRecentStoryForReview(cwd: string): StoryFrontmatter | null {
+  const active = findActiveStory(cwd);
+  if (active) return active;
+
+  const stories = listStories(cwd).sort(compareStoriesByRecencyDesc);
+  return stories[0] ?? null;
+}
+
+export function defaultStoryLabelForReview(cwd: string): string {
+  const story = mostRecentStoryForReview(cwd);
+  return story ? path.basename(story.file, ".md") : "—";
+}
+
+export function activeStoryLabelForManualReview(cwd: string): string {
+  const active = findActiveStory(cwd);
+  return active ? path.basename(active.file, ".md") : "—";
+}
+
+export function selectableStoriesForManualReview(cwd: string): StoryFrontmatter[] {
+  const stories = listStories(cwd);
+  const inProgress = stories
+    .filter(story => story.status === "in-progress")
+    .sort(compareStoriesByRecencyDesc);
+  const completed = stories
+    .filter(story => story.status === "complete")
+    .sort(compareStoriesByCompletionDesc);
+  return [...inProgress, ...completed];
+}
+
+export function manualReviewStoryChoiceLabel(story: StoryFrontmatter): string {
+  const storyLabel = path.basename(story.file, ".md");
+  if (story.status === "in-progress") return `In-progress story — ${storyLabel}`;
+  if (story.status === "complete") return `Completed ${story.completed} — ${storyLabel}`;
+  return `${story.status} — ${storyLabel}`;
+}
+
+function readStorySection(content: string, heading: string): string {
+  const lines = content.split("\n");
+  const headingIndex = lines.findIndex(line => line.trim() === `## ${heading}`);
+  if (headingIndex < 0) return "";
+
+  const sectionLines: string[] = [];
+  for (let index = headingIndex + 1; index < lines.length; index += 1) {
+    if (lines[index].startsWith("## ")) break;
+    sectionLines.push(lines[index]);
+  }
+
+  return sectionLines.join("\n").trim();
+}
+
+export function assessStoryCompletionReadiness(filePath: string): StoryCompletionReadiness {
+  const content = readIfExists(filePath);
+  const checklist = readStorySection(content, "Checklist");
+  const issues = readStorySection(content, "Issues");
+  const completionSummary = readStorySection(content, "Completion Summary");
+
+  const uncheckedChecklistItems = checklist
+    .split("\n")
+    .map(line => line.match(/^\- \[ \]\s+(.+)$/)?.[1]?.trim() ?? "")
+    .filter(Boolean);
+
+  const openIssueStatuses = [...issues.matchAll(/^\- \*\*Status:\*\*\s*(.+?)\s*$/gm)]
+    .map(match => match[1].trim().toLowerCase())
+    .filter(status => status === "pending" || status === "unresolved" || status === "reopened");
+
+  return {
+    uncheckedChecklistItems,
+    openIssueStatuses,
+    hasCompletionSummary: completionSummary.trim().length > 0,
+  };
+}
+
+export function defaultReviewFocus(
+  cwd: string,
+  options: { scope?: ReviewScope; storyLabel?: string } = {},
+): string {
+  const scope = options.scope ?? "story";
+  if (scope === "whole-codebase") return "whole codebase review";
+
+  const storyLabel = options.storyLabel ?? defaultStoryLabelForReview(cwd);
+  return storyLabel === "—" ? "recent changes" : `${storyLabel} and recent changes`;
+}
+
 export function activeStoryLabelForReview(cwd: string): string {
   const active = findActiveStory(cwd);
   return active ? path.basename(active.file, ".md") : "—";
@@ -1052,14 +1280,91 @@ export function buildRememberInstruction(cwd: string): string {
   ].join("\n");
 }
 
-export function reviewFileTemplate(cwd: string, focus: string): string {
+export function createReviewDraft(
+  cwd: string,
+  options: { focus: string; scope?: ReviewScope; storyLabel?: string; trigger?: string },
+): ReviewDraft {
+  ensureReviewStructure(cwd);
+
   const created = nowISO();
+  const fallbackStoryLabel = options.scope === "story" ? activeStoryLabelForManualReview(cwd) : defaultStoryLabelForReview(cwd);
+  const storyLabel = options.storyLabel?.trim() || fallbackStoryLabel;
+  const scope = options.scope ?? (storyLabel === "—" ? "whole-codebase" : "story");
+  const trigger = options.trigger?.trim() || "manual";
+  const fileName = `review-${compactTimestamp(created)}.md`;
+  const filePath = path.join(reviewsDir(cwd), fileName);
+
+  fs.writeFileSync(filePath, reviewFileTemplate(created, scope, storyLabel, options.focus, trigger));
+
+  return {
+    created,
+    focus: options.focus,
+    scope,
+    storyLabel,
+    trigger,
+    fileName,
+    filePath,
+  };
+}
+
+export function buildReviewInstruction(review: ReviewDraft): string {
+  const reviewScope = review.scope === "whole-codebase"
+    ? "whole codebase"
+    : review.storyLabel !== "—"
+      ? `${review.storyLabel} and its direct integration points`
+      : "recent changes";
+
+  return [
+    `Run a code review and write the results to .context/reviews/${review.fileName}.`,
+    "",
+    "Requirements:",
+    "1. Treat the review file as the source of truth. Update the checklist as you work.",
+    "2. Focus on bugs, regressions, missing tests, dead code, simplification opportunities, scope drift, and workflow violations.",
+    "3. Keep findings primary. If there are no findings, replace the placeholder finding with a short 'No findings' note.",
+    "4. For every finding, fill in Severity, Category, Summary, Evidence, Recommendation, and Rule candidate. Categories may include bug, regression, test-gap, dead-code, simplification, or workflow.",
+    "5. Use `- Rule candidate: —` when a finding should not become a reusable rule.",
+    "6. Do not change story status as part of the review. A story only becomes complete when the user explicitly says so.",
+    "7. Finish by writing the Completion Summary, setting `**Status:** complete`, and setting `**Completed:**` to today's date.",
+    "8. Do not update .context/reviews/summary.md or .context/reviews/remembered.md manually; Vazir syncs them automatically.",
+    `9. Review scope: ${reviewScope}.`,
+    `10. Review focus: ${review.focus}.`,
+    review.storyLabel !== "—" ? `11. Story: ${review.storyLabel}.` : "11. No story is attached; keep the review manual and comprehensive within the requested scope.",
+    `12. Trigger: ${review.trigger}.`,
+  ].join("\n");
+}
+
+export function reviewFileTemplate(
+  created: string,
+  scope: ReviewScope,
+  storyLabel: string,
+  focus: string,
+  trigger: string,
+): string {
   return [
     `# Code Review ${created}`,
     "",
+    `**Status:** in-progress  `,
     `**Created:** ${created}  `,
-    `**Story:** ${activeStoryLabelForReview(cwd)}  `,
-    `**Focus:** ${focus}`,
+    `**Completed:** —  `,
+    `**Scope:** ${scope}  `,
+    `**Story:** ${storyLabel}  `,
+    `**Focus:** ${focus}  `,
+    `**Trigger:** ${trigger}`,
+    "",
+    "---",
+    "",
+    "## Goal",
+    "[Inspect the requested scope for bugs, regressions, missing tests, dead code, simplification opportunities, scope drift, and workflow violations.]",
+    "",
+    "## Checklist",
+    "- [ ] Inspect the relevant diff and touched files",
+    "- [ ] Check for bugs, regressions, and edge cases",
+    "- [ ] Check tests and verification gaps",
+    "- [ ] Check for dead code, duplication, and simplification opportunities",
+    "- [ ] Capture reusable rule candidates where warranted",
+    "- [ ] Write the completion summary and mark the review complete",
+    "",
+    "---",
     "",
     "## Findings",
     "### Finding 1",
@@ -1070,8 +1375,10 @@ export function reviewFileTemplate(cwd: string, focus: string): string {
     "- Recommendation: ",
     "- Rule candidate: —",
     "",
-    "## Reviewer Notes",
-    "- Keep findings focused on bugs, regressions, missing tests, scope drift, or workflow violations.",
+    "---",
+    "",
+    "## Completion Summary",
+    "[Summarize the review outcome. If there are no findings, say so directly and note any residual verification gaps.]",
     "",
   ].join("\n");
 }
