@@ -78,6 +78,14 @@ export function compareStoriesByRecencyDesc(left: StoryFrontmatter, right: Story
   return right.number - left.number;
 }
 
+export function compareStoriesByCompletionDesc(left: StoryFrontmatter, right: StoryFrontmatter): number {
+  const leftCompleted = left.completed === "—" ? "" : left.completed;
+  const rightCompleted = right.completed === "—" ? "" : right.completed;
+  const dateCmp = rightCompleted.localeCompare(leftCompleted);
+  if (dateCmp !== 0) return dateCmp;
+  return right.number - left.number;
+}
+
 export function findActiveStory(cwd: string): StoryFrontmatter | null {
   const stories = listStories(cwd);
   const inProgress = stories.filter(story => story.status === "in-progress");
@@ -95,7 +103,7 @@ export function nonTerminalStories(cwd: string): StoryFrontmatter[] {
 
 export function updateStoryFrontmatter(
   storyPath: string,
-  updates: { status?: StoryFrontmatter["status"]; lastAccessed?: string },
+  updates: { status?: StoryFrontmatter["status"]; lastAccessed?: string; completed?: string },
 ): void {
   const content = readIfExists(storyPath);
   if (!content) return;
@@ -106,6 +114,9 @@ export function updateStoryFrontmatter(
   }
   if (updates.lastAccessed) {
     updated = updated.replace(/^[*][*]Last accessed:[*][*]\s*.+$/m, `**Last accessed:** ${updates.lastAccessed}  `);
+  }
+  if (updates.completed) {
+    updated = updated.replace(/^[*][*]Completed:[*][*]\s*.+$/m, `**Completed:** ${updates.completed}`);
   }
 
   if (updated !== content) {

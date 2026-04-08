@@ -5,12 +5,35 @@ import { pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
+const repoRoot = "/home/zain/Documents/coding/vazir-pi";
+
+function ensureStubModule(moduleName: string, content: string): string {
+  const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
+  fs.mkdirSync(moduleDir, { recursive: true });
+  fs.writeFileSync(path.join(moduleDir, "package.json"), JSON.stringify({ name: moduleName, type: "commonjs" }, null, 2));
+  fs.writeFileSync(path.join(moduleDir, "index.js"), content);
+  return moduleDir;
+}
+
+ensureStubModule("@mariozechner/pi-tui", [
+  "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape' };",
+  "exports.matchesKey = (data, key) => data === key;",
+  "exports.Container = class {};",
+  "exports.Text = class {};",
+  "",
+].join("\n"));
+
+ensureStubModule("@mariozechner/pi-coding-agent", [
+  "exports.DynamicBorder = class {};",
+  "",
+].join("\n"));
 
 const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context/index.ts";
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;
 
 type Notification = { message: string; level: string };
+type SelectCall = { prompt: string; options: string[] };
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -78,6 +101,7 @@ function writeNotStartedStory(cwd: string, number: number, lastAccessed: string)
 function makePi() {
   const eventHandlers = new Map<string, Array<(event: any, ctx: any) => Promise<any>>>();
   const commands = new Map<string, unknown>();
+  const sentMessages: Array<{ message: string; options?: unknown }> = [];
 
   const pi = {
     on(name: string, handler: (event: any, ctx: any) => Promise<any>) {
@@ -88,12 +112,15 @@ function makePi() {
     registerCommand(name: string, definition: unknown) {
       commands.set(name, definition);
     },
-    async sendUserMessage() {},
+    async sendUserMessage(message: string, options?: unknown) {
+      sentMessages.push({ message, options });
+    },
   };
 
   register(pi as any);
 
   return {
+    sentMessages,
     async emit(name: string, event: any, ctx: any) {
       const handlers = eventHandlers.get(name) ?? [];
       for (const handler of handlers) {
@@ -103,15 +130,28 @@ function makePi() {
   };
 }
 
-function makeCtx(cwd: string, notifications: Notification[]) {
+function makeCtx(
+  cwd: string,
+  notifications: Notification[],
+  options: { hasUI?: boolean; selectResponses?: string[]; selectCalls?: SelectCall[] } = {},
+) {
+  const { hasUI = false, selectResponses = [], selectCalls = [] } = options;
+  let selectIndex = 0;
+
   return {
     cwd,
-    hasUI: false,
+    hasUI,
     ui: {
       notify(message: string, level: string) {
         notifications.push({ message, level });
       },
       setWidget() {},
+      async select(prompt: string, options: string[]) {
+        selectCalls.push({ prompt, options });
+        const response = selectResponses[selectIndex];
+        selectIndex += 1;
+        return response;
+      },
     },
   };
 }
@@ -185,6 +225,51 @@ async function runAutoStartScenario() {
   return { cwd, notifications, story };
 }
 
+async function runCompletionReviewPromptScenario() {
+  const cwd = createProject("vazir-story-guard-review-prompt-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Yes — create a code review file"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd);
+
+  await harness.emit("input", { text: "mark this done" }, ctx);
+  await harness.emit("before_agent_start", { systemPrompt: "" }, ctx);
+
+  const completedContent = fs.readFileSync(storyPath, "utf-8")
+    .replace("**Status:** in-progress  ", "**Status:** complete  ")
+    .replace("**Completed:** —", "**Completed:** 2026-03-25");
+  fs.writeFileSync(storyPath, completedContent);
+
+  await harness.emit("agent_end", {}, ctx);
+
+  const story = fs.readFileSync(storyPath, "utf-8");
+  const reviewDir = path.join(cwd, ".context", "reviews");
+  const reviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name)).sort();
+
+  assert(story.includes("**Status:** complete"), "approved completion should leave the story complete");
+  assert(selectCalls.some(call => call.prompt.includes("Start a code review now")), "completion prompt did not offer a code review");
+  assert(reviewFiles.length === 1, "accepting the completion prompt should create one review file");
+  const review = fs.readFileSync(path.join(reviewDir, reviewFiles[0]), "utf-8");
+  assert(review.includes("**Status:** in-progress"), "prompt-created review should start in-progress");
+  assert(review.includes("**Scope:** story"), "prompt-created review should stay scoped to the completed story");
+  assert(review.includes("**Story:** story-001"), "prompt-created review should point at the completed story");
+  assert(harness.sentMessages.length === 1, "accepting the completion prompt should send one follow-up message");
+  assert(harness.sentMessages[0].message.includes(".context/reviews/"), "review follow-up should mention the review path");
+
+  return {
+    cwd,
+    notifications,
+    selectCalls,
+    reviewFiles,
+    sentMessages: harness.sentMessages.map(entry => entry.message),
+  };
+}
+
 function printScenario(title: string, details: Record<string, unknown>) {
   console.log(title);
   for (const [key, value] of Object.entries(details)) {
@@ -211,7 +296,9 @@ function printScenario(title: string, details: Record<string, unknown>) {
 const blocked = await runBlockedScenario();
 const allowed = await runAllowedScenario();
 const autoStart = await runAutoStartScenario();
+const reviewPrompt = await runCompletionReviewPromptScenario();
 
 printScenario("Blocked Unauthorized Completion", blocked);
 printScenario("Allowed Explicit Completion", allowed);
 printScenario("Auto-Start Not-Started Story", autoStart);
+printScenario("Completion Review Prompt", reviewPrompt);
