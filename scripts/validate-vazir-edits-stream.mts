@@ -2,16 +2,20 @@ import { createRequire } from "node:module";
 import childProcess from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
-const repoRoot = "/home/zain/Documents/coding/vazir-pi";
+const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "index.ts");
 
-function ensureStubModule(moduleName: string, content: string): string {
+function ensureStubModule(moduleName: string, content: string): string | null {
   const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
+  if (fs.existsSync(moduleDir)) {
+    return null;
+  }
+
   fs.mkdirSync(moduleDir, { recursive: true });
   const indexPath = path.join(moduleDir, "index.js");
   fs.writeFileSync(indexPath, content);
@@ -30,7 +34,7 @@ const stubModuleDirs = [
     "exports.DynamicBorder = class {};",
     "",
   ].join("\n")),
-];
+].filter((dir): dir is string => dir !== null);
 
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;

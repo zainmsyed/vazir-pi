@@ -94,13 +94,22 @@ function appendToStoryIssues(storyPath: string, description: string): void {
   }
 }
 
+function sanitizeComplaintDescription(description: string): string {
+  return description
+    .replace(/\|/g, "/")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function appendToComplaintsLog(cwd: string, storyName: string, description: string): void {
   const logPath = complaintsLogPath(cwd);
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
 
-  const entry = `${nowISO()} | ${storyName} | "${description}" | status: pending\n`;
+  const safeDescription = sanitizeComplaintDescription(description);
+  const entry = `${nowISO()} | ${storyName} | "${safeDescription}" | status: pending\n`;
   const existing = readIfExists(logPath);
-  fs.writeFileSync(logPath, existing.trimEnd() + "\n" + entry);
+  const prefix = existing.trimEnd();
+  fs.writeFileSync(logPath, `${prefix ? `${prefix}\n` : ""}${entry}`);
 }
 
 async function resolveStoryForFix(

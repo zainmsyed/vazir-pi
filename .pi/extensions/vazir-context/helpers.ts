@@ -1,9 +1,9 @@
 /// <reference path="../../../types/pi-runtime-ambient.d.ts" />
 /// <reference path="../../../types/node-runtime-ambient.d.ts" />
 
-import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+export { detectGitRepo } from "../../lib/vazir-helpers.ts";
 import {
   compareStoriesByCompletionDesc,
   compareStoriesByRecencyDesc,
@@ -280,15 +280,6 @@ export function baseName(filePath: string): string {
 
 export function compactTimestamp(iso: string): string {
   return iso.replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
-}
-
-export function detectGitRepo(cwd: string): boolean {
-  try {
-    childProcess.execSync("git rev-parse --git-dir", { cwd, stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export function strip(content: string): string {
