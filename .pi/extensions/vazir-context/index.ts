@@ -245,21 +245,12 @@ export default function (pi: ExtensionAPI) {
     storyLabel: string,
     readiness: { uncheckedChecklistItems: string[]; openIssueStatuses: string[]; hasCompletionSummary: boolean },
   ): string {
-    const blockers: string[] = [];
-    if (readiness.uncheckedChecklistItems.length > 0) {
-      blockers.push(`${readiness.uncheckedChecklistItems.length} unchecked checklist item${readiness.uncheckedChecklistItems.length === 1 ? "" : "s"}`);
-    }
-    if (readiness.openIssueStatuses.length > 0) {
-      blockers.push(`${readiness.openIssueStatuses.length} open issue${readiness.openIssueStatuses.length === 1 ? "" : "s"} (${[...new Set(readiness.openIssueStatuses)].join(", ")})`);
-    }
-    if (!readiness.hasCompletionSummary) {
-      blockers.push("missing completion summary");
-    }
+    const blockers = listCompletionBlockers(readiness);
 
     return [
       `Review .context/stories/${storyLabel}.md for completion readiness.`,
       "",
-      `Current blockers: ${blockers.join("; ")}.`,
+      `Current blockers: ${blockers.length > 0 ? blockers.join("; ") : "none"}.`,
       "",
       "Your job:",
       "1. Review the story checklist, issues, and completion summary.",

@@ -2,12 +2,18 @@ import { createRequire } from "node:module";
 import childProcess from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
-const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-context/index.ts";
+const extensionPath = path.join(
+  path.dirname(path.dirname(fileURLToPath(import.meta.url))),
+  ".pi",
+  "extensions",
+  "vazir-context",
+  "index.ts",
+);
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;
 
