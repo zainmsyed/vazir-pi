@@ -17,7 +17,7 @@ disable-model-invocation: false
 - When you believe a story is done, state what you can and cannot verify mechanically, then ask the user to verify.
 - Never set a story status to `complete` or `retired` unless the user's immediately preceding message explicitly confirms that transition.
 - You may set `not-started → in-progress` when beginning work on a story.
-- Update the story's `last_accessed` frontmatter to today's date every time you work on it.
+- Update the story's `**Last accessed:**` field to today's date every time you work on it.
 
 ## Planning flow
 - In `/plan`, ask exactly one clarifying question at a time.

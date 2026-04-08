@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
@@ -10,7 +10,7 @@ const childProcess = require("node:child_process") as typeof import("node:child_
 const originalExecSync = childProcess.execSync;
 const originalExecFileSync = childProcess.execFileSync;
 let importNonce = 0;
-const repoRoot = "/home/zain/Documents/coding/vazir-pi";
+const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 function ensureStubModule(moduleName: string, content: string): string | null {
   const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
@@ -124,7 +124,7 @@ function restoreExecSync() {
 }
 
 async function loadHarness() {
-  const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-tracker/index.ts";
+  const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "index.ts");
   const nonce = ++importNonce;
   const extensionDir = path.dirname(extensionPath);
   const tempTrackerPath = path.join(extensionDir, `.validate-vazir-tracker-${process.pid}-${nonce}.ts`);

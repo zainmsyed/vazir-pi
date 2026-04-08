@@ -1,15 +1,19 @@
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
-const repoRoot = "/home/zain/Documents/coding/vazir-pi";
+const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
-function ensureStubModule(moduleName: string, content: string): string {
+function ensureStubModule(moduleName: string, content: string): string | null {
   const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
+  if (fs.existsSync(moduleDir)) {
+    return null;
+  }
+
   fs.mkdirSync(moduleDir, { recursive: true });
   fs.writeFileSync(path.join(moduleDir, "index.js"), content);
   return moduleDir;
@@ -28,7 +32,7 @@ ensureStubModule("@mariozechner/pi-coding-agent", [
   "",
 ].join("\n"));
 
-const extensionPath = "/home/zain/Documents/coding/vazir-pi/.pi/extensions/vazir-tracker/index.ts";
+const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "index.ts");
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;
 

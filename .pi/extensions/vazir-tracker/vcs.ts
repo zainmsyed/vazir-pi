@@ -3,6 +3,7 @@
 import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+export { detectGitRepo } from "../../lib/vazir-helpers.ts";
 import { changedFiles, invalidateStoryProgressCache } from "./chrome.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -16,17 +17,6 @@ export interface CheckpointMeta {
 
 interface JjCheckpointLabelStore {
   labels: Record<string, string>;
-}
-
-// ── Git detection ──────────────────────────────────────────────────────
-
-export function detectGitRepo(cwd: string): boolean {
-  try {
-    childProcess.execSync("git rev-parse --git-dir", { cwd, encoding: "utf-8", stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export function isGitClean(cwd: string): boolean {

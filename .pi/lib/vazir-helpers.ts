@@ -24,6 +24,15 @@ export function nowISO(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
+export function detectGitRepo(cwd: string): boolean {
+  try {
+    childProcess.execSync("git rev-parse --git-dir", { cwd, encoding: "utf-8", stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function detectJJ(cwd: string): boolean {
   try {
     childProcess.execSync("jj root", { cwd, stdio: "pipe" });
