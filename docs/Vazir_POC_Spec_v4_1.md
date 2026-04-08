@@ -183,7 +183,7 @@ Manual `/review` runs are informational only and never gate later story completi
 Two entry points:
 
 - Manual: the user runs `/review [focus]` at any time, then chooses whether the review should cover a specific story or the whole codebase. If they choose a story, Vazir lists in-progress stories first, then completed stories in descending completion order.
-- Post-completion prompt: when a story closes through `/complete-story`, Vazir can start a story-scoped review before final closure. If the review finds issues, Vazir surfaces them and asks the user whether to keep the story open or close it anyway. Declining leaves the story open for more work.
+- Post-completion prompt: when a story closes through `/complete-story`, Vazir can start a story-scoped review before final closure. If the review finds issues, Vazir surfaces them, lets the user open the review document, and offers remediation choices such as fixing high-priority items first or fixing all remaining recommended items before deciding whether to close.
 
 Whole-codebase reviews are always manual. Vazir should never trigger a comprehensive repository review automatically.
 
@@ -197,6 +197,8 @@ Flow:
 - If there are unchecked checklist items, open issues (`pending`, `unresolved`, `reopened`), or no completion summary, Vazir does not close the story. Instead it asks the agent to review the story, fill in the missing closeout details, and report blockers clearly.
 - If that follow-up pass makes the story ready, Vazir returns to the user with the closeout prompt instead of requiring a second `/complete-story` command.
 - If the story looks ready, Vazir asks whether to close it now, start a story-scoped code review first, or keep working.
+- Any readiness pass or story-scoped review started by `/complete-story` stays inside the same closeout workflow; Vazir resumes with built-in selection prompts rather than inserting a separate visible user request.
+- After a story-scoped review completes, Vazir uses the review file's `## Recommended Fixes` checklist to drive closeout choices. Users can open the review document in a scrollable viewer, fix only high-priority items first, fix all remaining recommended items, or close with remaining items noted.
 - Completing through `/complete-story` is still user-directed: the command is the user's explicit approval to close the story if the readiness checks pass.
 
 Every code review gets its own file in `.context/reviews/`:
@@ -235,6 +237,11 @@ Every code review gets its own file in `.context/reviews/`:
 - Evidence:
 - Recommendation:
 - Rule candidate: —
+
+---
+
+## Recommended Fixes
+[Add one checklist item per finding using `- [ ] severity — action`. Mark items [x] only after the follow-up work is complete. If there are no findings, replace this note with `- [x] No follow-up fixes required.`]
 
 ---
 

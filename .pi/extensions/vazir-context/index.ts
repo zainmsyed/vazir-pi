@@ -17,6 +17,7 @@ import {
   todayDate,
   updateStoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
+import { showScrollableText } from "../vazir-tracker/chrome.ts";
 import { refreshVcsState } from "../vazir-tracker/index.ts";
 import {
   appendLearnedRules,
@@ -32,8 +33,11 @@ import {
   contextMapPath,
   createReviewDraft,
   formatReviewFindingSummary,
+  formatReviewRecommendedFixSummary,
   parseReviewFrontmatter,
   reviewFindingsFromFile,
+  reviewRecommendedFixesFromFile,
+  reviewRecommendedFixesFromFindings,
   activeStoryLabelForManualReview,
   defaultReviewFocus,
   defaultStoryLabelForReview,
@@ -75,6 +79,7 @@ import {
   userExplicitlyApprovedStatusChange,
   walkSourceFiles,
   type ReviewFindingSummary,
+  type ReviewRecommendedFix,
   writeIndex,
 } from "./helpers.ts";
 
@@ -131,6 +136,7 @@ let pendingInitSummary: string | null = null;
 const storyFrontmatterSnapshots = new Map<string, Map<string, { status: string; completed: string }>>();
 const pendingCompleteStoryRequests = new Map<string, { storyFile: string; reviewFile?: string }>();
 type ManualReviewScope = "story" | "whole-codebase";
+const INTERNAL_AGENT_MESSAGE_TYPE = "vazir-internal-request";
 
 export default function (pi: ExtensionAPI) {
   pi.on("input", async (event: any) => {
@@ -314,42 +320,203 @@ export default function (pi: ExtensionAPI) {
   async function promptReviewFindingsCloseout(
     ctx: any,
     storyPath: string,
+    reviewFilePath: string,
     findings: ReviewFindingSummary[],
-  ): Promise<"keep-open" | "close" | "not-yet" | null> {
+  ): Promise<"fix-high" | "fix-all" | "close" | "not-yet" | null> {
     const storyLabel = path.basename(storyPath, ".md");
-    const hasFindings = findings.length > 0;
-    const promptLines = hasFindings
-      ? [
-          `Review complete. ${findings.length} finding${findings.length === 1 ? "" : "s"}:`,
-          ...findings.map(finding => formatReviewFindingSummary(finding)),
-          "",
-          "Do these require work before closing?",
-        ]
-      : ["Review complete. No findings.", "Close the story now?"];
+    const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
+    const recommendedFixes = reviewRecommendedFixesFromFile(reviewFilePath);
+    const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
+    const pendingFixes = trackedFixes.filter(fix => !fix.checked);
+    const pendingHighPriorityFixes = pendingFixes.filter(fix => isHighPrioritySeverity(fix.severity));
+    const pendingLowerPriorityFixes = pendingFixes.filter(fix => !isHighPrioritySeverity(fix.severity));
 
     if (!ctx.hasUI) {
       ctx.ui.notify(
-        hasFindings
-          ? `${storyLabel} review is complete and has findings. Re-run /complete-story in an interactive session to decide whether to close it.`
+        pendingFixes.length > 0
+          ? `${storyLabel} review is complete with pending recommended fixes. Re-run /complete-story in an interactive session to decide whether to fix them or close the story.`
           : `${storyLabel} review is complete. Re-run /complete-story in an interactive session to close it out.`,
         "info",
       );
       return null;
     }
 
-    const choice = await ctx.ui.select(promptLines.join("\n"), hasFindings
-      ? ["Yes, keep story open", "No, close story now (findings noted)", "Not yet, keep working"]
-      : ["Close story now", "Not yet, keep working"]);
+    while (true) {
+      const promptLines = buildReviewCloseoutPromptLines({
+        findings,
+        pendingFixes,
+        pendingHighPriorityFixes,
+        pendingLowerPriorityFixes,
+      });
+      const choice = await ctx.ui.select(promptLines.join("\n"), buildReviewCloseoutOptions({
+        pendingFixCount: pendingFixes.length,
+        pendingHighPriorityFixCount: pendingHighPriorityFixes.length,
+      }));
 
-    if (choice == null) return null;
-    if (hasFindings) {
-      if (choice === "Yes, keep story open") return "keep-open";
-      if (choice === "No, close story now (findings noted)") return "close";
+      if (choice == null) return null;
+      if (choice === "Open review document") {
+        await viewReviewDocument(ctx, reviewFilePath, reviewLabel);
+        continue;
+      }
+
+      if (choice === "Keep story open and fix high-priority recommended items") return "fix-high";
+      if (choice === "Keep story open and fix all recommended items" || choice === "Keep story open and fix remaining recommended items") {
+        return "fix-all";
+      }
+
+      if (choice.includes("Close story now")) return "close";
       return "not-yet";
     }
+  }
 
-    if (choice === "Close story now") return "close";
-    return "not-yet";
+  function isHighPrioritySeverity(severity: string): boolean {
+    const normalized = severity.trim().toLowerCase();
+    return normalized === "critical" || normalized === "high";
+  }
+
+  function buildReviewCloseoutPromptLines(options: {
+    findings: ReviewFindingSummary[];
+    pendingFixes: ReviewRecommendedFix[];
+    pendingHighPriorityFixes: ReviewRecommendedFix[];
+    pendingLowerPriorityFixes: ReviewRecommendedFix[];
+  }): string[] {
+    const {
+      findings,
+      pendingFixes,
+      pendingHighPriorityFixes,
+      pendingLowerPriorityFixes,
+    } = options;
+
+    if (findings.length === 0 && pendingFixes.length === 0) {
+      return [
+        "Review complete. No findings.",
+        "Close the story now?",
+      ];
+    }
+
+    const lines = [`Review complete. ${findings.length} finding${findings.length === 1 ? "" : "s"}:`];
+    lines.push(...findings.map(finding => formatReviewFindingSummary(finding)));
+    lines.push("");
+
+    if (pendingFixes.length === 0) {
+      lines.push("All recommended fixes in the review file are marked complete.");
+      lines.push("Close the story now or inspect the review document first?");
+      return lines;
+    }
+
+    const fixSummaryParts: string[] = [];
+    if (pendingHighPriorityFixes.length > 0) {
+      fixSummaryParts.push(`${pendingHighPriorityFixes.length} high-priority`);
+    }
+    if (pendingLowerPriorityFixes.length > 0) {
+      fixSummaryParts.push(`${pendingLowerPriorityFixes.length} other`);
+    }
+
+    lines.push(`Pending recommended fixes: ${fixSummaryParts.join(", ")}.`);
+    lines.push(...pendingFixes.slice(0, 6).map(fix => formatReviewRecommendedFixSummary(fix)));
+    if (pendingFixes.length > 6) {
+      lines.push(`- ... ${pendingFixes.length - 6} more pending item${pendingFixes.length - 6 === 1 ? "" : "s"}`);
+    }
+    lines.push("");
+
+    if (pendingHighPriorityFixes.length > 0) {
+      lines.push("What should Vazir do next?");
+      return lines;
+    }
+
+    lines.push("High-priority items are done. Do you want to fix the remaining items before closing?");
+    return lines;
+  }
+
+  function buildReviewCloseoutOptions(options: {
+    pendingFixCount: number;
+    pendingHighPriorityFixCount: number;
+  }): string[] {
+    const { pendingFixCount, pendingHighPriorityFixCount } = options;
+    const choices: string[] = [];
+
+    if (pendingHighPriorityFixCount > 0) {
+      choices.push("Keep story open and fix high-priority recommended items");
+    }
+    if (pendingFixCount > 0) {
+      choices.push(pendingHighPriorityFixCount > 0
+        ? "Keep story open and fix all recommended items"
+        : "Keep story open and fix remaining recommended items");
+    }
+    choices.push("Open review document");
+    choices.push(pendingFixCount > 0 ? "Close story now (remaining items noted)" : "Close story now");
+    choices.push("Not yet, keep working");
+    return choices;
+  }
+
+  async function viewReviewDocument(ctx: any, reviewFilePath: string, reviewLabel: string): Promise<void> {
+    const content = readIfExists(reviewFilePath).trimEnd();
+    if (!content) {
+      ctx.ui.notify(`No content found in ${reviewLabel}`, "info");
+      return;
+    }
+
+    if (typeof ctx.ui.custom !== "function") {
+      ctx.ui.notify(`Review viewer is unavailable in this mode. Open ${reviewLabel} from the workspace if needed.`, "info");
+      return;
+    }
+
+    await showScrollableText(ctx, path.basename(reviewFilePath), "Esc to return to closeout choices", content);
+  }
+
+  function buildReviewRemediationInstruction(
+    cwd: string,
+    storyLabel: string,
+    reviewFilePath: string,
+    mode: "high" | "all",
+    targetedFixes: ReviewRecommendedFix[],
+  ): string {
+    const reviewLabel = path.relative(cwd, reviewFilePath).replace(/\\/g, "/");
+    const scopeLabel = mode === "high" ? "high-priority unchecked recommended items only" : "all unchecked recommended items";
+    const listedItems = targetedFixes.length > 0
+      ? targetedFixes.map(fix => formatReviewRecommendedFixSummary(fix))
+      : ["- No tracked checklist items yet — derive them from the findings and add them before fixing."];
+
+    return [
+      `Review ${reviewLabel} and fix ${scopeLabel} before the ${storyLabel} closeout continues.`,
+      "",
+      "Targeted recommended fixes:",
+      ...listedItems,
+      "",
+      "Requirements:",
+      "1. Treat `## Recommended Fixes` in the review file as the remediation source of truth.",
+      "2. If the review file does not yet have one checklist item per finding, add the missing items first using `- [ ] severity — action`.",
+      mode === "high"
+        ? "3. Only work the unchecked items marked `high` or `critical`. Leave lower-priority items unchecked."
+        : "3. Work all unchecked recommended fix items that remain in the review file.",
+      "4. Mark an item `[x]` only after the code or docs change is complete and you have verified what you can.",
+      "5. Leave unresolved or deferred items unchecked and explain blockers briefly in the review file's Completion Summary.",
+      "6. Do not mark the story complete. Vazir will return to the closeout choices after this pass.",
+    ].join("\n");
+  }
+
+  function shouldHideReviewTurn(trigger?: string): boolean {
+    return trigger === "complete-story" || trigger === "post-story-completion";
+  }
+
+  function sendInternalAgentMessage(
+    ctx: any,
+    content: string,
+    details: Record<string, unknown>,
+  ): void {
+    const options = typeof ctx.isIdle === "function" && !ctx.isIdle()
+      ? { deliverAs: "followUp" as const }
+      : { triggerTurn: true };
+
+    pi.sendMessage(
+      {
+        customType: INTERNAL_AGENT_MESSAGE_TYPE,
+        content,
+        display: false,
+        details,
+      },
+      options,
+    );
   }
 
   async function startReviewFlow(
@@ -359,7 +526,20 @@ export default function (pi: ExtensionAPI) {
     const review = createReviewDraft(ctx.cwd, options);
     syncReviewSummaryAndPromoteRules(ctx.cwd);
     ctx.ui.notify(`Created ${review.fileName} in .context/reviews/`, "info");
-    await pi.sendUserMessage(buildReviewInstruction(review), { deliverAs: "followUp" });
+    const instruction = buildReviewInstruction(review);
+
+    if (shouldHideReviewTurn(review.trigger)) {
+      sendInternalAgentMessage(ctx, instruction, {
+        purpose: "review",
+        reviewFile: review.fileName,
+        reviewScope: review.scope,
+        story: review.storyLabel,
+        trigger: review.trigger,
+      });
+      return review;
+    }
+
+    await pi.sendUserMessage(instruction, { deliverAs: "followUp" });
     return review;
   }
 
@@ -494,8 +674,36 @@ export default function (pi: ExtensionAPI) {
         }
 
         const findings = reviewFindingsFromFile(pendingCompleteStory.reviewFile);
-        const decision = await promptReviewFindingsCloseout(ctx, pendingCompleteStory.storyFile, findings);
+        const recommendedFixes = reviewRecommendedFixesFromFile(pendingCompleteStory.reviewFile);
+        const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
+        const decision = await promptReviewFindingsCloseout(
+          ctx,
+          pendingCompleteStory.storyFile,
+          pendingCompleteStory.reviewFile,
+          findings,
+        );
         if (decision == null) return;
+
+        if (decision === "fix-high" || decision === "fix-all") {
+          const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
+          sendInternalAgentMessage(
+            ctx,
+            buildReviewRemediationInstruction(
+              ctx.cwd,
+              storyLabel,
+              pendingCompleteStory.reviewFile,
+              decision === "fix-high" ? "high" : "all",
+              targetedFixes,
+            ),
+            {
+              purpose: "review-remediation",
+              story: storyLabel,
+              reviewFile: path.basename(pendingCompleteStory.reviewFile),
+              mode: decision,
+            },
+          );
+          return;
+        }
 
         pendingCompleteStoryRequests.delete(cwd);
         if (decision === "close") {
@@ -969,7 +1177,10 @@ export default function (pi: ExtensionAPI) {
           `${storyLabel} is not ready to complete yet. Vazir will review the remaining checklist, issues, and summary first.`,
           "warning",
         );
-        await pi.sendUserMessage(buildCompleteStoryInstruction(storyLabel, readiness), { deliverAs: "followUp" });
+        sendInternalAgentMessage(ctx, buildCompleteStoryInstruction(storyLabel, readiness), {
+          purpose: "complete-story-readiness",
+          story: storyLabel,
+        });
         return;
       }
 
