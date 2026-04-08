@@ -37,6 +37,7 @@ import {
   parseReviewFrontmatter,
   reviewFindingsFromFile,
   reviewRecommendedFixesFromFile,
+  reviewOtherFixesFromFile,
   reviewRecommendedFixesFromFindings,
   activeStoryLabelForManualReview,
   defaultReviewFocus,
@@ -326,7 +327,10 @@ export default function (pi: ExtensionAPI) {
     const storyLabel = path.basename(storyPath, ".md");
     const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
     const recommendedFixes = reviewRecommendedFixesFromFile(reviewFilePath);
-    const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
+    const otherFixes = reviewOtherFixesFromFile(reviewFilePath);
+    const trackedFixes = (recommendedFixes.length > 0 || otherFixes.length > 0)
+      ? [...recommendedFixes, ...otherFixes]
+      : reviewRecommendedFixesFromFindings(findings);
     const pendingFixes = trackedFixes.filter(fix => !fix.checked);
     const pendingHighPriorityFixes = pendingFixes.filter(fix => isHighPrioritySeverity(fix.severity));
     const pendingLowerPriorityFixes = pendingFixes.filter(fix => !isHighPrioritySeverity(fix.severity));
@@ -484,7 +488,7 @@ export default function (pi: ExtensionAPI) {
       ...listedItems,
       "",
       "Requirements:",
-      "1. Treat `## Recommended Fixes` in the review file as the remediation source of truth.",
+      "1. Treat `## Recommended Fixes` and `## Other Fixes` in the review file as the remediation source of truth.",
       "2. If the review file does not yet have one checklist item per finding, add the missing items first using `- [ ] severity — action`.",
       mode === "high"
         ? "3. Only work the unchecked items marked `high` or `critical`. Leave lower-priority items unchecked."

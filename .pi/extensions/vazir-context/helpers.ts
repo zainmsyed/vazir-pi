@@ -1127,6 +1127,44 @@ export function reviewRecommendedFixesFromFile(filePath: string): ReviewRecommen
   return fixes;
 }
 
+export function reviewOtherFixesFromFile(filePath: string): ReviewRecommendedFix[] {
+  const content = readIfExists(filePath);
+  if (!content) return [];
+
+  const lines = content.split("\n");
+  const fixes: ReviewRecommendedFix[] = [];
+  let inSection = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!inSection) {
+      if (trimmed === "## Other Fixes") inSection = true;
+      continue;
+    }
+
+    if (trimmed.startsWith("## ") && trimmed !== "## Other Fixes") {
+      break;
+    }
+
+    const match = line.match(/^\- \[( |x)\]\s*(.+)$/i);
+    if (!match) continue;
+
+    const checked = match[1].toLowerCase() === "x";
+    const raw = match[2].trim();
+    if (!raw || /^no follow-up fixes required\.?$/i.test(raw)) continue;
+
+    const severityMatch = raw.match(/^(critical|high|medium|low|unspecified)\s+(?:—|-|:)\s+(.+)$/i);
+    fixes.push({
+      checked,
+      severity: (severityMatch?.[1] ?? "unspecified").trim().toLowerCase(),
+      summary: (severityMatch?.[2] ?? raw).trim(),
+    });
+  }
+
+  return fixes;
+}
+
 export function reviewRecommendedFixesFromFindings(findings: ReviewFindingSummary[]): ReviewRecommendedFix[] {
   return findings.map(finding => ({
     checked: false,
@@ -1439,6 +1477,11 @@ export function reviewFileTemplate(
     "",
     "## Recommended Fixes",
     "[Add one checklist item per finding using `- [ ] severity — action`. Mark items [x] only after the follow-up work is complete. If there are no findings, replace this note with `- [x] No follow-up fixes required.`]",
+    "",
+    "---",
+    "",
+    "## Other Fixes",
+    "[Add any additional follow-up tasks here using `- [ ] severity — action` or simple `- [ ] description`. Mark items [x] only after the work is complete.]",
     "",
     "---",
     "",
