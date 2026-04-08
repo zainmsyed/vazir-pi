@@ -34,6 +34,11 @@ const register = extensionModule.default;
 
 type Notification = { message: string; level: string };
 type SelectCall = { prompt: string; options: string[] };
+type CustomCall = { title: string; subtitle: string; body: string };
+type InternalMessage = {
+  message: { customType: string; content: string; display: boolean; details?: unknown };
+  options?: unknown;
+};
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -102,7 +107,8 @@ function writeStory(
 function makePi() {
   const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
   const eventHandlers = new Map<string, Array<(event: any, ctx: any) => Promise<any>>>();
-  const sentMessages: Array<{ message: string; options?: unknown }> = [];
+  const sentUserMessages: Array<{ message: string; options?: unknown }> = [];
+  const sentInternalMessages: InternalMessage[] = [];
 
   const pi = {
     on(name: string, handler: (event: any, ctx: any) => Promise<any>) {
@@ -114,7 +120,10 @@ function makePi() {
       commands.set(name, definition);
     },
     async sendUserMessage(message: string, options?: unknown) {
-      sentMessages.push({ message, options });
+      sentUserMessages.push({ message, options });
+    },
+    sendMessage(message: InternalMessage["message"], options?: unknown) {
+      sentInternalMessages.push({ message, options });
     },
   };
 
@@ -125,7 +134,8 @@ function makePi() {
 
   return {
     completeStory: completeStory!,
-    sentMessages,
+    sentInternalMessages,
+    sentUserMessages,
     async emit(name: string, event: any, ctx: any) {
       const handlers = eventHandlers.get(name) ?? [];
       for (const handler of handlers) {
@@ -138,14 +148,17 @@ function makePi() {
 function makeCtx(
   cwd: string,
   notifications: Notification[],
-  options: { hasUI?: boolean; selectResponses?: string[]; selectCalls?: SelectCall[] } = {},
+  options: { hasUI?: boolean; isIdle?: boolean; selectResponses?: string[]; selectCalls?: SelectCall[]; customCalls?: CustomCall[] } = {},
 ) {
-  const { hasUI = false, selectResponses = [], selectCalls = [] } = options;
+  const { hasUI = false, isIdle = true, selectResponses = [], selectCalls = [], customCalls = [] } = options;
   let selectIndex = 0;
 
   return {
     cwd,
     hasUI,
+    isIdle() {
+      return isIdle;
+    },
     ui: {
       notify(message: string, level: string) {
         notifications.push({ message, level });
@@ -155,6 +168,22 @@ function makeCtx(
         const response = selectResponses[selectIndex];
         selectIndex += 1;
         return response;
+      },
+      async custom(factory: (tui: { requestRender(): void }, theme: unknown, kb: unknown, done: () => void) => { render?: (width: number) => string[]; handleInput?: (data: string) => void }) {
+        let doneCalled = false;
+        const widget = factory({ requestRender() {} }, {}, {}, () => {
+          doneCalled = true;
+        });
+        const rendered = widget.render?.(120) ?? [];
+        customCalls.push({
+          title: rendered[0] ?? "",
+          subtitle: rendered[0] ?? "",
+          body: rendered.slice(1).join("\n"),
+        });
+        widget.handleInput?.("escape");
+        if (!doneCalled) {
+          throw new Error("custom viewer did not close on escape");
+        }
       },
     },
   };
@@ -208,6 +237,12 @@ function writeCompletedReview(reviewPath: string): void {
       "",
       "---",
       "",
+      "## Recommended Fixes",
+      "- [ ] high — Add a local error boundary around the login form",
+      "- [ ] low — Remove the unused import from useSession.ts",
+      "",
+      "---",
+      "",
       "## Completion Summary",
       "Two findings documented.",
       "",
@@ -215,15 +250,27 @@ function writeCompletedReview(reviewPath: string): void {
   );
 }
 
+function markReviewFixResolved(reviewPath: string, fixLine: string): void {
+  const content = fs.readFileSync(reviewPath, "utf-8");
+  fs.writeFileSync(reviewPath, content.replace(`- [ ] ${fixLine}`, `- [x] ${fixLine}`));
+}
+
 async function runReviewGatedScenario() {
   const cwd = createProject("vazir-complete-story-review-gated-");
   const notifications: Notification[] = [];
   const selectCalls: SelectCall[] = [];
+  const customCalls: CustomCall[] = [];
   const harness = makePi();
   const ctx = makeCtx(cwd, notifications, {
     hasUI: true,
-    selectResponses: ["Start code review before closing", "No, close story now (findings noted)"],
+    selectResponses: [
+      "Start code review before closing",
+      "Open review document",
+      "Keep story open and fix high-priority recommended items",
+      "Close story now (remaining items noted)",
+    ],
     selectCalls,
+    customCalls,
   });
   const storyPath = writeStory(cwd, {
     checklist: ["- [x] Example task"],
@@ -243,17 +290,35 @@ async function runReviewGatedScenario() {
   const reviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name)).sort();
   assert(reviewFiles.length === 1, "review-gated complete-story should create a review file before closing");
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "review-gated complete-story should keep the story open until review completes");
-  assert(harness.sentMessages.length === 1, "review-gated complete-story should send one review follow-up message");
+  assert(harness.sentUserMessages.length === 0, "review-gated complete-story should not inject a visible follow-up user message");
+  assert(harness.sentInternalMessages.length === 1, "review-gated complete-story should dispatch one hidden internal review turn");
+  assert(harness.sentInternalMessages[0].message.customType === "vazir-internal-request", "review-gated complete-story should use the internal request message type");
+  assert(harness.sentInternalMessages[0].message.display === false, "review-gated complete-story should hide the internal review turn from the TUI");
 
-  writeCompletedReview(path.join(reviewDir, reviewFiles[0]));
+  const reviewPath = path.join(reviewDir, reviewFiles[0]);
+  writeCompletedReview(reviewPath);
+  await harness.emit("agent_end", {}, ctx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "selecting remediation should keep the story open");
+  assert(customCalls.length === 1, "review-gated closeout should allow opening the review document and returning to the choices");
+  assert(customCalls[0].title.includes(path.basename(reviewPath)), "review document viewer should show the review file title");
+  assert(harness.sentInternalMessages.length === 2, "review-gated closeout should queue a remediation turn after the user selects a fix path");
+  assert(harness.sentInternalMessages[1].message.content.includes("Only work the unchecked items marked `high` or `critical`"), "review-gated closeout should support high-priority-only remediation");
+  assert(harness.sentInternalMessages[1].message.content.includes("high: Add a local error boundary around the login form"), "review-gated closeout should target the high-priority checklist item");
+
+  markReviewFixResolved(reviewPath, "high — Add a local error boundary around the login form");
   await harness.emit("agent_end", {}, ctx);
 
   const story = fs.readFileSync(storyPath, "utf-8");
   assert(story.includes("**Status:** complete"), "review-gated complete-story should close the story after review findings are acknowledged");
-  assert(selectCalls.some(call => call.prompt.includes("Do these require work before closing?")), "review-gated complete-story should surface the review findings before closure");
-  assert(selectCalls.some(call => call.options.includes("No, close story now (findings noted)")), "review-gated complete-story should offer a findings-noted close option");
+  assert(selectCalls.some(call => call.options.includes("Open review document")), "review-gated complete-story should let the user open the review document from the closeout prompt");
+  assert(selectCalls.some(call => call.options.includes("Keep story open and fix high-priority recommended items")), "review-gated complete-story should offer high-priority remediation from the closeout prompt");
+  assert(selectCalls.some(call => call.prompt.includes("Pending recommended fixes: 1 high-priority, 1 other.")), "review-gated complete-story should summarize tracked review remediation items");
+  assert(selectCalls.some(call => call.prompt.includes("High-priority items are done. Do you want to fix the remaining items before closing?")), "review-gated complete-story should reprompt after high-priority remediation finishes");
+  assert(selectCalls.some(call => call.options.includes("Keep story open and fix remaining recommended items")), "review-gated complete-story should offer the remaining-item remediation path after high-priority work is done");
+  assert(selectCalls.some(call => call.options.includes("Close story now (remaining items noted)")), "review-gated complete-story should offer a remaining-items-noted close option");
 
-  return { cwd, notifications, selectCalls, reviewFiles, story };
+  return { cwd, notifications, selectCalls, customCalls, reviewFiles, story };
 }
 
 async function runReadyCloseScenario() {
@@ -281,7 +346,8 @@ async function runReadyCloseScenario() {
   await harness.completeStory.handler("", ctx);
 
   assert(selectCalls.some(call => call.prompt.includes("What would you like to do?")), "ready closeout should prompt for the final action");
-  assert(harness.sentMessages.length === 0, "ready closeout without review should not send a review follow-up message");
+  assert(harness.sentUserMessages.length === 0, "ready closeout without review should not send a visible follow-up user message");
+  assert(harness.sentInternalMessages.length === 0, "ready closeout without review should not queue an internal follow-up turn");
   assert(fs.readFileSync(path.join(cwd, ".context", "stories", "story-001.md"), "utf-8").includes("**Status:** complete"), "ready closeout should complete the story immediately when the user chooses close now");
 
   return { cwd, notifications, selectCalls };
@@ -311,7 +377,9 @@ async function runKeepWorkingScenario() {
 
   await harness.completeStory.handler("", ctx);
   assert(notifications.some(note => note.message.includes("not ready to complete yet")), "keep-working scenario should warn about blockers first");
-  assert(harness.sentMessages.length === 1, "keep-working scenario should send one blocker follow-up instruction");
+  assert(harness.sentUserMessages.length === 0, "keep-working scenario should not inject a visible follow-up user message");
+  assert(harness.sentInternalMessages.length === 1, "keep-working scenario should dispatch one hidden readiness follow-up turn");
+  assert(harness.sentInternalMessages[0].message.content.includes("Review .context/stories/story-001.md for completion readiness."), "keep-working scenario should send the readiness instruction as an internal turn");
 
   const readyStory = fs.readFileSync(storyPath, "utf-8")
     .replace("- [ ] Example task", "- [x] Example task")
@@ -324,7 +392,7 @@ async function runKeepWorkingScenario() {
 
   assert(selectCalls.some(call => call.prompt.includes("What would you like to do?")), "keep-working scenario should prompt for the final action once ready");
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "keep-working scenario should leave the story open when the user says not yet");
-  assert(harness.sentMessages.length === 1, "keep-working scenario should keep the blocker follow-up as the only follow-up message");
+  assert(harness.sentInternalMessages.length === 1, "keep-working scenario should keep the readiness follow-up as the only internal turn");
 
   return { cwd, notifications, selectCalls };
 }

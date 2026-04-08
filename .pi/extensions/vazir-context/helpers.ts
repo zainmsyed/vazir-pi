@@ -147,6 +147,12 @@ export interface ReviewFindingSummary {
   summary: string;
 }
 
+export interface ReviewRecommendedFix {
+  checked: boolean;
+  severity: string;
+  summary: string;
+}
+
 export interface StoryCompletionReadiness {
   uncheckedChecklistItems: string[];
   openIssueStatuses: string[];
@@ -1083,6 +1089,58 @@ export function formatReviewFindingSummary(finding: ReviewFindingSummary): strin
   return `- ${severity}: ${summary}`;
 }
 
+export function reviewRecommendedFixesFromFile(filePath: string): ReviewRecommendedFix[] {
+  const content = readIfExists(filePath);
+  if (!content) return [];
+
+  const lines = content.split("\n");
+  const fixes: ReviewRecommendedFix[] = [];
+  let inSection = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!inSection) {
+      if (trimmed === "## Recommended Fixes") inSection = true;
+      continue;
+    }
+
+    if (trimmed.startsWith("## ") && trimmed !== "## Recommended Fixes") {
+      break;
+    }
+
+    const match = line.match(/^\- \[( |x)\]\s*(.+)$/i);
+    if (!match) continue;
+
+    const checked = match[1].toLowerCase() === "x";
+    const raw = match[2].trim();
+    if (!raw || /^no follow-up fixes required\.?$/i.test(raw)) continue;
+
+    const severityMatch = raw.match(/^(critical|high|medium|low|unspecified)\s+(?:—|-|:)\s+(.+)$/i);
+    fixes.push({
+      checked,
+      severity: (severityMatch?.[1] ?? "unspecified").trim().toLowerCase(),
+      summary: (severityMatch?.[2] ?? raw).trim(),
+    });
+  }
+
+  return fixes;
+}
+
+export function reviewRecommendedFixesFromFindings(findings: ReviewFindingSummary[]): ReviewRecommendedFix[] {
+  return findings.map(finding => ({
+    checked: false,
+    severity: (finding.severity.trim() || "unspecified").toLowerCase(),
+    summary: finding.summary.trim(),
+  }));
+}
+
+export function formatReviewRecommendedFixSummary(fix: ReviewRecommendedFix): string {
+  const severity = fix.severity.trim() || "unspecified";
+  const summary = fix.summary.trim();
+  return `- ${severity}: ${summary}`;
+}
+
 export function ruleCandidatesFromMarkdown(content: string): string[] {
   return content
     .split("\n")
@@ -1322,14 +1380,16 @@ export function buildReviewInstruction(review: ReviewDraft): string {
     "2. Focus on bugs, regressions, missing tests, dead code, simplification opportunities, scope drift, and workflow violations.",
     "3. Keep findings primary. If there are no findings, replace the placeholder finding with a short 'No findings' note.",
     "4. For every finding, fill in Severity, Category, Summary, Evidence, Recommendation, and Rule candidate. Categories may include bug, regression, test-gap, dead-code, simplification, or workflow.",
-    "5. Use `- Rule candidate: —` when a finding should not become a reusable rule.",
-    "6. Do not change story status as part of the review. A story only becomes complete when the user explicitly says so.",
-    "7. Finish by writing the Completion Summary, setting `**Status:** complete`, and setting `**Completed:**` to today's date.",
-    "8. Do not update .context/reviews/summary.md or .context/reviews/remembered.md manually; Vazir syncs them automatically.",
-    `9. Review scope: ${reviewScope}.`,
-    `10. Review focus: ${review.focus}.`,
-    review.storyLabel !== "—" ? `11. Story: ${review.storyLabel}.` : "11. No story is attached; keep the review manual and comprehensive within the requested scope.",
-    `12. Trigger: ${review.trigger}.`,
+    "5. Add or update one checklist item per finding in `## Recommended Fixes` using the format `- [ ] severity — action`. Mark items `[x]` only when the recommended follow-up has actually been completed.",
+    "6. If there are no findings, replace the placeholder item in `## Recommended Fixes` with `- [x] No follow-up fixes required.`.",
+    "7. Use `- Rule candidate: —` when a finding should not become a reusable rule.",
+    "8. Do not change story status as part of the review. A story only becomes complete when the user explicitly says so.",
+    "9. Finish by writing the Completion Summary, setting `**Status:** complete`, and setting `**Completed:**` to today's date.",
+    "10. Do not update .context/reviews/summary.md or .context/reviews/remembered.md manually; Vazir syncs them automatically.",
+    `11. Review scope: ${reviewScope}.`,
+    `12. Review focus: ${review.focus}.`,
+    review.storyLabel !== "—" ? `13. Story: ${review.storyLabel}.` : "13. No story is attached; keep the review manual and comprehensive within the requested scope.",
+    `14. Trigger: ${review.trigger}.`,
   ].join("\n");
 }
 
@@ -1374,6 +1434,11 @@ export function reviewFileTemplate(
     "- Evidence: ",
     "- Recommendation: ",
     "- Rule candidate: —",
+    "",
+    "---",
+    "",
+    "## Recommended Fixes",
+    "[Add one checklist item per finding using `- [ ] severity — action`. Mark items [x] only after the follow-up work is complete. If there are no findings, replace this note with `- [x] No follow-up fixes required.`]",
     "",
     "---",
     "",
