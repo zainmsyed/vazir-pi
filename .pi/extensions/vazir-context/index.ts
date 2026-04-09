@@ -20,6 +20,8 @@ import {
 import { showScrollableText } from "../vazir-tracker/chrome.ts";
 import { refreshVcsState } from "../vazir-tracker/index.ts";
 import {
+  archiveDir,
+  archiveMemoryReviewCandidates,
   appendLearnedRules,
   applyLocalRuleDedupe,
   assessStoryCompletionReadiness,
@@ -44,6 +46,7 @@ import {
   defaultStoryLabelForReview,
   detectGitRepo,
   draftContextMap,
+  ensureArchiveStructure,
   ensureDir,
   ensureIntakeStructure,
   ensureReviewStructure,
@@ -54,13 +57,16 @@ import {
   intakeBriefPath,
   intakeDir,
   intakeReadmePath,
-  learnedRuleLinesFromMd,
+  learnedRulesFromMd,
   listIntakeFiles,
   manualReviewStoryChoiceLabel,
   malformedStoryFiles,
   memoryDir,
+  memoryReviewArchiveCandidates,
+  memoryReviewDeleteCandidates,
   nextStoryNumber,
   normalizeProjectBrief,
+  replaceLearnedRules,
   rememberEntry,
   rememberedRulesPath,
   restoreStoryFrontmatter,
@@ -72,10 +78,12 @@ import {
   seededPlanTemplate,
   settingsDir,
   snapshotStoryFrontmatter,
+  staleRuleCandidates,
   storyFileName,
   strip,
   syncReviewSummaryAndPromoteRules,
   systemPath,
+  type ArchiveCandidate,
   undescribedIndexFiles,
   userExplicitlyApprovedStatusChange,
   walkSourceFiles,
@@ -185,6 +193,122 @@ export default function (pi: ExtensionAPI) {
     if (storyFocus != null) return { scope: "story", focus: storyFocus };
 
     return { scope: null, focus: trimmed };
+  }
+
+  function formatRuleSourceStories(sourceStories: string[]): string {
+    return sourceStories.length > 0 ? sourceStories.join(", ") : "origin unknown";
+  }
+
+  function archiveKeepMatches(cwd: string, candidate: ArchiveCandidate, rawToken: string): boolean {
+    const token = rawToken.trim().toLowerCase();
+    if (!token) return false;
+
+    const relPath = path.relative(cwd, candidate.filePath).replace(/\\/g, "/").toLowerCase();
+    const label = candidate.label.toLowerCase();
+    const stem = path.basename(candidate.label, path.extname(candidate.label)).toLowerCase();
+    return token === label || token === relPath || token === stem;
+  }
+
+  function applyArchiveKeepExceptions(
+    cwd: string,
+    candidates: ArchiveCandidate[],
+    rawKeepInput: string,
+  ): { selected: ArchiveCandidate[]; kept: string[] } {
+    const tokens = rawKeepInput.split(",").map(token => token.trim()).filter(Boolean);
+    if (tokens.length === 0) return { selected: candidates, kept: [] };
+
+    const kept: string[] = [];
+    const selected = candidates.filter(candidate => {
+      const shouldKeep = tokens.some(token => archiveKeepMatches(cwd, candidate, token));
+      if (shouldKeep) kept.push(candidate.label);
+      return !shouldKeep;
+    });
+
+    return { selected, kept };
+  }
+
+  async function confirmWithFallback(ctx: any, prompt: string, detail: string): Promise<boolean> {
+    if (typeof ctx.ui.confirm === "function") {
+      return Boolean(await ctx.ui.confirm(prompt, detail));
+    }
+
+    const choice = await ctx.ui.select([prompt, detail].filter(Boolean).join("\n\n"), ["yes", "cancel"]);
+    return choice === "yes";
+  }
+
+  async function runUnlearnFlow(args: string, ctx: any, allowedRuleIndexes?: number[]): Promise<boolean> {
+    const cwd = ctx.cwd;
+    const systemMdPath = systemPath(cwd);
+
+    if (!fs.existsSync(systemMdPath)) {
+      ctx.ui.notify("No system.md found — run /vazir-init first", "warning");
+      return false;
+    }
+
+    const systemMd = readIfExists(systemMdPath);
+    const rules = learnedRulesFromMd(systemMd);
+    const candidateIndexes = (allowedRuleIndexes ?? rules.map((_rule, index) => index))
+      .filter(index => index >= 0 && index < rules.length);
+
+    if (candidateIndexes.length === 0) {
+      ctx.ui.notify("No learned rules to remove", "info");
+      return false;
+    }
+
+    let ruleIndex = -1;
+    const directNum = parseInt(args.trim(), 10);
+    if (!Number.isNaN(directNum)) {
+      if (allowedRuleIndexes && directNum >= 1 && directNum <= candidateIndexes.length) {
+        ruleIndex = candidateIndexes[directNum - 1];
+      } else if (!allowedRuleIndexes && directNum >= 1 && directNum <= rules.length) {
+        ruleIndex = directNum - 1;
+      }
+    }
+
+    if (ruleIndex < 0) {
+      const labels = candidateIndexes.map((candidateIndex, index) => {
+        const rule = rules[candidateIndex];
+        return `${index + 1}. ${rule.text} [source: ${formatRuleSourceStories(rule.sourceStories)}]`;
+      });
+      const pick = await ctx.ui.select(
+        allowedRuleIndexes
+          ? "Stale learned rules in system.md — select one to remove:"
+          : "Learned rules in system.md — select one to remove:",
+        [...labels, "Cancel"],
+      );
+
+      if (pick == null || pick === "Cancel") return false;
+
+      const pickIndex = labels.indexOf(pick);
+      if (pickIndex < 0) return false;
+      ruleIndex = candidateIndexes[pickIndex];
+    }
+
+    const rule = rules[ruleIndex];
+    const confirm = await confirmWithFallback(
+      ctx,
+      `Remove rule ${ruleIndex + 1}: "${rule.text}"?`,
+      `Source: ${formatRuleSourceStories(rule.sourceStories)}\nThis rule will no longer constrain the agent.`,
+    );
+
+    if (!confirm) {
+      ctx.ui.notify("Unlearn cancelled", "info");
+      return false;
+    }
+
+    const nextRules = rules.filter((_entry, index) => index !== ruleIndex);
+    fs.writeFileSync(systemMdPath, replaceLearnedRules(systemMd, nextRules));
+
+    const clPath = complaintsLogPath(cwd);
+    if (fs.existsSync(clPath)) {
+      const log = readIfExists(clPath);
+      const marker = `${nowISO()} | unlearned | "${rule.text}"`;
+      const prefix = log.trimEnd();
+      fs.writeFileSync(clPath, `${prefix ? `${prefix}\n` : ""}${marker}\n`);
+    }
+
+    ctx.ui.notify(`Rule removed: "${rule.text}"\nSource: ${formatRuleSourceStories(rule.sourceStories)}`, "info");
+    return true;
   }
 
   async function chooseSpecificStoryForReview(ctx: any, cwd: string): Promise<string | null> {
@@ -804,6 +928,7 @@ export default function (pi: ExtensionAPI) {
       ensureDir(settingsDir(cwd));
       ensureIntakeStructure(cwd);
       ensureReviewStructure(cwd);
+      ensureArchiveStructure(cwd);
       ensureDir(path.join(cwd, ".context", "checkpoints"));
 
       if (!fs.existsSync(intakeReadmePath(cwd))) {
@@ -951,6 +1076,7 @@ export default function (pi: ExtensionAPI) {
         { label: ".context/stories/", present: fs.existsSync(storiesDir(cwd)) },
         { label: ".context/intake/", present: fs.existsSync(intakeDir(cwd)) },
         { label: ".context/reviews/", present: fs.existsSync(reviewsDir(cwd)) },
+        { label: ".context/archive/", present: fs.existsSync(archiveDir(cwd)) },
         { label: ".context/complaints-log.md", present: fs.existsSync(complaintsLogPath(cwd)) },
         { label: "AGENTS.md", present: fs.existsSync(agentsPath) },
         { label: ".context/settings/project.json", present: fs.existsSync(projectSettingsPath) },
@@ -1107,8 +1233,10 @@ export default function (pi: ExtensionAPI) {
       }
 
       const rememberLog = readIfExists(rememberedRulesPath(cwd));
-      fs.writeFileSync(rememberedRulesPath(cwd), `${rememberLog.trimEnd()}\n${rememberEntry(rule)}`.trimStart());
-      appendLearnedRules(cwd, [rule]);
+      const activeStory = findActiveStory(cwd);
+      const activeStoryLabel = activeStory ? path.basename(activeStory.file, ".md") : "—";
+      fs.writeFileSync(rememberedRulesPath(cwd), `${rememberLog.trimEnd()}\n${rememberEntry(rule, activeStoryLabel)}`.trimStart());
+      appendLearnedRules(cwd, [{ text: rule, sourceStories: activeStoryLabel === "—" ? [] : [activeStoryLabel] }]);
       syncReviewSummaryAndPromoteRules(cwd);
       ctx.ui.notify(`Remembered: ${rule}`, "info");
     },
@@ -1208,72 +1336,148 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("unlearn", {
     description: "Remove a promoted rule from system.md",
     handler: async (args: string, ctx: any) => {
+      await runUnlearnFlow(args, ctx);
+    },
+  });
+
+  pi.registerCommand("memory-review", {
+    description: "Review archive, stale-rule, and delete candidates across the Vazir knowledge base",
+    handler: async (_args: string, ctx: any) => {
       const cwd = ctx.cwd;
-      const systemMdPath = systemPath(cwd);
-
-      if (!fs.existsSync(systemMdPath)) {
-        ctx.ui.notify("No system.md found — run /vazir-init first", "warning");
+      const contextRoot = path.join(cwd, ".context");
+      if (!fs.existsSync(contextRoot) || !fs.existsSync(systemPath(cwd))) {
+        ctx.ui.notify("No Vazir knowledge base found — run /vazir-init first", "warning");
         return;
       }
 
-      const systemMd = readIfExists(systemMdPath);
-      const rules = learnedRuleLinesFromMd(systemMd);
+      ensureArchiveStructure(cwd);
+      ensureReviewStructure(cwd);
 
-      if (rules.length === 0) {
-        ctx.ui.notify("No learned rules to remove", "info");
-        return;
-      }
+      let archivedCount = 0;
+      let deletedCount = 0;
 
-      // Direct number argument: /unlearn 2
-      let ruleIndex = -1;
-      const directNum = parseInt(args.trim(), 10);
-
-      if (!isNaN(directNum) && directNum >= 1 && directNum <= rules.length) {
-        ruleIndex = directNum - 1;
+      const archiveCandidates = memoryReviewArchiveCandidates(cwd);
+      if (archiveCandidates.length === 0) {
+        ctx.ui.notify("Memory review archive pass: no archive candidates", "info");
+      } else if (!ctx.hasUI) {
+        ctx.ui.notify(`Memory review found ${archiveCandidates.length} archive candidate(s). Re-run /memory-review in an interactive session to archive them.`, "info");
       } else {
-        // Show numbered list and let user pick
-        const labels = rules.map((rule, i) => `${i + 1}. ${rule}`);
-        const pick = await ctx.ui.select(
-          "Learned rules in system.md — select one to remove:",
-          [...labels, "Cancel"],
-        );
+        const archivePrompt = [
+          `Ready to archive ${archiveCandidates.length} file${archiveCandidates.length === 1 ? "" : "s"}.`,
+          "",
+          ...archiveCandidates.map(candidate => `  ${candidate.label} — ${candidate.reason}`),
+          "",
+          "Archive all? Or name any files you want to keep active.",
+        ].join("\n");
+        const archiveChoice = await ctx.ui.select(archivePrompt, [
+          "Archive all",
+          "Name files to keep active",
+          "Skip this archive pass",
+        ]);
 
-        if (pick == null || pick === "Cancel") return;
+        let selectedCandidates = archiveCandidates;
+        if (archiveChoice === "Name files to keep active") {
+          if (typeof ctx.ui.input === "function") {
+            const keepInput = (await ctx.ui.input(
+              "Files to keep active",
+              "Comma-separated filenames or story labels, e.g. story-003, review-20260401",
+            ))?.trim() ?? "";
+            const filtered = applyArchiveKeepExceptions(cwd, archiveCandidates, keepInput);
+            selectedCandidates = filtered.selected;
+            if (filtered.kept.length > 0) {
+              ctx.ui.notify(`Keeping active: ${filtered.kept.join(", ")}`, "info");
+            }
+          } else {
+            ctx.ui.notify("This session cannot collect keep exceptions, so the archive pass was skipped.", "warning");
+            selectedCandidates = [];
+          }
+        }
 
-        const pickIndex = labels.indexOf(pick);
-        if (pickIndex < 0) return;
-        ruleIndex = pickIndex;
+        if (archiveChoice === "Archive all" || archiveChoice === "Name files to keep active") {
+          if (selectedCandidates.length > 0) {
+            const archivedPaths = archiveMemoryReviewCandidates(cwd, selectedCandidates);
+            archivedCount = archivedPaths.length;
+            syncReviewSummaryAndPromoteRules(cwd);
+            ctx.ui.notify(`Archived ${archivedPaths.length} file(s) into .context/archive/`, "info");
+          } else if (archiveChoice === "Name files to keep active") {
+            ctx.ui.notify("No files remained in the archive batch after applying keep exceptions.", "info");
+          }
+        } else {
+          ctx.ui.notify("Memory review archive pass skipped", "info");
+        }
       }
 
-      const ruleText = rules[ruleIndex];
-      const confirm = await ctx.ui.confirm(
-        `Remove rule ${ruleIndex + 1}: "${ruleText}"?`,
-        "This rule will no longer constrain the agent.",
+      const staleCandidates = staleRuleCandidates(cwd);
+      if (staleCandidates.length === 0) {
+        ctx.ui.notify("Memory review stale-rule pass: no stale learned rules found", "info");
+      } else if (!ctx.hasUI) {
+        ctx.ui.notify(`Memory review found ${staleCandidates.length} stale learned rule candidate(s). Re-run /memory-review in an interactive session to review them.`, "info");
+      } else {
+        const stalePrompt = [
+          `Stale rule candidates: ${staleCandidates.length}.`,
+          "",
+          ...staleCandidates.map((candidate, index) => `  ${index + 1}. ${candidate.text} — ${candidate.reason}`),
+          "",
+          "Keep them, remove one via /unlearn, or update system.md manually later.",
+        ].join("\n");
+        const staleChoice = await ctx.ui.select(stalePrompt, [
+          "Keep these rules for now",
+          "Remove one via /unlearn",
+          "Review manually later",
+        ]);
+
+        if (staleChoice === "Remove one via /unlearn") {
+          await runUnlearnFlow("", ctx, staleCandidates.map(candidate => candidate.ruleIndex));
+        } else if (staleChoice === "Review manually later") {
+          ctx.ui.notify("Review .context/memory/system.md manually and use /unlearn for any removals.", "info");
+        }
+      }
+
+      const deleteCandidates = memoryReviewDeleteCandidates(cwd);
+      if (deleteCandidates.length === 0) {
+        ctx.ui.notify("Memory review delete pass: no delete candidates", "info");
+      } else if (!ctx.hasUI) {
+        ctx.ui.notify(`Memory review found ${deleteCandidates.length} delete candidate(s). Re-run /memory-review in an interactive session to review them.`, "info");
+      } else {
+        const warningBlock = [
+          "WARNING ----------------------------------------",
+          "PERMANENT DELETION - this cannot be undone.",
+          "",
+          `${deleteCandidates.length} file${deleteCandidates.length === 1 ? "" : "s"} identified as obsolete:`,
+          ...deleteCandidates.map(candidate => `  ${candidate.label} — ${candidate.reason}`),
+          "",
+          "Continue to deletion?",
+          "WARNING ----------------------------------------",
+        ].join("\n");
+
+        if (await confirmWithFallback(ctx, warningBlock, "yes / cancel")) {
+          const finalPrompt = [
+            "You are about to permanently delete:",
+            "",
+            ...deleteCandidates.map(candidate => `  ${candidate.label}`),
+            "",
+            "Confirm deletion?",
+          ].join("\n");
+
+          if (await confirmWithFallback(ctx, finalPrompt, "yes / cancel")) {
+            for (const candidate of deleteCandidates) {
+              if (!fs.existsSync(candidate.filePath)) continue;
+              fs.rmSync(candidate.filePath, { force: true });
+              deletedCount += 1;
+            }
+            ctx.ui.notify(`Deleted ${deletedCount} obsolete file(s) from .context/intake/`, "warning");
+          } else {
+            ctx.ui.notify("Memory review delete pass cancelled", "info");
+          }
+        } else {
+          ctx.ui.notify("Memory review delete pass cancelled", "info");
+        }
+      }
+
+      ctx.ui.notify(
+        `Memory review complete: archived ${archivedCount} file(s), flagged ${staleCandidates.length} stale rule candidate(s), deleted ${deletedCount} file(s).`,
+        "info",
       );
-
-      if (!confirm) {
-        ctx.ui.notify("Unlearn cancelled", "info");
-        return;
-      }
-
-      // Remove the rule from system.md
-      const bullet = `- ${ruleText}`;
-      const updatedSystemMd = systemMd
-        .split("\n")
-        .filter(line => line.trim() !== bullet)
-        .join("\n");
-      fs.writeFileSync(systemMdPath, updatedSystemMd);
-
-      // Mark in complaints-log if present
-      const clPath = complaintsLogPath(cwd);
-      if (fs.existsSync(clPath)) {
-        const log = readIfExists(clPath);
-        // Append unlearned marker
-        const marker = `${nowISO()} | unlearned | "${ruleText}"\n`;
-        fs.writeFileSync(clPath, log.trimEnd() + "\n" + marker);
-      }
-
-      ctx.ui.notify(`Rule removed: "${ruleText}"\nIt will no longer constrain the agent.`, "info");
     },
   });
 
