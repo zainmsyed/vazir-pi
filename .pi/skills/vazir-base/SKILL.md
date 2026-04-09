@@ -33,6 +33,7 @@ disable-model-invocation: false
 ## Learning workflow
 - Use `/remember` only for confirmed, reusable lessons that should persist as memory. If the user runs `/remember` with no text, draft one concise rule from the recent fix context instead of asking them to write it manually.
 - Use `/review` to capture review findings in `.context/reviews/` and let repeated rule candidates promote into `.context/memory/system.md`.
+- Use `/memory-review` only when the user explicitly asks for knowledge-base cleanup. Never trigger it automatically.
 
 ## Verification honesty
 - Before claiming any task complete, state: what you verified mechanically, and what requires user confirmation.

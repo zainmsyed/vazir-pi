@@ -63,6 +63,7 @@ const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/remember", description: "promote a reusable lesson into persistent memory" },
   { command: "/review", description: "write a review file and sync recurring rule candidates" },
   { command: "/complete-story", description: "check readiness, optionally review, and close a story" },
+  { command: "/memory-review", description: "archive cold context, flag stale rules, and review delete candidates" },
   { command: "/unlearn", description: "remove a promoted rule from system memory" },
   { command: "/consolidate", description: "cluster complaints and promote repeated rule candidates" },
   { command: "/diff", description: "show the diff for one changed file" },

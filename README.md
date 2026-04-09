@@ -17,6 +17,7 @@ Highlights
 - Context injection extension: .pi/extensions/vazir-context.ts
 - Change tracker, story picker, and diff/reset helpers: .pi/extensions/vazir-tracker.ts
 - Review loop: opt-in per-review markdown files with status/checklist, plus a running summary in .context/reviews/
+- Memory hygiene: `/memory-review` archives cold stories/reviews, flags stale learned rules, and stages delete candidates for explicit confirmation
 - Base skill definitions: .pi/skills/vazir-base/SKILL.md
 - Persistent project brain: .context/
 
@@ -74,7 +75,7 @@ Working rules
 -------------
 - Write directly to real project files (use provided tools)
 - Keep .context/ as the persistent project brain
-- Use /vazir-init, /plan, /story, /fix, /complete-story, /remember, /review, and /reset as core commands when interacting with the agent; `/review` starts a structured manual code review, asks whether to review a specific story or the whole codebase, and records recommended follow-up work in a checklist; `/complete-story` checks checklist/issues/summary readiness before closing a story, can launch a story review before final closure, and after review can open the review document, fix high-priority items first, or fix all remaining recommended items before closing; `/remember` can draft the rule from recent fix context if you do not pass one
+- Use /vazir-init, /plan, /story, /fix, /complete-story, /remember, /review, /memory-review, and /reset as core commands when interacting with the agent; `/review` starts a structured manual code review, asks whether to review a specific story or the whole codebase, and records recommended follow-up work in a checklist; `/complete-story` checks checklist/issues/summary readiness before closing a story, can launch a story review before final closure, and after review can open the review document, fix high-priority items first, or fix all remaining recommended items before closing; `/remember` can draft the rule from recent fix context if you do not pass one; `/memory-review` is a user-triggered cleanup pass for archiving cold context and surfacing stale or deletable knowledge-base files
 - Avoid introducing routers or external APIs — pi handles agent connections
 
 Contributing
