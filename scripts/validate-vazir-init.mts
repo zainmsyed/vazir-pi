@@ -102,6 +102,8 @@ async function runMissingJjScenario() {
   assert(fs.existsSync(path.join(cwd, ".context/memory/index.md")), "index.md was not created");
   assert(fs.existsSync(path.join(cwd, ".context/memory/context-map.md")), "context-map.md was not created");
   assert(fs.existsSync(path.join(cwd, ".context/intake")), "intake/ was not created");
+  assert(fs.existsSync(path.join(cwd, ".context/archive/stories")), "archive/stories was not created");
+  assert(fs.existsSync(path.join(cwd, ".context/archive/reviews")), "archive/reviews was not created");
   assert(fs.existsSync(path.join(cwd, ".context/intake/README.md")), "intake README was not created");
   assert(fs.existsSync(path.join(cwd, ".context/settings/project.json")), "project.json was not created");
   assert(fs.existsSync(path.join(cwd, "AGENTS.md")), "AGENTS.md was not created");
@@ -132,6 +134,7 @@ async function runMissingFileScenario() {
   assert(summary.includes("☑ .context/memory/index.md"), "summary did not include index.md as present");
   assert(summary.includes("☑ .context/memory/context-map.md"), "summary did not include context-map.md as present");
   assert(summary.includes("☑ .context/intake/"), "summary did not include intake as present");
+  assert(summary.includes("☑ .context/archive/"), "summary did not include archive as present");
   assert(summary.includes("☑ .context/settings/project.json"), "summary did not include project.json as present");
   assert(fs.existsSync(path.join(cwd, "AGENTS.md")), "AGENTS.md should have been created live in the file scenario");
 
