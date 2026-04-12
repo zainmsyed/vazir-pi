@@ -75,23 +75,6 @@ function makeCtx(cwd: string, notifications: Notification[], selectChoice = "Can
   };
 }
 
-function requiredStorySections(content: string): string[] {
-  return [
-    "**Status:**",
-    "**Created:**",
-    "**Last accessed:**",
-    "**Completed:**",
-    "## Goal",
-    "## Verification",
-    "## Scope — files this story may touch",
-    "## Out of scope — do not touch",
-    "## Dependencies",
-    "## Checklist",
-    "## Issues",
-    "## Completion Summary",
-  ].filter(marker => !content.includes(marker));
-}
-
 async function runFreshPlanScenario() {
   const cwd = createProject("vazir-plan-seed-fresh-");
   const notifications: Notification[] = [];
@@ -108,13 +91,10 @@ async function runFreshPlanScenario() {
 
   assert(fs.existsSync(intakeBriefPath), "intake-brief.md was not created");
   assert(fs.existsSync(planPath), "plan.md was not created");
-  assert(storyFiles.length === 3, `expected 3 seeded story files, found ${storyFiles.length}`);
-  for (const file of storyFiles) {
-    const missing = requiredStorySections(fs.readFileSync(path.join(storiesDir, file), "utf-8"));
-    assert(missing.length === 0, `${file} is missing required sections: ${missing.join(", ")}`);
-  }
+  assert(storyFiles.length === 0, `expected no upfront story files, found ${storyFiles.length}`);
   assert(sentMessages.length === 1, "plan should send one follow-up message to the model");
-  assert(sentMessages[0].message.includes("seeded story files"), "planning instruction did not mention seeded story files");
+  assert(sentMessages[0].message.includes("Create as many story-NNN.md files as needed"), "planning instruction did not allow unbounded story creation");
+  assert(sentMessages[0].message.includes("There is NO preset cap"), "planning instruction still appears to cap story creation");
   assert(sentMessages[0].message.includes("Read .context/stories/intake-brief.md now."), "planning instruction did not mention intake brief review");
   assert(sentMessages[0].message.includes(".context/intake/prd/product-brief.md"), "planning instruction did not list the intake file");
   assert(
@@ -126,7 +106,7 @@ async function runFreshPlanScenario() {
   assert(intakeBrief.includes(".context/intake/prd/product-brief.md") || intakeBrief.includes(".context/intake/prd/product-brief.md".replace(/^\.context\//, "")) || intakeBrief.includes(".context/intake") || intakeBrief.includes("product-brief.md"), "intake-brief.md did not reference the intake file");
   assert(notifications.some(note => note.message.includes("Found 1 intake file")), "missing intake notification");
   assert(notifications.some(note => note.message.includes("intake-brief.md refreshed")), "missing intake brief refresh notification");
-  assert(notifications.some(note => note.message.startsWith("Seeded starter stories:")), "missing seeded story notification");
+  assert(notifications.some(note => note.message.includes("No story files are seeded upfront")), "missing no-upfront-story notification");
 
   return { cwd, storyFiles, notifications };
 }
@@ -134,7 +114,7 @@ async function runFreshPlanScenario() {
 async function runReuseScenario() {
   const cwd = createProject("vazir-plan-seed-reuse-");
   const notifications: Notification[] = [];
-  const { command } = makePi();
+  const { command, sentMessages } = makePi();
   const storiesDir = path.join(cwd, ".context", "stories");
   fs.mkdirSync(storiesDir, { recursive: true });
   fs.writeFileSync(path.join(storiesDir, "plan.md"), "# Existing Plan\n");
@@ -185,7 +165,11 @@ async function runReuseScenario() {
 
   const storyFiles = fs.readdirSync(storiesDir).filter((name: string) => /^story-\d+\.md$/.test(name)).sort();
   assert(storyFiles.length === 1, "replan should reuse existing stories instead of reseeding duplicates");
-  assert(notifications.some(note => note.message.startsWith("Using existing stories:")), "missing existing-story notification");
+  assert(sentMessages.length === 1, "replan should send one follow-up message to the model");
+  assert(sentMessages[0].message.includes("Preserve existing story files"), "replan instruction did not preserve existing stories");
+  assert(sentMessages[0].message.includes("Do NOT overwrite, repurpose, or renumber them."), "replan instruction did not forbid overwriting preserved stories");
+  assert(sentMessages[0].message.includes("append a replanning log entry"), "replan instruction did not require replanning log updates");
+  assert(notifications.some(note => note.message.startsWith("Existing story files preserved for replanning:")), "missing preserved-story notification");
 
   return { cwd, storyFiles, notifications };
 }
@@ -216,5 +200,5 @@ function printScenario(title: string, details: Record<string, unknown>) {
 const freshPlan = await runFreshPlanScenario();
 const reusePlan = await runReuseScenario();
 
-printScenario("Fresh Plan Seeding", freshPlan);
-printScenario("Reuse Existing Stories", reusePlan);
+printScenario("Fresh Plan Kickoff", freshPlan);
+printScenario("Preserve Existing Stories On Replan", reusePlan);
