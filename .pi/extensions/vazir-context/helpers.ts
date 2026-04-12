@@ -110,16 +110,6 @@ export type InitFileStatus = {
   present: boolean;
 };
 
-export interface SeedStorySpec {
-  title: string;
-  goal: string;
-  verification: string;
-  scope: string[];
-  outOfScope: string[];
-  dependencies: string[];
-  checklist: string[];
-}
-
 export interface ReviewDraft {
   created: string;
   focus: string;
@@ -588,117 +578,11 @@ export function storyTemplate(num: number, title: string): string {
   ].join("\n");
 }
 
-export function titleCase(input: string): string {
-  return input
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
 export function normalizeProjectBrief(input: string, projectName: string): string {
   const trimmed = input.trim().replace(/\s+/g, " ");
   if (trimmed) return trimmed;
   if (projectName.trim()) return `${projectName.trim()} v1`;
   return "the project v1";
-}
-
-export function deriveStorySubject(brief: string): string {
-  const cleaned = brief
-    .replace(/^(build|create|make|plan|design|ship)\s+/i, "")
-    .replace(/[.?!]+$/g, "")
-    .trim();
-  if (!cleaned) return "project";
-  return cleaned.length > 72 ? `${cleaned.slice(0, 69).trim()}...` : cleaned;
-}
-
-export function seedStorySpecs(brief: string): SeedStorySpec[] {
-  const subject = deriveStorySubject(brief);
-  const storySubject = titleCase(subject);
-
-  return [
-    {
-      title: `Scope and foundation for ${storySubject}`,
-      goal: `Capture the v1 shape of ${subject}, confirm the initial constraints, and set up the smallest safe foundation for implementation.`,
-      verification: "The user can review the seeded plan and starter stories and confirm the project direction, scope, and first implementation slice.",
-      scope: [".context/stories/plan.md", ".context/stories/"],
-      outOfScope: ["Unplanned product areas", "Nice-to-have features without user approval"],
-      dependencies: ["Requires: none", "Blocks: story-002, story-003"],
-      checklist: [
-        `Capture the core v1 outcome for ${subject}`,
-        "List explicit v1 exclusions and risky assumptions",
-        "Confirm the first implementation slice is small enough to verify in one session",
-      ],
-    },
-    {
-      title: `Core happy path for ${storySubject}`,
-      goal: `Define the smallest end-to-end user-visible slice of ${subject} that proves the product works for its primary user.`,
-      verification: "The user can perform one clear happy-path check that demonstrates the main v1 flow works end to end.",
-      scope: ["Primary app flow files", "Minimal supporting state or API surface"],
-      outOfScope: ["Secondary workflows", "Admin or analytics extras unless required for the happy path"],
-      dependencies: ["Requires: story-001", "Blocks: story-003"],
-      checklist: [
-        "Define the single most important user flow",
-        "Identify the files and systems needed for the first shippable slice",
-        "Keep the verification step observable and unambiguous",
-      ],
-    },
-    {
-      title: `Verification and polish for ${storySubject}`,
-      goal: `Tighten the initial slice of ${subject}, verify key behavior, and capture the follow-up work that should happen after the first end-to-end path is stable.`,
-      verification: "The user can confirm the initial slice is stable enough to continue and can clearly see what remains for the next stories.",
-      scope: ["Files touched by the core happy path", "Verification harnesses or smoke checks needed for confidence"],
-      outOfScope: ["Large refactors", "Future roadmap items not needed for initial confidence"],
-      dependencies: ["Requires: story-002", "Blocks: later feature stories"],
-      checklist: [
-        "List the highest-risk edge cases still worth checking in v1",
-        "Capture follow-up work that should be split into later stories",
-        "Document what the agent can and cannot verify mechanically",
-      ],
-    },
-  ];
-}
-
-export function fillStoryTemplate(num: number, spec: SeedStorySpec): string {
-  return [
-    `# Story ${String(num).padStart(3, "0")}: ${spec.title}`,
-    "",
-    `**Status:** not-started  `,
-    `**Created:** ${todayDate()}  `,
-    `**Last accessed:** ${todayDate()}  `,
-    `**Completed:** —`,
-    "",
-    "---",
-    "",
-    "## Goal",
-    spec.goal,
-    "",
-    "## Verification",
-    spec.verification,
-    "",
-    "## Scope — files this story may touch",
-    ...spec.scope.map(item => `- ${item}`),
-    "",
-    "## Out of scope — do not touch",
-    ...spec.outOfScope.map(item => `- ${item}`),
-    "",
-    "## Dependencies",
-    ...spec.dependencies.map(item => `- ${item}`),
-    "",
-    "---",
-    "",
-    "## Checklist",
-    ...spec.checklist.map(item => `- [ ] ${item}`),
-    "",
-    "---",
-    "",
-    "## Issues",
-    "",
-    "---",
-    "",
-    "## Completion Summary",
-    "",
-  ].join("\n");
 }
 
 export function planTemplate(projectName: string): string {
@@ -728,66 +612,6 @@ export function planTemplate(projectName: string): string {
     "## Replanning log",
     "",
   ].join("\n");
-}
-
-export function seededPlanTemplate(projectName: string, brief: string, firstStoryNumber: number): string {
-  const specs = seedStorySpecs(brief);
-  const today = todayDate();
-  const rows = specs.map((spec, index) => {
-    const storyNumber = firstStoryNumber + index;
-    const blocks = index === 0 ? `${storyFileName(storyNumber + 1)}, ${storyFileName(storyNumber + 2)}` : index === 1 ? `${storyFileName(storyNumber + 1)}` : "—";
-    return `| ${storyFileName(storyNumber)} | ${spec.title} | not-started | ${blocks} |`;
-  });
-
-  return [
-    `# ${projectName || "Project"} — Plan`,
-    "",
-    `**Created:** ${today}  `,
-    `**Last updated:** ${today}`,
-    "",
-    "---",
-    "",
-    "## What we're building",
-    `Initial planning seed for ${brief}. This is a deterministic scaffold that the agent should refine with the user before implementation begins.`,
-    "",
-    "## What we're not building (v1 scope)",
-    "- Anything the user has not explicitly prioritized for the first slice",
-    "- Nice-to-have extensions that do not help verify the core workflow",
-    "",
-    "## Features",
-    `### Feature 1: ${titleCase(deriveStorySubject(brief))}`,
-    "Initial end-to-end slice seeded for planning refinement. Stories below are placeholders that should be tightened with user answers.",
-    "",
-    "## Story queue",
-    "| Story | Title | Status | Blocks |",
-    "|---|---|---|---|",
-    ...rows,
-    "",
-    "## Replanning log",
-    `- ${today}: Seeded starter plan from the initial project brief. Refine after clarifying questions.`,
-    "",
-  ].join("\n");
-}
-
-export function ensureSeedStories(cwd: string, brief: string): { files: string[]; created: boolean } {
-  const existingStories = listStories(cwd).sort((a, b) => a.number - b.number);
-  if (existingStories.length > 0) {
-    return {
-      files: existingStories.map(story => path.basename(story.file)),
-      created: false,
-    };
-  }
-
-  const firstStoryNumber = nextStoryNumber(cwd);
-  const createdFiles: string[] = [];
-  for (const [index, spec] of seedStorySpecs(brief).entries()) {
-    const storyNumber = firstStoryNumber + index;
-    const fileName = storyFileName(storyNumber);
-    fs.writeFileSync(path.join(storiesDir(cwd), fileName), fillStoryTemplate(storyNumber, spec));
-    createdFiles.push(fileName);
-  }
-
-  return { files: createdFiles, created: true };
 }
 
 // ── File index helpers ─────────────────────────────────────────────────

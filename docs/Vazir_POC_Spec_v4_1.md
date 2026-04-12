@@ -79,7 +79,7 @@ pi-coding-agent (base)
 
 ### Core Principle
 
-Every project starts with a planning conversation. The resulting plan lives in `.context/stories/` as markdown files the agent reads and updates. The story files remain the source of truth, and `/story` opens the plan or any story in a scrollable terminal view when you want to inspect it.
+Every project starts with a planning conversation. The resulting plan lives in `.context/stories/` as markdown files the agent reads and extends. Existing stories are preserved; new scope is added as additional story files rather than overwriting old ones. The story files remain the source of truth, and `/story` opens the plan or any story in a scrollable terminal view when you want to inspect it.
 
 The agent works one story at a time by convention, not by hard constraint. The user can jump between stories freely — flow-state is non-negotiable. The story file structure ensures nothing gets lost when they do.
 
@@ -373,7 +373,9 @@ Triggered when the user describes what they want to build or after they drop sou
 2. One `story-NNN.md` per story, chunked from the plan
 3. `intake-brief.md` — distilled planning brief derived from intake materials plus user answers
 
-The user reviews the generated stories before work begins. Stories that are too big get broken down further. Stories that are wrong get edited or retired immediately.
+There is no preset cap on story count. On the initial plan, the agent creates as many stories as needed to cover the scoped work while keeping each story to one verifiable unit. Later replans append to the existing story queue instead of replacing it; if the updated scope needs more stories, the agent adds more stories.
+
+The user reviews the generated stories before work begins. Stories that are too big get broken down further. Stories that are wrong get retired or superseded by new follow-on stories immediately; the original story files stay intact.
 
 ### Intake Materials
 
@@ -438,10 +440,10 @@ If a story has more than one verification step, it's too big — split it.
 ### Replanning
 
 When the user changes scope mid-project, the agent:
-1. Rewrites the affected sections of `plan.md`
-2. Re-chunks only the impacted stories (unaffected stories stay untouched)
-3. Appends a replanning note to `plan.md`'s replanning log
-4. Creates new story files or retires invalidated ones
+1. Appends a replanning note to `plan.md`'s replanning log
+2. Preserves every existing story file and leaves its contents intact
+3. Creates only new story files for newly added scope, continuing the story number sequence
+4. Treats the updated plan as an addendum to the previous one rather than a replacement
 
 Story dependencies declared in each story file are what determine what's affected — the agent follows the dependency graph, not its own judgment.
 
@@ -580,10 +582,10 @@ Agent updates intake-brief.md if new answers materially change the distilled und
       ↓
 Agent generates plan.md (PRD-level distilled artifact)
       ↓
-Agent chunks into story files — each sized to one verifiable unit
+Agent chunks into story files — each sized to one verifiable unit, creating as many stories as needed for the scoped work
       ↓
 Agent presents story list to user:
-  "Here's how I've broken this down — 8 stories.
+  "Here's how I've broken this down — [N] stories for this scope.
    story-001: Project scaffolding (Next.js + Supabase setup)
    story-002: Auth — sign up, log in, log out, session persistence
    ...

@@ -50,7 +50,6 @@ import {
   ensureDir,
   ensureIntakeStructure,
   ensureReviewStructure,
-  ensureSeedStories,
   findWorkableStory,
   indexPath,
   INTAKE_README_TEMPLATE,
@@ -66,6 +65,7 @@ import {
   memoryReviewDeleteCandidates,
   nextStoryNumber,
   normalizeProjectBrief,
+  planTemplate,
   replaceLearnedRules,
   rememberEntry,
   rememberedRulesPath,
@@ -75,7 +75,6 @@ import {
   REMEMBERED_RULES_TEMPLATE,
   REVIEW_SUMMARY_TEMPLATE,
   selectableStoriesForManualReview,
-  seededPlanTemplate,
   settingsDir,
   snapshotStoryFrontmatter,
   staleRuleCandidates,
@@ -1106,6 +1105,9 @@ export default function (pi: ExtensionAPI) {
       const planPath = path.join(storiesDir(cwd), "plan.md");
       const planExists = fs.existsSync(planPath);
       const intakeFiles = listIntakeFiles(cwd);
+      const existingStoryFiles = listStories(cwd)
+        .sort((a, b) => a.number - b.number)
+        .map(story => path.basename(story.file));
 
       if (planExists && !args.trim()) {
         const choice = await ctx.ui.select(
@@ -1158,25 +1160,39 @@ export default function (pi: ExtensionAPI) {
       }
       ctx.ui.notify("intake-brief.md refreshed in .context/stories/", "info");
 
-      // Generate or update plan.md
+      // Generate a plan scaffold if needed; the model fills it in after clarifying questions.
       if (!planExists) {
-        fs.writeFileSync(planPath, seededPlanTemplate(projectName, planningBrief, nextStoryNumber(cwd)));
+        fs.writeFileSync(planPath, planTemplate(projectName));
         ctx.ui.notify("plan.md created in .context/stories/", "info");
       }
 
-      const storySeed = ensureSeedStories(cwd, planningBrief);
-      const storyFiles = storySeed.files;
-      if (storyFiles.length > 0) {
+      if (existingStoryFiles.length > 0) {
+        ctx.ui.notify(`Existing story files preserved for replanning: ${existingStoryFiles.join(", ")}`, "info");
+      } else {
         ctx.ui.notify(
-          storySeed.created ? `Seeded starter stories: ${storyFiles.join(", ")}` : `Using existing stories: ${storyFiles.join(", ")}`,
+          "No story files are seeded upfront — /plan will create as many story files as needed after the planning questions",
           "info",
         );
       }
 
+      const planWriteStep = planExists
+        ? "Step 7. Update .context/stories/plan.md as an addendum: preserve existing story queue entries, add only new story rows needed for the updated scope, and append a replanning log entry."
+        : "Step 7. Rewrite .context/stories/plan.md completely — replace all placeholder text with real content.";
+      const storyWriteStep = existingStoryFiles.length > 0
+        ? `Step 8. Preserve existing story files: ${existingStoryFiles.join(", ")}. Do NOT overwrite, repurpose, or renumber them. If follow-up work is needed, express it as new story-NNN.md files.`
+        : "Step 8. Create as many story-NNN.md files as needed for the scoped work. There is NO preset cap.";
+      const planModeNote = planExists
+        ? existingStoryFiles.length > 0
+          ? "NOTE: This is a replan. Preserve every existing story file, keep existing story queue rows in plan.md, append only new stories needed for the added scope, and append a replanning log entry. If older work is invalidated, retire or supersede it without overwriting the original story file."
+          : "NOTE: This is a replan with no existing story files yet. Treat the plan update as an addendum and create as many new story files as needed."
+        : "NOTE: Create as many story files as needed for the scoped work. Do not stop at an arbitrary count.";
+
       // Instruct the agent to run the planning conversation
       const instruction = [
         "The user wants to plan their project.",
-        "Seeded scaffold files already exist in .context/stories/ as temporary placeholders — treat them as scaffolds, not finished content.",
+        existingStoryFiles.length > 0
+          ? `Existing story files already exist in .context/stories/: ${existingStoryFiles.join(", ")}. Treat them as preserved history, not scaffolds.`
+          : "No story files are pre-seeded in .context/stories/. Create the final story set in Phase 2.",
         "",
         "THIS IS A STRICT TWO-PHASE PROCESS. Follow the phases in order.",
         "",
@@ -1200,9 +1216,8 @@ export default function (pi: ExtensionAPI) {
         "",
         "━━ PHASE 2 — WRITE FILES (after ALL questions answered) ━━",
         `Step 6. Update .context/stories/intake-brief.md to reflect the final distilled answers. Brief so far: ${planningBrief}`,
-        "Step 7. Rewrite .context/stories/plan.md completely — replace all placeholder text with real content.",
-        `Step 8. Rewrite the seeded story files completely: ${storyFiles.join(", ") || "existing story files"}.`,
-        "        Create additional story-NNN.md files ONLY if the seeded three are genuinely insufficient.",
+        planWriteStep,
+        storyWriteStep,
         "Step 9. Every story must use the exact template: Status, Created, Last accessed, Completed, Goal, Verification,",
         "        Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary.",
         "        Checklist items must be concrete implementation tasks — not questions, not open issues.",
@@ -1210,7 +1225,7 @@ export default function (pi: ExtensionAPI) {
         "Step 11. Each story must be completable in one focused session with one clear, observable verification step.",
         "Step 12. Present the final story list to the user and ask if anything needs adjusting.",
         "",
-        planExists ? "NOTE: Plan already exists — this is a replan. Update affected sections and stories. Append to the replanning log. Do not touch unaffected stories." : "",
+        planModeNote,
       ].filter(Boolean).join("\n");
 
       await pi.sendUserMessage(instruction);
