@@ -421,9 +421,41 @@ export function invalidateStoryProgressCache(cwd?: string): void {
 }
 
 function storyPickerLabel(story: StoryFrontmatter): string {
-  const fileName = path.basename(story.file);
+  const storyLabel = path.basename(story.file, ".md");
+  const title = storyPickerTitle(story);
   const accessed = story.lastAccessed ? ` · ${story.lastAccessed}` : "";
-  return `${fileName} — ${story.status}${accessed}`;
+  if (title) {
+    return `${storyLabel} — ${story.status} — ${title}${accessed}`;
+  }
+  return `${storyLabel} — ${story.status}${accessed}`;
+}
+
+function storyPickerTitle(story: StoryFrontmatter): string | null {
+  const content = readIfExists(story.file);
+  const match = content.match(/^#\s+Story\s+\d+:\s*(.+)$/m);
+  const title = match?.[1]?.trim() ?? "";
+  return title || null;
+}
+
+function storyPickerStatusRank(status: string): number {
+  switch (status) {
+    case "in-progress":
+      return 0;
+    case "not-started":
+      return 1;
+    case "complete":
+      return 2;
+    case "retired":
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+function compareStoriesForStoryPicker(left: StoryFrontmatter, right: StoryFrontmatter): number {
+  const rankDiff = storyPickerStatusRank(left.status) - storyPickerStatusRank(right.status);
+  if (rankDiff !== 0) return rankDiff;
+  return left.number - right.number;
 }
 
 export function storyPickerChoices(cwd: string): Array<{ label: string; file: string; kind: "plan" | "story" }> {
@@ -437,7 +469,7 @@ export function storyPickerChoices(cwd: string): Array<{ label: string; file: st
     });
   }
 
-  for (const story of listStories(cwd).sort((a, b) => a.number - b.number)) {
+  for (const story of listStories(cwd).sort(compareStoriesForStoryPicker)) {
     choices.push({
       label: storyPickerLabel(story),
       file: story.file,
