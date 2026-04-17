@@ -715,6 +715,10 @@ export function clipInline(text: string, max = 40): string {
   return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
+function repoName(cwd: string): string {
+  return path.basename(cwd);
+}
+
 function branchLabel(cwd: string): string {
   if (!_hasGitRepo && !_useJJ) {
     return isVazirInitialized(cwd) ? "no-git" : "run /vazir-init";
@@ -911,7 +915,7 @@ function sessionFooterLine(
   const cwd = snapshot.cwd;
   if (!isVazirInitialized(cwd)) {
     const left = [
-      paint("◈ vazir", "accent", true),
+      paint(repoName(cwd), "accent", true),
       paint("setup required", "warning"),
       paint("run /vazir-init", "text"),
     ].join(separatorDot());
@@ -926,7 +930,7 @@ function sessionFooterLine(
   const thinkingLevel = latestThinkingLevel(snapshot);
   const leftSegments = activeToolCalls > 0 && currentWorkingMessage
     ? [
-        paint("◈ vazir", "accent", true),
+        paint(repoName(cwd), "accent", true),
         paint(storyLabel, "text"),
         branchWithStatus,
         footerTokenOrWorkSegment(snapshot),
@@ -934,10 +938,10 @@ function sessionFooterLine(
         footerSpendSegment(snapshot),
       ].filter(Boolean)
     : [
-        paint("◈ vazir", "accent", true),
+        paint(repoName(cwd), "accent", true),
         paint(storyLabel, "text"),
         branchWithStatus,
-        `${paint(modelLabel, "dim")} ${paint(`(${thinkingLevel})`, "dim")}`,
+        `${paint(modelLabel, "dim")} ${paint(`(${thinkingLevel})`, "dim")}`,`
         footerTokenOrWorkSegment(snapshot),
         footerContextSegment(snapshot),
         footerSpendSegment(snapshot),
