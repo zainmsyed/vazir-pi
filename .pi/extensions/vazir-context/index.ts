@@ -143,7 +143,9 @@ let useJJ = false;
 let pendingInitSummary: string | null = null;
 const storyFrontmatterSnapshots = new Map<string, Map<string, { status: string; completed: string }>>();
 const pendingCompleteStoryRequests = new Map<string, { storyFile: string; reviewFile?: string }>();
+const pendingManualReviewRequests = new Map<string, { reviewFile: string }>();
 type ManualReviewScope = "story" | "whole-codebase";
+type ReviewCloseoutTarget = "story" | "review";
 const INTERNAL_AGENT_MESSAGE_TYPE = "vazir-internal-request";
 
 export default function (pi: ExtensionAPI) {
@@ -434,11 +436,10 @@ export default function (pi: ExtensionAPI) {
 
   async function promptReviewFindingsCloseout(
     ctx: any,
-    storyPath: string,
     reviewFilePath: string,
     findings: ReviewFindingSummary[],
+    targetNoun: ReviewCloseoutTarget = "story",
   ): Promise<"fix-high" | "fix-all" | "close" | "not-yet" | null> {
-    const storyLabel = path.basename(storyPath, ".md");
     const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
     const recommendedFixes = reviewRecommendedFixesFromFile(reviewFilePath);
     const otherFixes = reviewOtherFixesFromFile(reviewFilePath);
@@ -452,8 +453,8 @@ export default function (pi: ExtensionAPI) {
     if (!ctx.hasUI) {
       ctx.ui.notify(
         pendingFixes.length > 0
-          ? `${storyLabel} review is complete with pending recommended fixes. Re-run /complete-story in an interactive session to decide whether to fix them or close the story.`
-          : `${storyLabel} review is complete. Re-run /complete-story in an interactive session to close it out.`,
+          ? `Review ${reviewLabel} is complete with pending recommended fixes. Re-run ${targetNoun === "story" ? "/complete-story" : "/review"} in an interactive session to decide whether to fix them or close it out.`
+          : `Review ${reviewLabel} is complete. Re-run ${targetNoun === "story" ? "/complete-story" : "/review"} in an interactive session to close it out.`,
         "info",
       );
       return null;
@@ -465,10 +466,12 @@ export default function (pi: ExtensionAPI) {
         pendingFixes,
         pendingHighPriorityFixes,
         pendingLowerPriorityFixes,
+        targetNoun,
       });
       const choice = await ctx.ui.select(promptLines.join("\n"), buildReviewCloseoutOptions({
         pendingFixCount: pendingFixes.length,
         pendingHighPriorityFixCount: pendingHighPriorityFixes.length,
+        targetNoun,
       }));
 
       if (choice == null) return null;
@@ -477,12 +480,12 @@ export default function (pi: ExtensionAPI) {
         continue;
       }
 
-      if (choice === "Keep story open and fix high-priority recommended items") return "fix-high";
-      if (choice === "Keep story open and fix all recommended items" || choice === "Keep story open and fix remaining recommended items") {
+      if (choice === `Keep ${targetNoun} open and fix high-priority recommended items`) return "fix-high";
+      if (choice === `Keep ${targetNoun} open and fix all recommended items` || choice === `Keep ${targetNoun} open and fix remaining recommended items`) {
         return "fix-all";
       }
 
-      if (choice.includes("Close story now")) return "close";
+      if (choice.includes(`Close ${targetNoun} now`)) return "close";
       return "not-yet";
     }
   }
@@ -497,18 +500,20 @@ export default function (pi: ExtensionAPI) {
     pendingFixes: ReviewRecommendedFix[];
     pendingHighPriorityFixes: ReviewRecommendedFix[];
     pendingLowerPriorityFixes: ReviewRecommendedFix[];
+    targetNoun: ReviewCloseoutTarget;
   }): string[] {
     const {
       findings,
       pendingFixes,
       pendingHighPriorityFixes,
       pendingLowerPriorityFixes,
+      targetNoun,
     } = options;
 
     if (findings.length === 0 && pendingFixes.length === 0) {
       return [
         "Review complete. No findings.",
-        "Close the story now?",
+        `Close the ${targetNoun} now?`,
       ];
     }
 
@@ -518,7 +523,7 @@ export default function (pi: ExtensionAPI) {
 
     if (pendingFixes.length === 0) {
       lines.push("All recommended fixes in the review file are marked complete.");
-      lines.push("Close the story now or inspect the review document first?");
+      lines.push(`Close the ${targetNoun} now or inspect the review document first?`);
       return lines;
     }
 
@@ -549,20 +554,21 @@ export default function (pi: ExtensionAPI) {
   function buildReviewCloseoutOptions(options: {
     pendingFixCount: number;
     pendingHighPriorityFixCount: number;
+    targetNoun: ReviewCloseoutTarget;
   }): string[] {
-    const { pendingFixCount, pendingHighPriorityFixCount } = options;
+    const { pendingFixCount, pendingHighPriorityFixCount, targetNoun } = options;
     const choices: string[] = [];
 
     if (pendingHighPriorityFixCount > 0) {
-      choices.push("Keep story open and fix high-priority recommended items");
+      choices.push(`Keep ${targetNoun} open and fix high-priority recommended items`);
     }
     if (pendingFixCount > 0) {
       choices.push(pendingHighPriorityFixCount > 0
-        ? "Keep story open and fix all recommended items"
-        : "Keep story open and fix remaining recommended items");
+        ? `Keep ${targetNoun} open and fix all recommended items`
+        : `Keep ${targetNoun} open and fix remaining recommended items`);
     }
     choices.push("Open review document");
-    choices.push(pendingFixCount > 0 ? "Close story now (remaining items noted)" : "Close story now");
+    choices.push(pendingFixCount > 0 ? `Close ${targetNoun} now (remaining items noted)` : `Close ${targetNoun} now`);
     choices.push("Not yet, keep working");
     return choices;
   }
@@ -584,10 +590,10 @@ export default function (pi: ExtensionAPI) {
 
   function buildReviewRemediationInstruction(
     cwd: string,
-    storyLabel: string,
     reviewFilePath: string,
     mode: "high" | "all",
     targetedFixes: ReviewRecommendedFix[],
+    targetNoun: ReviewCloseoutTarget,
   ): string {
     const reviewLabel = path.relative(cwd, reviewFilePath).replace(/\\/g, "/");
     const scopeLabel = mode === "high" ? "high-priority unchecked recommended items only" : "all unchecked recommended items";
@@ -596,7 +602,7 @@ export default function (pi: ExtensionAPI) {
       : ["- No tracked checklist items yet — derive them from the findings and add them before fixing."];
 
     return [
-      `Review ${reviewLabel} and fix ${scopeLabel} before the ${storyLabel} closeout continues.`,
+      `Review ${reviewLabel} and fix ${scopeLabel} before the ${targetNoun} closeout continues.`,
       "",
       "Targeted recommended fixes:",
       ...listedItems,
@@ -609,7 +615,9 @@ export default function (pi: ExtensionAPI) {
         : "3. Work all unchecked recommended fix items that remain in the review file.",
       "4. Mark an item `[x]` only after the code or docs change is complete and you have verified what you can.",
       "5. Leave unresolved or deferred items unchecked and explain blockers briefly in the review file's Completion Summary.",
-      "6. Do not mark the story complete. Vazir will return to the closeout choices after this pass.",
+      targetNoun === "story"
+        ? "6. Do not mark the story complete. Vazir will return to the closeout choices after this pass."
+        : "6. Do not close the review. Vazir will return to the closeout choices after this pass.",
     ].join("\n");
   }
 
@@ -712,6 +720,7 @@ export default function (pi: ExtensionAPI) {
     applyLocalRuleDedupe(ctx.cwd);
     storyFrontmatterSnapshots.delete(ctx.cwd);
     pendingCompleteStoryRequests.delete(ctx.cwd);
+    pendingManualReviewRequests.delete(ctx.cwd);
   });
 
   // ── agent_end: zero-token index.md structural updates ─────────────────
@@ -796,9 +805,9 @@ export default function (pi: ExtensionAPI) {
         const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
         const decision = await promptReviewFindingsCloseout(
           ctx,
-          pendingCompleteStory.storyFile,
           pendingCompleteStory.reviewFile,
           findings,
+          "story",
         );
         if (decision == null) return;
 
@@ -808,10 +817,10 @@ export default function (pi: ExtensionAPI) {
             ctx,
             buildReviewRemediationInstruction(
               ctx.cwd,
-              storyLabel,
               pendingCompleteStory.reviewFile,
               decision === "fix-high" ? "high" : "all",
               targetedFixes,
+              "story",
             ),
             {
               purpose: "review-remediation",
@@ -852,6 +861,53 @@ export default function (pi: ExtensionAPI) {
       if (decision === "close") {
         completeStoryNow(ctx, pendingCompleteStory.storyFile);
       }
+    }
+
+    const pendingManualReview = pendingManualReviewRequests.get(cwd);
+    if (pendingManualReview) {
+      const reviewFrontmatter = parseReviewFrontmatter(pendingManualReview.reviewFile);
+      if (reviewFrontmatter?.status !== "complete") {
+        return;
+      }
+
+      const findings = reviewFindingsFromFile(pendingManualReview.reviewFile);
+      const recommendedFixes = reviewRecommendedFixesFromFile(pendingManualReview.reviewFile);
+      const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
+      const attachedStoryPath = reviewFrontmatter.scope === "story" && reviewFrontmatter.story !== "—"
+        ? path.join(storiesDir(cwd), `${reviewFrontmatter.story}.md`)
+        : null;
+      const targetNoun: ReviewCloseoutTarget = attachedStoryPath && fs.existsSync(attachedStoryPath) ? "story" : "review";
+      const decision = await promptReviewFindingsCloseout(ctx, pendingManualReview.reviewFile, findings, targetNoun);
+      if (decision == null) return;
+
+      if (decision === "fix-high" || decision === "fix-all") {
+        const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
+        sendInternalAgentMessage(
+          ctx,
+          buildReviewRemediationInstruction(
+            ctx.cwd,
+            pendingManualReview.reviewFile,
+            decision === "fix-high" ? "high" : "all",
+            targetedFixes,
+            targetNoun,
+          ),
+          {
+            purpose: "review-remediation",
+            reviewFile: path.basename(pendingManualReview.reviewFile),
+            mode: decision,
+            reviewTarget: targetNoun,
+          },
+        );
+        return;
+      }
+
+      pendingManualReviewRequests.delete(cwd);
+      if (decision === "close" && targetNoun === "story" && attachedStoryPath) {
+        completeStoryNow(ctx, attachedStoryPath);
+      } else if (decision === "close") {
+        ctx.ui.notify(`${path.basename(pendingManualReview.reviewFile)} closeout finished`, "info");
+      }
+      return;
     }
 
     const currentStoryStatuses = new Map(listStories(cwd).map(story => [story.file, story.status]));
@@ -1294,7 +1350,8 @@ export default function (pi: ExtensionAPI) {
       }
 
       const focus = parsed.focus || defaultReviewFocus(cwd, { scope, storyLabel });
-      await startReviewFlow(ctx, { focus, scope, storyLabel, trigger: "manual" });
+      const review = await startReviewFlow(ctx, { focus, scope, storyLabel, trigger: "manual" });
+      pendingManualReviewRequests.set(cwd, { reviewFile: review.filePath });
     },
   });
 
