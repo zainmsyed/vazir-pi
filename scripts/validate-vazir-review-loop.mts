@@ -203,7 +203,7 @@ const selectCalls: SelectCall[] = [];
 const harness = makePi();
 const ctx = makeCtx(cwd, notifications, {
   hasUI: true,
-  selectResponses: ["Specific story", "Completed 2026-04-05 — story-003"],
+  selectResponses: ["Specific story", "Completed 2026-04-05 — story-003", "Not yet, keep working"],
   selectCalls,
 });
 
@@ -242,6 +242,71 @@ assert(
   harness.sentMessages[0].message.includes("Treat the review file as the source of truth"),
   "review follow-up should instruct the agent to keep the review file updated",
 );
+
+fs.writeFileSync(
+  createdReviewPath,
+  [
+    "# Code Review A",
+    "",
+    "**Status:** complete  ",
+    "**Created:** 2026-04-05T00:00:00Z  ",
+    "**Completed:** 2026-04-06  ",
+    "**Scope:** story  ",
+    "**Story:** story-003  ",
+    "**Focus:** story-003 and direct integration points  ",
+    "**Trigger:** manual",
+    "",
+    "---",
+    "",
+    "## Goal",
+    "Review the selected story for regressions.",
+    "",
+    "## Checklist",
+    "- [x] Inspect the relevant diff and touched files",
+    "- [x] Check for bugs, regressions, and edge cases",
+    "- [x] Check tests and verification gaps",
+    "- [x] Capture reusable rule candidates where warranted",
+    "- [x] Write the completion summary and mark the review complete",
+    "",
+    "---",
+    "",
+    "## Findings",
+    "### Finding 1",
+    "- Severity: critical",
+    "- Category: bug",
+    "- Summary: manual review found a blocking regression",
+    "- Evidence: the selected story still depends on the removed helper",
+    "- Recommendation: restore the helper or update the call site",
+    "- Rule candidate: do not remove helpers that still have live call sites",
+    "",
+    "### Finding 2",
+    "- Severity: medium",
+    "- Category: simplification",
+    "- Summary: redundant branching can be collapsed",
+    "- Evidence: two branches share the same write path",
+    "- Recommendation: extract the shared logic into one helper",
+    "- Rule candidate: collapse duplicated write paths during cleanup",
+    "",
+    "---",
+    "",
+    "## Recommended Fixes",
+    "- [ ] critical — Restore the removed helper or update its call site",
+    "- [ ] medium — Collapse the duplicated write path into one helper",
+    "",
+    "---",
+    "",
+    "## Completion Summary",
+    "Manual review completed.",
+    "",
+  ].join("\n"),
+);
+
+await harness.emit("agent_end", {}, ctx);
+
+assert(selectCalls.some(call => call.options.includes("Open review document")), "manual review should let the user open the review document after completion");
+assert(selectCalls.some(call => call.options.includes("Keep story open and fix high-priority recommended items")), "manual review should offer the same high-priority remediation choice after completion");
+assert(selectCalls.some(call => call.options.includes("Close story now (remaining items noted)")), "manual review should offer the same close option after completion");
+assert(selectCalls.some(call => call.prompt.includes("Pending recommended fixes: 1 high-priority, 1 other.")), "manual review should summarize tracked review remediation items");
 assert(
   harness.sentMessages[0].message.includes("Do not change story status"),
   "review follow-up should keep story completion user-controlled",
