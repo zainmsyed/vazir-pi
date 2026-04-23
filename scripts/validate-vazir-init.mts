@@ -82,6 +82,25 @@ function getSummary(notifications: Notification[]): string {
   return summary!.message;
 }
 
+function assertCommonGitignoreBoilerplate(cwd: string): void {
+  const gitignore = fs.readFileSync(path.join(cwd, ".gitignore"), "utf-8");
+  for (const entry of [
+    ".local/",
+    ".env",
+    ".env.local",
+    ".env.*.local",
+    "*.local",
+    ".DS_Store",
+    "Thumbs.db",
+    "*.log",
+    "*.tmp",
+    "*.temp",
+    "*.swp",
+  ]) {
+    assert(gitignore.includes(entry), `.gitignore did not include ${entry}`);
+  }
+}
+
 async function runMissingJjScenario() {
   const cwd = createProject("vazir-init-missing-jj-");
   const { command, sentMessages } = makePi();
@@ -107,10 +126,8 @@ async function runMissingJjScenario() {
   assert(fs.existsSync(path.join(cwd, ".context/intake/README.md")), "intake README was not created");
   assert(fs.existsSync(path.join(cwd, ".context/settings/project.json")), "project.json was not created");
   assert(fs.existsSync(path.join(cwd, "AGENTS.md")), "AGENTS.md was not created");
-  assert(
-    sentMessages.every(message => !message.includes("JJ is not installed")),
-    "missing-JJ scenario should not send the JJ install notice as a follow-up message",
-  );
+  assertCommonGitignoreBoilerplate(cwd);
+  assert(sentMessages.every(message => !message.includes("JJ is not installed")), "missing-JJ scenario should not send the JJ install notice as a follow-up message");
 
   return { cwd, summary, notifications };
 }
@@ -137,6 +154,7 @@ async function runMissingFileScenario() {
   assert(summary.includes("☑ .context/archive/"), "summary did not include archive as present");
   assert(summary.includes("☑ .context/settings/project.json"), "summary did not include project.json as present");
   assert(fs.existsSync(path.join(cwd, "AGENTS.md")), "AGENTS.md should have been created live in the file scenario");
+  assertCommonGitignoreBoilerplate(cwd);
 
   return { cwd, summary, notifications };
 }
