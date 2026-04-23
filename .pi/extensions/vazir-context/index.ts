@@ -1024,6 +1024,41 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("AGENTS.md created", "info");
       }
 
+      const gitignorePath = path.join(cwd, ".gitignore");
+      const ensureGitignoreEntry = (entry: string): boolean => {
+        const gitignore = readIfExists(gitignorePath);
+        if (new RegExp(`^${escapeRegExp(entry)}$`, "m").test(gitignore)) return false;
+
+        const nextGitignore = `${gitignore.trimEnd()}${gitignore.trim() ? "\n" : ""}${entry}\n`;
+        fs.writeFileSync(gitignorePath, nextGitignore);
+        return true;
+      };
+
+      const ensureGitignoreEntries = (entries: string[], notification: string): void => {
+        let changed = false;
+        for (const entry of entries) {
+          changed = ensureGitignoreEntry(entry) || changed;
+        }
+        if (changed) ctx.ui.notify(notification, "info");
+      };
+
+      ensureGitignoreEntries(
+        [
+          ".local/",
+          ".env",
+          ".env.local",
+          ".env.*.local",
+          "*.local",
+          ".DS_Store",
+          "Thumbs.db",
+          "*.log",
+          "*.tmp",
+          "*.temp",
+          "*.swp",
+        ],
+        "Added common ignore boilerplate to .gitignore",
+      );
+
       const sourceFiles = walkSourceFiles(cwd);
       const indexSummary = writeIndex(cwd, sourceFiles);
       ctx.ui.notify("index.md generated", "info");
@@ -1111,13 +1146,7 @@ export default function (pi: ExtensionAPI) {
             jjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
           }
 
-          const gitignorePath = path.join(cwd, ".gitignore");
-          const gitignore = readIfExists(gitignorePath);
-          if (!gitignore.includes(".jj/")) {
-            const nextGitignore = `${gitignore.trimEnd()}${gitignore.trim() ? "\n" : ""}.jj/\n`;
-            fs.writeFileSync(gitignorePath, nextGitignore);
-            ctx.ui.notify("Added .jj/ to .gitignore", "info");
-          }
+          ensureGitignoreEntries([".jj/"], "Added .jj/ to .gitignore");
         }
       } catch (error: any) {
         ctx.ui.notify(`JJ setup failed: ${error?.message || String(error)} — continuing with git fallback`, "warning");
