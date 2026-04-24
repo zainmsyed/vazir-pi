@@ -648,11 +648,16 @@ export default function (pi: ExtensionAPI) {
   async function startReviewFlow(
     ctx: any,
     options: { focus: string; scope?: ManualReviewScope; storyLabel?: string; trigger?: string },
+    beforeDispatch?: (review: ReturnType<typeof createReviewDraft>) => void,
   ): Promise<ReturnType<typeof createReviewDraft>> {
     const review = createReviewDraft(ctx.cwd, options);
     syncReviewSummaryAndPromoteRules(ctx.cwd);
     ctx.ui.notify(`Created ${review.fileName} in .context/reviews/`, "info");
     const instruction = buildReviewInstruction(review);
+
+    if (beforeDispatch) {
+      beforeDispatch(review);
+    }
 
     if (shouldHideReviewTurn(review.trigger)) {
       sendInternalAgentMessage(ctx, instruction, {
@@ -1379,8 +1384,9 @@ export default function (pi: ExtensionAPI) {
       }
 
       const focus = parsed.focus || defaultReviewFocus(cwd, { scope, storyLabel });
-      const review = await startReviewFlow(ctx, { focus, scope, storyLabel, trigger: "manual" });
-      pendingManualReviewRequests.set(cwd, { reviewFile: review.filePath });
+      await startReviewFlow(ctx, { focus, scope, storyLabel, trigger: "manual" }, review => {
+        pendingManualReviewRequests.set(cwd, { reviewFile: review.filePath });
+      });
     },
   });
 
@@ -1417,13 +1423,14 @@ export default function (pi: ExtensionAPI) {
       if (choice == null) return;
 
       if (choice === "review") {
-        const review = await startReviewFlow(ctx, {
+        await startReviewFlow(ctx, {
           focus: `${storyLabel} completion review`,
           scope: "story",
           storyLabel,
           trigger: "complete-story",
+        }, review => {
+          pendingCompleteStoryRequests.set(cwd, { storyFile: storyPath, reviewFile: review.filePath });
         });
-        pendingCompleteStoryRequests.set(cwd, { storyFile: storyPath, reviewFile: review.filePath });
         return;
       }
 
