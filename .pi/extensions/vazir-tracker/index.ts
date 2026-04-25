@@ -18,6 +18,11 @@ import {
   updateStoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
 import {
+  nextStoryNumber,
+  storyFileName,
+  storyTemplate,
+} from "../vazir-context/helpers.ts";
+import {
   applyWorkingMessage,
   beginToolActivity,
   callUiMethod,
@@ -186,11 +191,70 @@ function buildImplementStoryInstruction(storyPath: string): string {
   ].join("\n");
 }
 
-function resolveStoryForImplementation(cwd: string): StoryFrontmatter | null {
+function createNextStoryForImplementation(cwd: string): StoryFrontmatter {
+  const storyNumber = nextStoryNumber(cwd);
+  const fileName = storyFileName(storyNumber);
+  const storyPath = path.join(cwd, ".context", "stories", fileName);
+
+  fs.mkdirSync(path.dirname(storyPath), { recursive: true });
+  if (!fs.existsSync(storyPath)) {
+    fs.writeFileSync(storyPath, storyTemplate(storyNumber, "Next Story"));
+  }
+
+  const now = todayDate();
+  updateStoryFrontmatter(storyPath, { status: "in-progress", lastAccessed: now });
+
+  return {
+    file: storyPath,
+    number: storyNumber,
+    status: "in-progress",
+    lastAccessed: now,
+    completed: "—",
+  };
+}
+
+async function resolveStoryForImplementation(
+  cwd: string,
+  ui: { select: (prompt: string, choices: string[]) => Promise<string | undefined> },
+): Promise<StoryFrontmatter | null> {
   const active = findActiveStory(cwd);
   if (active) return active;
 
-  return null;
+  const candidates = nonTerminalStories(cwd).sort(compareStoriesByRecencyDesc);
+  const startNextStoryLabel = `Start story ${String(nextStoryNumber(cwd)).padStart(3, "0")} — create and begin the next story`;
+  const pickStoryLabel = "Pick story — choose an existing story to implement";
+
+  const choice = await ui.select("No in-progress story found. What would you like to do?", [
+    startNextStoryLabel,
+    pickStoryLabel,
+    "Cancel",
+  ]);
+
+  if (!choice || choice === "Cancel") return null;
+
+  if (choice === startNextStoryLabel) {
+    return createNextStoryForImplementation(cwd);
+  }
+
+  if (choice !== pickStoryLabel || candidates.length === 0) {
+    return null;
+  }
+
+  const labels = candidates.map(story => `${path.basename(story.file, ".md")} — ${story.status}`);
+  const pick = await ui.select("Which story should /implement use?", [...labels, "Cancel"]);
+  if (!pick || pick === "Cancel") return null;
+
+  const selectedIndex = labels.indexOf(pick);
+  if (selectedIndex < 0) return null;
+
+  const selected = candidates[selectedIndex];
+  if (selected.status === "not-started") {
+    const now = todayDate();
+    updateStoryFrontmatter(selected.file, { status: "in-progress", lastAccessed: now });
+    return { ...selected, status: "in-progress", lastAccessed: now };
+  }
+
+  return selected;
 }
 
 export function refreshVcsState(cwd: string): void {
@@ -638,7 +702,7 @@ export default function (pi: ExtensionAPI) {
 
   const implementStoryHandler = async (_args: string, ctx: { cwd: string; ui: any }) => {
     const cwd = ctx.cwd;
-    const story = resolveStoryForImplementation(cwd);
+    const story = await resolveStoryForImplementation(cwd, ctx.ui);
 
     if (!story) {
       ctx.ui.notify("No in-progress story is available to implement.", "info");
