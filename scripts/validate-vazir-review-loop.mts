@@ -306,6 +306,7 @@ await harness.emit("agent_end", {}, ctx);
 assert(selectCalls.some(call => call.options.includes("Open review document")), "manual review should let the user open the review document after completion");
 assert(selectCalls.some(call => call.options.includes("Keep story open and fix high-priority recommended items")), "manual review should offer the same high-priority remediation choice after completion");
 assert(selectCalls.some(call => call.options.includes("Close story now (remaining items noted)")), "manual review should offer the same close option after completion");
+assert(selectCalls.some(call => call.options.includes("Not yet, keep working")), "manual review should let the user keep working after review completion");
 assert(selectCalls.some(call => call.prompt.includes("Pending recommended fixes: 1 high-priority, 1 other.")), "manual review should summarize tracked review remediation items");
 assert(
   harness.sentMessages[0].message.includes("Do not change story status"),

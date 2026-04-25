@@ -143,8 +143,10 @@ let lastUserPrompt = "";
 let useJJ = false;
 let pendingInitSummary: string | null = null;
 const storyFrontmatterSnapshots = new Map<string, Map<string, { status: string; completed: string }>>();
-const pendingCompleteStoryRequests = new Map<string, { storyFile: string; reviewFile?: string }>();
-const pendingManualReviewRequests = new Map<string, { reviewFile: string }>();
+type PendingCompleteStoryRequest = { storyFile: string; reviewFile?: string; reviewCloseoutReady?: boolean };
+type PendingManualReviewRequest = { reviewFile: string; reviewCloseoutReady?: boolean };
+const pendingCompleteStoryRequests = new Map<string, PendingCompleteStoryRequest>();
+const pendingManualReviewRequests = new Map<string, PendingManualReviewRequest>();
 type ManualReviewScope = "story" | "whole-codebase";
 type ReviewCloseoutTarget = "story" | "review";
 const INTERNAL_AGENT_MESSAGE_TYPE = "vazir-internal-request";
@@ -369,11 +371,17 @@ export default function (pi: ExtensionAPI) {
   ): Promise<boolean> {
     const storyLabel = path.basename(storyPath, ".md");
     const reviewFrontmatter = parseReviewFrontmatter(reviewFilePath);
-    if (reviewFrontmatter?.status !== "complete") {
+    const pendingRequest = pendingCompleteStoryRequests.get(cwd);
+    const canResumeCloseout = pendingRequest?.reviewFile === reviewFilePath && pendingRequest.reviewCloseoutReady === true;
+    if (reviewFrontmatter?.status !== "complete" && !canResumeCloseout) {
       return false;
     }
 
-    pendingCompleteStoryRequests.set(cwd, { storyFile: storyPath, reviewFile: reviewFilePath });
+    pendingCompleteStoryRequests.set(cwd, {
+      storyFile: storyPath,
+      reviewFile: reviewFilePath,
+      reviewCloseoutReady: true,
+    });
 
     const findings = reviewFindingsFromFile(reviewFilePath);
     const recommendedFixes = reviewRecommendedFixesFromFile(reviewFilePath);
@@ -889,7 +897,11 @@ export default function (pi: ExtensionAPI) {
           storyLabel,
           trigger: "complete-story",
         });
-        pendingCompleteStoryRequests.set(cwd, { storyFile: pendingCompleteStory.storyFile, reviewFile: review.filePath });
+        pendingCompleteStoryRequests.set(cwd, {
+          storyFile: pendingCompleteStory.storyFile,
+          reviewFile: review.filePath,
+          reviewCloseoutReady: false,
+        });
         return;
       }
 
@@ -902,14 +914,20 @@ export default function (pi: ExtensionAPI) {
     const pendingManualReview = pendingManualReviewRequests.get(cwd);
     if (pendingManualReview) {
       const reviewFrontmatter = parseReviewFrontmatter(pendingManualReview.reviewFile);
-      if (reviewFrontmatter?.status !== "complete") {
+      const canResumeCloseout = pendingManualReview.reviewCloseoutReady === true;
+      if (reviewFrontmatter?.status !== "complete" && !canResumeCloseout) {
         return;
       }
+
+      pendingManualReviewRequests.set(cwd, {
+        reviewFile: pendingManualReview.reviewFile,
+        reviewCloseoutReady: true,
+      });
 
       const findings = reviewFindingsFromFile(pendingManualReview.reviewFile);
       const recommendedFixes = reviewRecommendedFixesFromFile(pendingManualReview.reviewFile);
       const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
-      const attachedStoryPath = reviewFrontmatter.scope === "story" && reviewFrontmatter.story !== "—"
+      const attachedStoryPath = reviewFrontmatter?.scope === "story" && reviewFrontmatter.story !== "—"
         ? path.join(storiesDir(cwd), `${reviewFrontmatter.story}.md`)
         : null;
       const targetNoun: ReviewCloseoutTarget = attachedStoryPath && fs.existsSync(attachedStoryPath) ? "story" : "review";
@@ -1416,7 +1434,7 @@ export default function (pi: ExtensionAPI) {
 
       const focus = parsed.focus || defaultReviewFocus(cwd, { scope, storyLabel });
       await startReviewFlow(ctx, { focus, scope, storyLabel, trigger: "manual" }, review => {
-        pendingManualReviewRequests.set(cwd, { reviewFile: review.filePath });
+        pendingManualReviewRequests.set(cwd, { reviewFile: review.filePath, reviewCloseoutReady: false });
       });
     },
   });
@@ -1466,7 +1484,11 @@ export default function (pi: ExtensionAPI) {
           storyLabel,
           trigger: "complete-story",
         }, review => {
-          pendingCompleteStoryRequests.set(cwd, { storyFile: storyPath, reviewFile: review.filePath });
+          pendingCompleteStoryRequests.set(cwd, {
+            storyFile: storyPath,
+            reviewFile: review.filePath,
+            reviewCloseoutReady: false,
+          });
         });
         return;
       }

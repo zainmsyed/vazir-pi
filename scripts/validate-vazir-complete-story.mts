@@ -259,6 +259,11 @@ function markReviewFixResolved(reviewPath: string, fixLine: string): void {
   fs.writeFileSync(reviewPath, content.replace(`- [ ] ${fixLine}`, `- [x] ${fixLine}`));
 }
 
+function setReviewStatus(reviewPath: string, status: "in-progress" | "complete"): void {
+  const content = fs.readFileSync(reviewPath, "utf-8");
+  fs.writeFileSync(reviewPath, content.replace(/\*\*Status:\*\*\s+(?:in-progress|complete)\s{2}/, `**Status:** ${status}  `));
+}
+
 async function runReviewGatedScenario() {
   const cwd = createProject("vazir-complete-story-review-gated-");
   const notifications: Notification[] = [];
@@ -311,6 +316,7 @@ async function runReviewGatedScenario() {
   assert(harness.sentInternalMessages[1].message.content.includes("high: Add a local error boundary around the login form"), "review-gated closeout should target the high-priority checklist item");
 
   markReviewFixResolved(reviewPath, "high — Add a local error boundary around the login form");
+  setReviewStatus(reviewPath, "in-progress");
   await harness.emit("agent_end", {}, ctx);
 
   const story = fs.readFileSync(storyPath, "utf-8");
@@ -321,6 +327,7 @@ async function runReviewGatedScenario() {
   assert(selectCalls.some(call => call.prompt.includes("High-priority items are done. Do you want to fix the remaining items before closing?")), "review-gated complete-story should reprompt after high-priority remediation finishes");
   assert(selectCalls.some(call => call.options.includes("Keep story open and fix remaining recommended items")), "review-gated complete-story should offer the remaining-item remediation path after high-priority work is done");
   assert(selectCalls.some(call => call.options.includes("Close story now (remaining items noted)")), "review-gated complete-story should offer a remaining-items-noted close option");
+  assert(selectCalls.some(call => call.options.includes("Not yet, keep working")), "review-gated complete-story should let the user keep working after remediation");
 
   return { cwd, notifications, selectCalls, customCalls, reviewFiles, story };
 }
