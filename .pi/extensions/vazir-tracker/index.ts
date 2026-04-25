@@ -186,6 +186,23 @@ function buildImplementStoryInstruction(storyPath: string): string {
   ].join("\n");
 }
 
+function implementStoryPickerLabel(cwd: string, storyFile: string): string {
+  const pickerChoice = storyPickerChoices(cwd).find(choice => choice.kind === "story" && choice.file === storyFile);
+  if (!pickerChoice) {
+    return path.basename(storyFile, ".md");
+  }
+
+  return pickerChoice.label;
+}
+
+function implementStoryStartLabel(cwd: string, storyFile: string): string {
+  const pickerChoice = implementStoryPickerLabel(cwd, storyFile);
+  const labelParts = pickerChoice.split(" — ");
+  const storyNumber = labelParts[0]?.replace(/^story-/, "story ") || path.basename(storyFile, ".md");
+  const titleAndAge = labelParts.slice(2).join(" — ");
+  return titleAndAge ? `Start ${storyNumber} — ${titleAndAge}` : `Start ${storyNumber}`;
+}
+
 async function resolveStoryForImplementation(
   cwd: string,
   ui: { select: (prompt: string, choices: string[]) => Promise<string | undefined> },
@@ -193,16 +210,18 @@ async function resolveStoryForImplementation(
   const active = findActiveStory(cwd);
   if (active) return active;
 
-  const candidates = nonTerminalStories(cwd).sort((left, right) => left.number - right.number);
+  const candidates = nonTerminalStories(cwd)
+    .filter(story => story.status === "in-progress" || story.status === "not-started")
+    .sort((left, right) => left.number - right.number);
   const firstStory = candidates[0];
   const startNextStoryLabel = firstStory
-    ? `Start story ${String(firstStory.number).padStart(3, "0")} — begin the earliest open story`
+    ? implementStoryStartLabel(cwd, firstStory.file)
     : "Start story — begin the earliest open story";
   const pickStoryLabel = "Pick story — choose an existing story to implement";
 
   const choice = await ui.select("No in-progress story found. What would you like to do?", [
-    startNextStoryLabel,
     pickStoryLabel,
+    startNextStoryLabel,
     "Cancel",
   ]);
 
@@ -220,7 +239,7 @@ async function resolveStoryForImplementation(
     return null;
   }
 
-  const labels = candidates.map(story => `${path.basename(story.file, ".md")} — ${story.status}`);
+  const labels = candidates.map(story => implementStoryPickerLabel(cwd, story.file));
   const pick = await ui.select("Which story should /implement use?", [...labels, "Cancel"]);
   if (!pick || pick === "Cancel") return null;
 

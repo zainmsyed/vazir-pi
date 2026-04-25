@@ -30,12 +30,12 @@ function createProject(prefix: string): string {
   return cwd;
 }
 
-function writeStory(cwd: string, number: number, status: string, lastAccessed: string, completed = "—"): string {
+function writeStory(cwd: string, number: number, status: string, lastAccessed: string, completed = "—", title = "Example"): string {
   const filePath = path.join(cwd, ".context", "stories", `story-${String(number).padStart(3, "0")}.md`);
   fs.writeFileSync(
     filePath,
     [
-      `# Story ${String(number).padStart(3, "0")}: Example`,
+      `# Story ${String(number).padStart(3, "0")}: ${title}`,
       "",
       `**Status:** ${status}  `,
       "**Created:** 2026-03-25  ",
@@ -129,16 +129,16 @@ function makeCtx(
 
 async function runStartNextStoryScenario() {
   const cwd = createProject("vazir-implement-start-next-story-");
-  writeStory(cwd, 3, "complete", "2026-04-20", "2026-04-21");
-  const storyFourPath = writeStory(cwd, 4, "not-started", "2026-04-20");
-  const storyFivePath = writeStory(cwd, 5, "not-started", "2026-04-20");
+  writeStory(cwd, 3, "complete", "2026-04-20", "2026-04-21", "Archive old reports");
+  const storyFourPath = writeStory(cwd, 4, "not-started", "2026-04-20", "—", "Add billing summary");
+  const storyFivePath = writeStory(cwd, 5, "not-started", "2026-04-20", "—", "Update onboarding copy");
 
   const notifications: Notification[] = [];
   const harness = makePi();
   const selectCalls: SelectCall[] = [];
   const ctx = makeCtx(cwd, notifications, (prompt, choices) => {
     selectCalls.push({ prompt, choices });
-    return choices[0];
+    return choices[1];
   });
 
   await harness.implement.handler("", ctx);
@@ -149,7 +149,9 @@ async function runStartNextStoryScenario() {
 
   assert(selectCalls.length === 1, "implement should prompt once when no story is active");
   assert(selectCalls[0].prompt.includes("No in-progress story found. What would you like to do?"), "implement should show the missing-story chooser");
+  assert(selectCalls[0].choices[0] === "Pick story — choose an existing story to implement", "picker should be the first choice");
   assert(selectCalls[0].choices.some(choice => choice.includes("Start story 004")), "chooser should offer the next story shortcut");
+  assert(selectCalls[0].choices.some(choice => choice.includes("Add billing summary")), "chooser should show the story name next to the number");
   assert(selectCalls[0].choices.includes("Pick story — choose an existing story to implement"), "chooser should offer story picking");
   assert(selectCalls[0].choices.includes("Cancel"), "chooser should offer cancel");
   assert(storyFour.includes("**Status:** in-progress"), "start-story flow should mark the new story in-progress");
@@ -163,9 +165,9 @@ async function runStartNextStoryScenario() {
 
 async function runPickStoryScenario() {
   const cwd = createProject("vazir-implement-pick-story-");
-  writeStory(cwd, 3, "complete", "2026-04-20", "2026-04-21");
-  const storyFourPath = writeStory(cwd, 4, "not-started", "2026-04-20");
-  const storyFivePath = writeStory(cwd, 5, "not-started", "2026-04-21");
+  writeStory(cwd, 3, "complete", "2026-04-20", "2026-04-21", "Archive old reports");
+  const storyFourPath = writeStory(cwd, 4, "not-started", "2026-04-20", "—", "Add billing summary");
+  const storyFivePath = writeStory(cwd, 5, "not-started", "2026-04-21", "—", "Update onboarding copy");
 
   const notifications: Notification[] = [];
   const harness = makePi();
@@ -174,7 +176,7 @@ async function runPickStoryScenario() {
   const ctx = makeCtx(cwd, notifications, (prompt, choices) => {
     selectCalls.push({ prompt, choices });
     if (prompt.includes("What would you like to do?")) {
-      return choices[1];
+      return choices[0];
     }
     pickedChoice = choices[1];
     return pickedChoice;
@@ -192,13 +194,14 @@ async function runPickStoryScenario() {
 
   assert(selectCalls.length === 2, "pick-story flow should prompt twice");
   assert(selectCalls[0].choices.includes("Pick story — choose an existing story to implement"), "first chooser should offer pick story");
-  assert(selectCalls[1].choices[0].startsWith("story-004"), "second chooser should list stories in numeric order");
-  assert(selectCalls[1].choices[1].startsWith("story-005"), "second chooser should keep later stories after earlier ones");
+  assert(selectCalls[0].choices[0] === "Pick story — choose an existing story to implement", "picker should be first in the missing-story chooser");
+  assert(selectCalls[1].choices[0].includes("story-004") && selectCalls[1].choices[0].includes("Add billing summary"), "second chooser should list story 004 with its name");
+  assert(selectCalls[1].choices[1].includes("story-005") && selectCalls[1].choices[1].includes("Update onboarding copy"), "second chooser should list story 005 with its name");
   assert(selectCalls[1].choices.every(choice => !choice.startsWith("story-003")), "completed stories should not appear in the picker");
   assert(selectedStory.includes(`**Last accessed:** ${today}`), "pick-story flow should update the selected story");
   assert(selectedStory.includes("**Status:** in-progress"), "pick-story flow should promote the selected story to in-progress");
-  assert(storyFour.includes("**Status:** not-started"), "pick-story flow should leave unselected story 004 unchanged");
-  assert(storyFive.includes("**Status:** in-progress"), "pick-story flow should promote the selected story 005");
+  assert(storyFour.includes("**Status:** not-started"), "pick-story flow should leave story 004 unchanged");
+  assert(storyFive.includes("**Status:** in-progress"), "pick-story flow should promote story 005");
   assert(harness.sentMessages.length === 1, "implement should send one follow-up message");
   assert(harness.sentMessages[0].includes(`Implement the in-progress story in .context/stories/${selectedStoryFile}`), "implement should target the selected story");
 
