@@ -30,7 +30,7 @@ function createProject(prefix: string): string {
   return cwd;
 }
 
-function writeStory(cwd: string, number: number, status: string, lastAccessed: string): string {
+function writeStory(cwd: string, number: number, status: string, lastAccessed: string, completed = "—"): string {
   const filePath = path.join(cwd, ".context", "stories", `story-${String(number).padStart(3, "0")}.md`);
   fs.writeFileSync(
     filePath,
@@ -40,7 +40,7 @@ function writeStory(cwd: string, number: number, status: string, lastAccessed: s
       `**Status:** ${status}  `,
       "**Created:** 2026-03-25  ",
       `**Last accessed:** ${lastAccessed}  `,
-      "**Completed:** —",
+      `**Completed:** ${completed}`,
       "",
       "---",
       "",
@@ -129,9 +129,9 @@ function makeCtx(
 
 async function runStartNextStoryScenario() {
   const cwd = createProject("vazir-implement-start-next-story-");
-  writeStory(cwd, 1, "not-started", "2026-04-20");
-  writeStory(cwd, 2, "not-started", "2026-04-20");
-  writeStory(cwd, 3, "not-started", "2026-04-20");
+  writeStory(cwd, 3, "complete", "2026-04-20", "2026-04-21");
+  const storyFourPath = writeStory(cwd, 4, "not-started", "2026-04-20");
+  const storyFivePath = writeStory(cwd, 5, "not-started", "2026-04-20");
 
   const notifications: Notification[] = [];
   const harness = makePi();
@@ -144,17 +144,17 @@ async function runStartNextStoryScenario() {
   await harness.implement.handler("", ctx);
 
   const today = new Date().toISOString().slice(0, 10);
-  const storyFourPath = path.join(cwd, ".context", "stories", "story-004.md");
   const storyFour = fs.readFileSync(storyFourPath, "utf-8");
+  const storyFive = fs.readFileSync(storyFivePath, "utf-8");
 
   assert(selectCalls.length === 1, "implement should prompt once when no story is active");
   assert(selectCalls[0].prompt.includes("No in-progress story found. What would you like to do?"), "implement should show the missing-story chooser");
   assert(selectCalls[0].choices.some(choice => choice.includes("Start story 004")), "chooser should offer the next story shortcut");
   assert(selectCalls[0].choices.includes("Pick story — choose an existing story to implement"), "chooser should offer story picking");
   assert(selectCalls[0].choices.includes("Cancel"), "chooser should offer cancel");
-  assert(storyFour.includes("# Story 004: Next Story"), "start-story flow should seed the next story file");
   assert(storyFour.includes("**Status:** in-progress"), "start-story flow should mark the new story in-progress");
   assert(storyFour.includes(`**Last accessed:** ${today}`), "start-story flow should update last accessed");
+  assert(!storyFive.includes(`**Last accessed:** ${today}`), "start-story flow should not touch later stories");
   assert(harness.sentMessages.length === 1, "start-story flow should send one follow-up message");
   assert(harness.sentMessages[0].includes("Implement the in-progress story in .context/stories/story-004.md."), "start-story flow should target story 004");
 
@@ -163,8 +163,9 @@ async function runStartNextStoryScenario() {
 
 async function runPickStoryScenario() {
   const cwd = createProject("vazir-implement-pick-story-");
-  const storyOnePath = writeStory(cwd, 1, "not-started", "2026-04-20");
-  const storyTwoPath = writeStory(cwd, 2, "not-started", "2026-04-21");
+  writeStory(cwd, 3, "complete", "2026-04-20", "2026-04-21");
+  const storyFourPath = writeStory(cwd, 4, "not-started", "2026-04-20");
+  const storyFivePath = writeStory(cwd, 5, "not-started", "2026-04-21");
 
   const notifications: Notification[] = [];
   const harness = makePi();
@@ -183,23 +184,23 @@ async function runPickStoryScenario() {
   await harness.implement.handler("", ctx);
 
   const today = new Date().toISOString().slice(0, 10);
-  const storyOne = fs.readFileSync(storyOnePath, "utf-8");
-  const storyTwo = fs.readFileSync(storyTwoPath, "utf-8");
   const selectedStoryFile = `${pickedChoice.split(" — ")[0]}.md`;
   const selectedStoryPath = path.join(cwd, ".context", "stories", selectedStoryFile);
   const selectedStory = fs.readFileSync(selectedStoryPath, "utf-8");
-  const touchedStory = selectedStoryPath === storyOnePath ? storyOne : storyTwo;
-  const untouchedStory = selectedStoryPath === storyOnePath ? storyTwo : storyOne;
+  const storyFour = fs.readFileSync(storyFourPath, "utf-8");
+  const storyFive = fs.readFileSync(storyFivePath, "utf-8");
 
   assert(selectCalls.length === 2, "pick-story flow should prompt twice");
   assert(selectCalls[0].choices.includes("Pick story — choose an existing story to implement"), "first chooser should offer pick story");
-  assert(selectCalls[1].choices.some(choice => choice.startsWith("story-")), "second chooser should list existing stories");
+  assert(selectCalls[1].choices[0].startsWith("story-004"), "second chooser should list stories in numeric order");
+  assert(selectCalls[1].choices[1].startsWith("story-005"), "second chooser should keep later stories after earlier ones");
+  assert(selectCalls[1].choices.every(choice => !choice.startsWith("story-003")), "completed stories should not appear in the picker");
   assert(selectedStory.includes(`**Last accessed:** ${today}`), "pick-story flow should update the selected story");
   assert(selectedStory.includes("**Status:** in-progress"), "pick-story flow should promote the selected story to in-progress");
-  assert(touchedStory.includes(`**Last accessed:** ${today}`), "pick-story flow should update the chosen story file");
-  assert(!untouchedStory.includes(`**Last accessed:** ${today}`), "pick-story flow should not touch the unselected story");
+  assert(storyFour.includes("**Status:** not-started"), "pick-story flow should leave unselected story 004 unchanged");
+  assert(storyFive.includes("**Status:** in-progress"), "pick-story flow should promote the selected story 005");
   assert(harness.sentMessages.length === 1, "implement should send one follow-up message");
-  assert(harness.sentMessages[0].includes(`Implement the in-progress story in .context/stories/${selectedStoryFile}.`), "implement should target the selected story");
+  assert(harness.sentMessages[0].includes(`Implement the in-progress story in .context/stories/${selectedStoryFile}`), "implement should target the selected story");
 
   return { cwd, notifications };
 }
