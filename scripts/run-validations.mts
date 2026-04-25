@@ -9,6 +9,7 @@ const validations = [
   "validate-vazir-checkpoint-labels.mts",
   "validate-vazir-complete-story.mts",
   "validate-vazir-edits-stream.mts",
+  "validate-vazir-implement-command.mts",
   "validate-vazir-fix-routing.mts",
   "validate-vazir-init.mts",
   "validate-vazir-learning-loop.mts",

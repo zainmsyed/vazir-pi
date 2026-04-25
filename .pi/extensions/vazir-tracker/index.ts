@@ -68,6 +68,10 @@ let useJJ = false;
 let hasGitRepo = false;
 let currentSessionId = "";
 
+export function normalizeTrackerInputText(text: string): string {
+  return text.trim() === "/impliment" ? "/implement" : text;
+}
+
 // ── Story issue helpers ────────────────────────────────────────────────
 
 function appendToStoryIssues(storyPath: string, description: string): void {
@@ -164,7 +168,30 @@ async function resolveStoryForFix(
   return { story: selected, reason: "resolved" };
 }
 
-// ── VCS refresh (callable by other extensions post-init) ─────────────
+function buildImplementStoryInstruction(storyPath: string): string {
+  const storyLabel = path.basename(storyPath, ".md");
+
+  return [
+    `Implement the in-progress story in .context/stories/${storyLabel}.md.`,
+    "",
+    "Your job:",
+    "1. Read the story goal, verification, scope, checklist, issues, and completion summary.",
+    "2. Make the code and content changes needed to satisfy the story checklist.",
+    "3. Stay inside the story scope unless you need explicit approval for an exception.",
+    "4. Update the checklist as you complete items.",
+    "5. If you hit blockers, record them in the Issues section instead of pretending the work is done.",
+    "6. If the implementation is complete but the summary is weak or missing, write a useful Completion Summary.",
+    "7. Do not mark the story complete. Vazir will handle the final /complete-story closeout after implementation.",
+    "8. Report what changed and whether the story is ready for /complete-story.",
+  ].join("\n");
+}
+
+function resolveStoryForImplementation(cwd: string): StoryFrontmatter | null {
+  const active = findActiveStory(cwd);
+  if (active) return active;
+
+  return null;
+}
 
 export function refreshVcsState(cwd: string): void {
   hasGitRepo = detectGitRepo(cwd);
@@ -179,6 +206,10 @@ export function refreshVcsState(cwd: string): void {
 
 export default function (pi: ExtensionAPI) {
   pi.on("input", async (event: { text?: string }) => {
+    if (event.text?.trim() === "/impliment") {
+      event.text = normalizeTrackerInputText(event.text);
+    }
+
     if (event.text?.trim() && !event.text.startsWith("/")) {
       lastUserPrompt = event.text.trim();
     }
@@ -601,6 +632,31 @@ export default function (pi: ExtensionAPI) {
 
       await pi.sendUserMessage(instruction);
     },
+  });
+
+  // ── /implement ──────────────────────────────────────────────────────
+
+  const implementStoryHandler = async (_args: string, ctx: { cwd: string; ui: any }) => {
+    const cwd = ctx.cwd;
+    const story = resolveStoryForImplementation(cwd);
+
+    if (!story) {
+      ctx.ui.notify("No in-progress story is available to implement.", "info");
+      return;
+    }
+
+    updateStoryFrontmatter(story.file, { lastAccessed: todayDate() });
+    invalidateStoryProgressCache(cwd);
+    refreshWidgets();
+
+    const storyLabel = path.basename(story.file, ".md");
+    ctx.ui.notify(`Implementing ${storyLabel}`, "info");
+    await pi.sendUserMessage(buildImplementStoryInstruction(story.file));
+  };
+
+  pi.registerCommand("implement", {
+    description: "Implement the active in-progress story and report whether it is ready for closeout",
+    handler: implementStoryHandler,
   });
 
   // ── /checkpoint and /reset ────────────────────────────────────────────
