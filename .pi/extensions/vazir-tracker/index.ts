@@ -18,11 +18,6 @@ import {
   updateStoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
 import {
-  nextStoryNumber,
-  storyFileName,
-  storyTemplate,
-} from "../vazir-context/helpers.ts";
-import {
   applyWorkingMessage,
   beginToolActivity,
   callUiMethod,
@@ -191,28 +186,6 @@ function buildImplementStoryInstruction(storyPath: string): string {
   ].join("\n");
 }
 
-function createNextStoryForImplementation(cwd: string): StoryFrontmatter {
-  const storyNumber = nextStoryNumber(cwd);
-  const fileName = storyFileName(storyNumber);
-  const storyPath = path.join(cwd, ".context", "stories", fileName);
-
-  fs.mkdirSync(path.dirname(storyPath), { recursive: true });
-  if (!fs.existsSync(storyPath)) {
-    fs.writeFileSync(storyPath, storyTemplate(storyNumber, "Next Story"));
-  }
-
-  const now = todayDate();
-  updateStoryFrontmatter(storyPath, { status: "in-progress", lastAccessed: now });
-
-  return {
-    file: storyPath,
-    number: storyNumber,
-    status: "in-progress",
-    lastAccessed: now,
-    completed: "—",
-  };
-}
-
 async function resolveStoryForImplementation(
   cwd: string,
   ui: { select: (prompt: string, choices: string[]) => Promise<string | undefined> },
@@ -220,8 +193,11 @@ async function resolveStoryForImplementation(
   const active = findActiveStory(cwd);
   if (active) return active;
 
-  const candidates = nonTerminalStories(cwd).sort(compareStoriesByRecencyDesc);
-  const startNextStoryLabel = `Start story ${String(nextStoryNumber(cwd)).padStart(3, "0")} — create and begin the next story`;
+  const candidates = nonTerminalStories(cwd).sort((left, right) => left.number - right.number);
+  const firstStory = candidates[0];
+  const startNextStoryLabel = firstStory
+    ? `Start story ${String(firstStory.number).padStart(3, "0")} — begin the earliest open story`
+    : "Start story — begin the earliest open story";
   const pickStoryLabel = "Pick story — choose an existing story to implement";
 
   const choice = await ui.select("No in-progress story found. What would you like to do?", [
@@ -233,7 +209,11 @@ async function resolveStoryForImplementation(
   if (!choice || choice === "Cancel") return null;
 
   if (choice === startNextStoryLabel) {
-    return createNextStoryForImplementation(cwd);
+    if (!firstStory) return null;
+
+    const now = todayDate();
+    updateStoryFrontmatter(firstStory.file, { status: "in-progress", lastAccessed: now });
+    return { ...firstStory, status: "in-progress", lastAccessed: now };
   }
 
   if (choice !== pickStoryLabel || candidates.length === 0) {
