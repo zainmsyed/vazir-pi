@@ -546,6 +546,7 @@ automatic: true
 | `/vazir-init` | `vazir-context.ts` | Bootstrap `.context/`, generate `index.md`, draft `context-map.md`, set up JJ |
 | `/plan` | `vazir-context.ts` | Refresh `intake-brief.md`, review `.context/intake/`, ask delta questions, generate `plan.md` + all story files |
 | `/story` | `vazir-tracker.ts` | Pick the plan or a story file and open it in a scrollable terminal viewer |
+| `/implement` | `vazir-tracker.ts` | Pick the active in-progress story, refresh `last_accessed`, and ask Vazir to implement the story |
 | `/fix [description]` | `vazir-tracker.ts` | Warn re: secrets, log issue to active story + `complaints-log.md`, attempt fix, track status |
 | `/remember [rule]` | `vazir-context.ts` | Promote a confirmed reusable lesson into `system.md` immediately and record it in the running review summary; if no rule is provided, draft one from recent fix context |
 | `/review [focus]` | `vazir-context.ts` | Create a structured review file, ask whether the review should cover a specific story or the whole codebase, and sync completed review rule candidates into summary memory |

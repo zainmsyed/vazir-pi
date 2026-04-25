@@ -9,7 +9,7 @@
 - Keep .context/ as the persistent project brain
 - Story-driven workflow: /plan generates stories, agent works one at a time
 - Code review is opt-in: `/review` creates one structured review file per run, lets the user choose story vs whole-codebase scope, and tracks recommended fixes in a checklist; manual review never gates story completion; `/complete-story` can start a story-scoped review before final closure and, if findings appear, lets the user open the review, fix high-priority items first, fix all remaining recommended items, or close with remaining items noted
-- Commands: /vazir-init, /plan, /story, /fix, /complete-story, /remember, /review, /memory-review, /unlearn, /consolidate, /diff, /reset
+- Commands: /vazir-init, /plan, /story, /implement, /fix, /complete-story, /remember, /review, /memory-review, /unlearn, /consolidate, /diff, /reset
 - /reject is removed — replaced by /fix with issue logging
 - Avoid introducing routers or APIs; pi handles the connections
 
