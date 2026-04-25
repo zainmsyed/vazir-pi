@@ -41,6 +41,7 @@ import {
   reviewRecommendedFixesFromFile,
   reviewOtherFixesFromFile,
   reviewRecommendedFixesFromFindings,
+  reviewDetailFiles,
   activeStoryLabelForManualReview,
   defaultReviewFocus,
   defaultStoryLabelForReview,
@@ -344,6 +345,73 @@ export default function (pi: ExtensionAPI) {
       return { scope: "story", storyLabel };
     }
     return null;
+  }
+
+  function findMostRecentCompleteStoryReview(cwd: string, storyLabel: string): string | null {
+    const reviews = reviewDetailFiles(cwd);
+    for (let index = reviews.length - 1; index >= 0; index -= 1) {
+      const review = parseReviewFrontmatter(reviews[index]);
+      if (!review) continue;
+      if (review.status !== "complete") continue;
+      if (review.scope !== "story") continue;
+      if (review.story !== storyLabel) continue;
+      return review.file;
+    }
+
+    return null;
+  }
+
+  async function processCompleteStoryReviewCloseout(
+    ctx: any,
+    cwd: string,
+    storyPath: string,
+    reviewFilePath: string,
+  ): Promise<boolean> {
+    const storyLabel = path.basename(storyPath, ".md");
+    const reviewFrontmatter = parseReviewFrontmatter(reviewFilePath);
+    if (reviewFrontmatter?.status !== "complete") {
+      return false;
+    }
+
+    pendingCompleteStoryRequests.set(cwd, { storyFile: storyPath, reviewFile: reviewFilePath });
+
+    const findings = reviewFindingsFromFile(reviewFilePath);
+    const recommendedFixes = reviewRecommendedFixesFromFile(reviewFilePath);
+    const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
+    const decision = await promptReviewFindingsCloseout(
+      ctx,
+      reviewFilePath,
+      findings,
+      "story",
+    );
+    if (decision == null) return true;
+
+    if (decision === "fix-high" || decision === "fix-all") {
+      const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
+      sendInternalAgentMessage(
+        ctx,
+        buildReviewRemediationInstruction(
+          ctx.cwd,
+          reviewFilePath,
+          decision === "fix-high" ? "high" : "all",
+          targetedFixes,
+          "story",
+        ),
+        {
+          purpose: "review-remediation",
+          story: storyLabel,
+          reviewFile: path.basename(reviewFilePath),
+          mode: decision,
+        },
+      );
+      return true;
+    }
+
+    pendingCompleteStoryRequests.delete(cwd);
+    if (decision === "close") {
+      completeStoryNow(ctx, storyPath);
+    }
+    return true;
   }
 
   async function resolveStoryForCompletion(ctx: any, cwd: string): Promise<string | null> {
@@ -795,53 +863,16 @@ export default function (pi: ExtensionAPI) {
 
     const pendingCompleteStory = pendingCompleteStoryRequests.get(cwd);
     if (pendingCompleteStory) {
-      const storyLabel = path.basename(pendingCompleteStory.storyFile, ".md");
-      const readiness = assessStoryCompletionReadiness(pendingCompleteStory.storyFile);
+      const completionStoryFile = pendingCompleteStory.storyFile;
+      const storyLabel = path.basename(completionStoryFile, ".md");
+      const readiness = assessStoryCompletionReadiness(completionStoryFile);
       const blockers = listCompletionBlockers(readiness);
 
-      if (pendingCompleteStory.reviewFile) {
-        const reviewFrontmatter = parseReviewFrontmatter(pendingCompleteStory.reviewFile);
-        if (reviewFrontmatter?.status !== "complete") {
-          return;
-        }
-
-        const findings = reviewFindingsFromFile(pendingCompleteStory.reviewFile);
-        const recommendedFixes = reviewRecommendedFixesFromFile(pendingCompleteStory.reviewFile);
-        const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
-        const decision = await promptReviewFindingsCloseout(
-          ctx,
-          pendingCompleteStory.reviewFile,
-          findings,
-          "story",
-        );
-        if (decision == null) return;
-
-        if (decision === "fix-high" || decision === "fix-all") {
-          const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
-          sendInternalAgentMessage(
-            ctx,
-            buildReviewRemediationInstruction(
-              ctx.cwd,
-              pendingCompleteStory.reviewFile,
-              decision === "fix-high" ? "high" : "all",
-              targetedFixes,
-              "story",
-            ),
-            {
-              purpose: "review-remediation",
-              story: storyLabel,
-              reviewFile: path.basename(pendingCompleteStory.reviewFile),
-              mode: decision,
-            },
-          );
-          return;
-        }
-
-        pendingCompleteStoryRequests.delete(cwd);
-        if (decision === "close") {
-          completeStoryNow(ctx, pendingCompleteStory.storyFile);
-        }
-        return;
+      const reviewFilePath = pendingCompleteStory.reviewFile ?? findMostRecentCompleteStoryReview(cwd, storyLabel);
+      if (reviewFilePath) {
+        const handledReview = await processCompleteStoryReviewCloseout(ctx, cwd, completionStoryFile, reviewFilePath);
+        if (handledReview) return;
+        if (pendingCompleteStory.reviewFile) return;
       }
 
       if (blockers.length > 0) {
@@ -1412,6 +1443,12 @@ export default function (pi: ExtensionAPI) {
           story: storyLabel,
         });
         return;
+      }
+
+      const completedReviewFile = findMostRecentCompleteStoryReview(cwd, storyLabel);
+      if (completedReviewFile) {
+        const handledReview = await processCompleteStoryReviewCloseout(ctx, cwd, storyPath, completedReviewFile);
+        if (handledReview) return;
       }
 
       if (!ctx.hasUI) {
