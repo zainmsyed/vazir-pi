@@ -325,6 +325,60 @@ async function runReviewGatedScenario() {
   return { cwd, notifications, selectCalls, customCalls, reviewFiles, story };
 }
 
+async function runRestartedReviewCloseoutScenario() {
+  const cwd = createProject("vazir-complete-story-restarted-review-");
+  const notifications: Notification[] = [];
+  const firstSelectCalls: SelectCall[] = [];
+  const firstCustomCalls: CustomCall[] = [];
+  const harness = makePi();
+  const firstCtx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Start code review before closing"],
+    selectCalls: firstSelectCalls,
+    customCalls: firstCustomCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [
+      "### /fix — \"signup button broken\"",
+      "- **Reported:** 2026-03-25  ",
+      "- **Status:** confirmed  ",
+      "- **Agent note:** —  ",
+      "- **Solution:** Added missing submit handler",
+    ],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", firstCtx);
+
+  const reviewDir = path.join(cwd, ".context", "reviews");
+  const reviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name)).sort();
+  assert(reviewFiles.length === 1, "restart scenario should create one review file before the session ends");
+
+  const reviewPath = path.join(reviewDir, reviewFiles[0]);
+  writeCompletedReview(reviewPath);
+  await harness.emit("session_shutdown", {}, firstCtx);
+
+  const resumedSelectCalls: SelectCall[] = [];
+  const resumedCustomCalls: CustomCall[] = [];
+  const resumedCtx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Open review document", "Close story now (remaining items noted)"],
+    selectCalls: resumedSelectCalls,
+    customCalls: resumedCustomCalls,
+  });
+
+  await harness.completeStory.handler("", resumedCtx);
+
+  assert(resumedSelectCalls.some(call => call.prompt.includes("Pending recommended fixes: 1 high-priority, 1 other.")), "restart scenario should rediscover the completed review and show the remediation prompt");
+  assert(resumedSelectCalls.some(call => call.options.includes("Open review document")), "restart scenario should still offer the review document option after a session restart");
+  assert(resumedSelectCalls.some(call => call.options.includes("Keep story open and fix high-priority recommended items")), "restart scenario should still offer high-priority remediation after a session restart");
+  assert(resumedCustomCalls.length === 1, "restart scenario should allow opening the review document after a session restart");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "restart scenario should close the story after the resumed review closeout");
+
+  return { cwd, notifications, firstSelectCalls, resumedSelectCalls, resumedCustomCalls, reviewFiles };
+}
+
 async function runReadyCloseScenario() {
   const cwd = createProject("vazir-complete-story-ready-close-");
   const notifications: Notification[] = [];
@@ -402,6 +456,7 @@ async function runKeepWorkingScenario() {
 }
 
 const reviewGated = await runReviewGatedScenario();
+const restartedReviewCloseout = await runRestartedReviewCloseoutScenario();
 const readyClose = await runReadyCloseScenario();
 const keepWorking = await runKeepWorkingScenario();
 
@@ -414,6 +469,13 @@ for (const note of reviewGated.notifications) {
 console.log("reviewFiles:");
 for (const file of reviewGated.reviewFiles) {
   console.log(`  - ${file}`);
+}
+
+console.log("Restarted Review Closeout");
+console.log(`cwd: ${restartedReviewCloseout.cwd}`);
+console.log("notifications:");
+for (const note of restartedReviewCloseout.notifications) {
+  console.log(`  - [${note.level}] ${note.message}`);
 }
 
 console.log("Ready Closeout");
