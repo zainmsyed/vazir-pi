@@ -370,20 +370,23 @@ async function runRestartedReviewCloseoutScenario() {
   const resumedCustomCalls: CustomCall[] = [];
   const resumedCtx = makeCtx(cwd, notifications, {
     hasUI: true,
-    selectResponses: ["Open review document", "Close story now (remaining items noted)"],
+    selectResponses: ["Start code review before closing"],
     selectCalls: resumedSelectCalls,
     customCalls: resumedCustomCalls,
   });
 
   await harness.completeStory.handler("", resumedCtx);
 
-  assert(resumedSelectCalls.some(call => call.prompt.includes("Pending recommended fixes: 1 high-priority, 1 other.")), "restart scenario should rediscover the completed review and show the remediation prompt");
-  assert(resumedSelectCalls.some(call => call.options.includes("Open review document")), "restart scenario should still offer the review document option after a session restart");
-  assert(resumedSelectCalls.some(call => call.options.includes("Keep story open and fix high-priority recommended items")), "restart scenario should still offer high-priority remediation after a session restart");
-  assert(resumedCustomCalls.length === 1, "restart scenario should allow opening the review document after a session restart");
-  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "restart scenario should close the story after the resumed review closeout");
+  const resumedReviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name)).sort();
+  assert(resumedReviewFiles.length === 2, "restart scenario should create a fresh review file on rerun");
+  assert(resumedReviewFiles[0] !== resumedReviewFiles[1], "restart scenario should not overwrite the earlier review");
+  assert(resumedSelectCalls.some(call => call.options.includes("Start code review before closing")), "restart scenario should prompt to start a fresh review on rerun");
+  assert(resumedSelectCalls.some(call => call.options.includes("Close story now")), "restart scenario should still offer the close story choice on rerun");
+  assert(resumedCustomCalls.length === 0, "restart scenario should not reopen the previous review document automatically");
+  assert(harness.sentInternalMessages.length === 2, "restart scenario should dispatch a second review turn on rerun");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "restart scenario should keep the story open until the fresh review finishes");
 
-  return { cwd, notifications, firstSelectCalls, resumedSelectCalls, resumedCustomCalls, reviewFiles };
+  return { cwd, notifications, firstSelectCalls, resumedSelectCalls, resumedCustomCalls, reviewFiles, resumedReviewFiles };
 }
 
 async function runReadyCloseScenario() {
