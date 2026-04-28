@@ -1535,8 +1535,16 @@ export function createReviewDraft(
   const storyLabel = options.storyLabel?.trim() || fallbackStoryLabel;
   const scope = options.scope ?? (storyLabel === "—" ? "whole-codebase" : "story");
   const trigger = options.trigger?.trim() || "manual";
-  const fileName = `review-${compactTimestamp(created)}.md`;
-  const filePath = path.join(reviewsDir(cwd), fileName);
+  const reviewBaseName = `review-${compactTimestamp(created)}`;
+  let fileName = `${reviewBaseName}.md`;
+  let filePath = path.join(reviewsDir(cwd), fileName);
+  let suffix = 2;
+
+  while (fs.existsSync(filePath)) {
+    fileName = `${reviewBaseName}-${suffix}.md`;
+    filePath = path.join(reviewsDir(cwd), fileName);
+    suffix += 1;
+  }
 
   fs.writeFileSync(filePath, reviewFileTemplate(created, scope, storyLabel, options.focus, trigger));
 

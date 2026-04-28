@@ -349,20 +349,6 @@ export default function (pi: ExtensionAPI) {
     return null;
   }
 
-  function findMostRecentCompleteStoryReview(cwd: string, storyLabel: string): string | null {
-    const reviews = reviewDetailFiles(cwd);
-    for (let index = reviews.length - 1; index >= 0; index -= 1) {
-      const review = parseReviewFrontmatter(reviews[index]);
-      if (!review) continue;
-      if (review.status !== "complete") continue;
-      if (review.scope !== "story") continue;
-      if (review.story !== storyLabel) continue;
-      return review.file;
-    }
-
-    return null;
-  }
-
   async function processCompleteStoryReviewCloseout(
     ctx: any,
     cwd: string,
@@ -876,11 +862,11 @@ export default function (pi: ExtensionAPI) {
       const readiness = assessStoryCompletionReadiness(completionStoryFile);
       const blockers = listCompletionBlockers(readiness);
 
-      const reviewFilePath = pendingCompleteStory.reviewFile ?? findMostRecentCompleteStoryReview(cwd, storyLabel);
+      const reviewFilePath = pendingCompleteStory.reviewFile;
       if (reviewFilePath) {
         const handledReview = await processCompleteStoryReviewCloseout(ctx, cwd, completionStoryFile, reviewFilePath);
         if (handledReview) return;
-        if (pendingCompleteStory.reviewFile) return;
+        return;
       }
 
       if (blockers.length > 0) {
@@ -1461,12 +1447,6 @@ export default function (pi: ExtensionAPI) {
           story: storyLabel,
         });
         return;
-      }
-
-      const completedReviewFile = findMostRecentCompleteStoryReview(cwd, storyLabel);
-      if (completedReviewFile) {
-        const handledReview = await processCompleteStoryReviewCloseout(ctx, cwd, storyPath, completedReviewFile);
-        if (handledReview) return;
       }
 
       if (!ctx.hasUI) {
