@@ -325,6 +325,17 @@ assert(
   "review follow-up should describe the selected story scope",
 );
 
+const repeatNotifications: Notification[] = [];
+const repeatHarness = makePi();
+const repeatCtx = makeCtx(cwd, repeatNotifications);
+
+await repeatHarness.review.handler("", repeatCtx);
+
+const repeatReviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name)).sort();
+assert(repeatReviewFiles.length === 2, "running /review twice should create two review files");
+assert(repeatReviewFiles[0] !== repeatReviewFiles[1], "running /review twice should not overwrite the first review file");
+assert(repeatHarness.sentMessages.length === 1, "running /review twice should send a second review instruction");
+
 const comprehensiveCwd = createProject("vazir-review-codebase-");
 const comprehensiveNotifications: Notification[] = [];
 const comprehensiveSelectCalls: SelectCall[] = [];
