@@ -1,40 +1,13 @@
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-const require = createRequire(import.meta.url);
-const fs = require("node:fs") as typeof import("node:fs");
-const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-
-function ensureStubModule(moduleName: string, content: string): string | null {
-  const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
-  if (fs.existsSync(moduleDir)) {
-    return null;
-  }
-
-  fs.mkdirSync(moduleDir, { recursive: true });
-  fs.writeFileSync(path.join(moduleDir, "package.json"), JSON.stringify({ name: moduleName, type: "commonjs" }, null, 2));
-  fs.writeFileSync(path.join(moduleDir, "index.js"), content);
-  return moduleDir;
-}
-
-ensureStubModule("@mariozechner/pi-tui", [
-  "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape' };",
-  "exports.matchesKey = (data, key) => data === key;",
-  "exports.Container = class {};",
-  "exports.Text = class {};",
-  "",
-].join("\n"));
-
-ensureStubModule("@mariozechner/pi-coding-agent", [
-  "exports.DynamicBorder = class {};",
-  "",
-].join("\n"));
+import * as fs from "node:fs";
+import { pathToFileURL } from "node:url";
+import { cleanupStubModules, installCommonPiStubs, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
 
 const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-context", "index.ts");
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;
+const stubModuleDirs = installCommonPiStubs();
 
 type Notification = { message: string; level: string };
 type SelectCall = { prompt: string; options: string[] };
@@ -107,38 +80,13 @@ function writeNotStartedStory(cwd: string, number: number, lastAccessed: string)
 }
 
 function makePi() {
-  const eventHandlers = new Map<string, Array<(event: any, ctx: any) => Promise<any>>>();
-  const commands = new Map<string, unknown>();
-  const sentUserMessages: Array<{ message: string; options?: unknown }> = [];
-  const sentInternalMessages: InternalMessage[] = [];
-
-  const pi = {
-    on(name: string, handler: (event: any, ctx: any) => Promise<any>) {
-      const handlers = eventHandlers.get(name) ?? [];
-      handlers.push(handler);
-      eventHandlers.set(name, handlers);
-    },
-    registerCommand(name: string, definition: unknown) {
-      commands.set(name, definition);
-    },
-    async sendUserMessage(message: string, options?: unknown) {
-      sentUserMessages.push({ message, options });
-    },
-    sendMessage(message: InternalMessage["message"], options?: unknown) {
-      sentInternalMessages.push({ message, options });
-    },
-  };
-
-  register(pi as any);
+  const harness = createPiHarness([register]);
 
   return {
-    sentInternalMessages,
-    sentUserMessages,
+    sentInternalMessages: harness.sentInternalMessages,
+    sentUserMessages: harness.sentMessages,
     async emit(name: string, event: any, ctx: any) {
-      const handlers = eventHandlers.get(name) ?? [];
-      for (const handler of handlers) {
-        await handler(event, ctx);
-      }
+      await harness.emit(name, event, ctx);
     },
   };
 }
@@ -314,12 +262,16 @@ function printScenario(title: string, details: Record<string, unknown>) {
   console.log("");
 }
 
-const blocked = await runBlockedScenario();
-const allowed = await runAllowedScenario();
-const autoStart = await runAutoStartScenario();
-const reviewPrompt = await runCompletionReviewPromptScenario();
+try {
+  const blocked = await runBlockedScenario();
+  const allowed = await runAllowedScenario();
+  const autoStart = await runAutoStartScenario();
+  const reviewPrompt = await runCompletionReviewPromptScenario();
 
-printScenario("Blocked Unauthorized Completion", blocked);
-printScenario("Allowed Explicit Completion", allowed);
-printScenario("Auto-Start Not-Started Story", autoStart);
-printScenario("Completion Review Prompt", reviewPrompt);
+  printScenario("Blocked Unauthorized Completion", blocked);
+  printScenario("Allowed Explicit Completion", allowed);
+  printScenario("Auto-Start Not-Started Story", autoStart);
+  printScenario("Completion Review Prompt", reviewPrompt);
+} finally {
+  cleanupStubModules(stubModuleDirs);
+}

@@ -2,39 +2,15 @@ import { createRequire } from "node:module";
 import childProcess from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
+import { cleanupStubModules, installCommonPiStubs, repoRoot } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
-const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const trackerExtensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "index.ts");
 const contextExtensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-context", "index.ts");
-
-function ensureStubModule(moduleName: string, content: string): string | null {
-  const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
-  if (fs.existsSync(moduleDir)) {
-    return null;
-  }
-
-  fs.mkdirSync(moduleDir, { recursive: true });
-  fs.writeFileSync(path.join(moduleDir, "index.js"), content);
-  return moduleDir;
-}
-
-const stubModuleDirs = [
-  ensureStubModule("@mariozechner/pi-tui", [
-    "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape' };",
-    "exports.matchesKey = (data, key) => data === key;",
-    "exports.Container = class {};",
-    "exports.Text = class {};",
-    "",
-  ].join("\n")),
-  ensureStubModule("@mariozechner/pi-coding-agent", [
-    "exports.DynamicBorder = class {};",
-    "",
-  ].join("\n")),
-].filter((dir): dir is string => dir !== null);
+const stubModuleDirs = installCommonPiStubs();
 
 const trackerExtensionModule = await import(`${pathToFileURL(trackerExtensionPath).href}?t=${Date.now()}`);
 const contextExtensionModule = await import(`${pathToFileURL(contextExtensionPath).href}?t=${Date.now()}`);
@@ -599,7 +575,5 @@ try {
   printScenario("Bootstrapped Plain Folder", bootstrappedPlainFolder);
   printScenario("Init Refresh", initRefresh);
 } finally {
-  for (const moduleDir of stubModuleDirs.reverse()) {
-    fs.rmSync(moduleDir, { recursive: true, force: true });
-  }
+  cleanupStubModules(stubModuleDirs);
 }

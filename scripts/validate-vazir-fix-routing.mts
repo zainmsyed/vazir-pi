@@ -1,40 +1,13 @@
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-const require = createRequire(import.meta.url);
-const fs = require("node:fs") as typeof import("node:fs");
-
-const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-
-function ensureStubModule(moduleName: string, content: string): string | null {
-  const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
-  if (fs.existsSync(moduleDir)) {
-    return null;
-  }
-
-  fs.mkdirSync(moduleDir, { recursive: true });
-  fs.writeFileSync(path.join(moduleDir, "index.js"), content);
-  return moduleDir;
-}
-
-ensureStubModule("@mariozechner/pi-tui", [
-  "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape' };",
-  "exports.matchesKey = (data, key) => data === key;",
-  "exports.Container = class {};",
-  "exports.Text = class {};",
-  "",
-].join("\n"));
-
-ensureStubModule("@mariozechner/pi-coding-agent", [
-  "exports.DynamicBorder = class {};",
-  "",
-].join("\n"));
+import * as fs from "node:fs";
+import { pathToFileURL } from "node:url";
+import { cleanupStubModules, installCommonPiStubs, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
 
 const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "index.ts");
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;
+const stubModuleDirs = installCommonPiStubs();
 
 type Notification = { message: string; level: string };
 type SelectCall = { prompt: string; options: string[] };
@@ -95,37 +68,15 @@ function writeStory(cwd: string, number: number, status: string, lastAccessed: s
 }
 
 function makePi() {
-  const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
-  const eventHandlers = new Map<string, Array<(event: any, ctx: any) => Promise<any>>>();
-  const sentMessages: string[] = [];
-
-  const pi = {
-    on(name: string, handler: (event: any, ctx: any) => Promise<any>) {
-      const handlers = eventHandlers.get(name) ?? [];
-      handlers.push(handler);
-      eventHandlers.set(name, handlers);
-    },
-    registerCommand(name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) {
-      commands.set(name, definition);
-    },
-    async sendUserMessage(message: string) {
-      sentMessages.push(message);
-    },
-  };
-
-  register(pi as any);
-
-  const fixCommand = commands.get("fix");
+  const harness = createPiHarness([register]);
+  const fixCommand = harness.getCommand("fix");
   assert(Boolean(fixCommand), "fix command was not registered");
 
   return {
     fixCommand: fixCommand!,
-    sentMessages,
+    sentMessages: harness.sentMessages,
     async emit(name: string, event: any, ctx: any) {
-      const handlers = eventHandlers.get(name) ?? [];
-      for (const handler of handlers) {
-        await handler(event, ctx);
-      }
+      await harness.emit(name, event, ctx);
     },
   };
 }
@@ -247,10 +198,14 @@ function printScenario(title: string, details: Record<string, unknown>) {
   console.log("");
 }
 
-const missingStory = await runMissingStoryScenario();
-const singleStory = await runSingleStoryScenario();
-const chooserStory = await runChooserScenario();
+try {
+  const missingStory = await runMissingStoryScenario();
+  const singleStory = await runSingleStoryScenario();
+  const chooserStory = await runChooserScenario();
 
-printScenario("Missing Story", missingStory);
-printScenario("Single Story", singleStory);
-printScenario("Multiple Story Chooser", chooserStory);
+  printScenario("Missing Story", missingStory);
+  printScenario("Single Story", singleStory);
+  printScenario("Multiple Story Chooser", chooserStory);
+} finally {
+  cleanupStubModules(stubModuleDirs);
+}
