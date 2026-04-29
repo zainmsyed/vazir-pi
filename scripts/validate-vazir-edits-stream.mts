@@ -1,40 +1,13 @@
-import { createRequire } from "node:module";
 import childProcess from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import * as fs from "node:fs";
+import { pathToFileURL } from "node:url";
+import { cleanupStubModules, installCommonPiStubs, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
 
-const require = createRequire(import.meta.url);
-const fs = require("node:fs") as typeof import("node:fs");
-
-const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "index.ts");
 
-function ensureStubModule(moduleName: string, content: string): string | null {
-  const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
-  if (fs.existsSync(moduleDir)) {
-    return null;
-  }
-
-  fs.mkdirSync(moduleDir, { recursive: true });
-  const indexPath = path.join(moduleDir, "index.js");
-  fs.writeFileSync(indexPath, content);
-  return moduleDir;
-}
-
-const stubModuleDirs = [
-  ensureStubModule("@mariozechner/pi-tui", [
-    "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape' };",
-    "exports.matchesKey = (data, key) => data === key;",
-    "exports.Container = class {};",
-    "exports.Text = class {};",
-    "",
-  ].join("\n")),
-  ensureStubModule("@mariozechner/pi-coding-agent", [
-    "exports.DynamicBorder = class {};",
-    "",
-  ].join("\n")),
-].filter((dir): dir is string => dir !== null);
+const stubModuleDirs = installCommonPiStubs();
 
 const extensionModule = await import(pathToFileURL(extensionPath).href);
 const register = extensionModule.default;
@@ -65,30 +38,12 @@ function createProject(prefix: string): string {
 }
 
 function makePi() {
-  const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
-  const eventHandlers = new Map<string, Array<(event: any, ctx: any) => Promise<any>>>();
-
-  const pi = {
-    on(name: string, handler: (event: any, ctx: any) => Promise<any>) {
-      const handlers = eventHandlers.get(name) ?? [];
-      handlers.push(handler);
-      eventHandlers.set(name, handlers);
-    },
-    registerCommand(name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) {
-      commands.set(name, definition);
-    },
-    async sendUserMessage() {},
-  };
-
-  register(pi as any);
+  const harness = createPiHarness([register]);
 
   return {
-    commands,
+    commands: harness.commands,
     async emit(name: string, event: any, ctx: any) {
-      const handlers = eventHandlers.get(name) ?? [];
-      for (const handler of handlers) {
-        await handler(event, ctx);
-      }
+      await harness.emit(name, event, ctx);
     },
   };
 }
@@ -173,9 +128,9 @@ function printScenario(title: string, details: Record<string, unknown>) {
   console.log("");
 }
 
-const scenario = await runScenario();
-printScenario("Edits Stream", scenario);
-
-for (const moduleDir of stubModuleDirs.reverse()) {
-  fs.rmSync(moduleDir, { recursive: true, force: true });
+try {
+  const scenario = await runScenario();
+  printScenario("Edits Stream", scenario);
+} finally {
+  cleanupStubModules(stubModuleDirs);
 }

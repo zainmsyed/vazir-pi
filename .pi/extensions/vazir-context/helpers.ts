@@ -1526,7 +1526,7 @@ export function buildRememberInstruction(cwd: string): string {
 
 export function createReviewDraft(
   cwd: string,
-  options: { focus: string; scope?: ReviewScope; storyLabel?: string; trigger?: string },
+  options: { focus: string; scope?: ReviewScope; storyLabel?: string; trigger?: string; staticAnalysis?: string },
 ): ReviewDraft {
   ensureReviewStructure(cwd);
 
@@ -1546,7 +1546,17 @@ export function createReviewDraft(
     suffix += 1;
   }
 
-  fs.writeFileSync(filePath, reviewFileTemplate(created, scope, storyLabel, options.focus, trigger));
+  fs.writeFileSync(
+    filePath,
+    reviewFileTemplate(
+      created,
+      scope,
+      storyLabel,
+      options.focus,
+      trigger,
+      options.staticAnalysis ?? "not run (fallow unavailable)",
+    ),
+  );
 
   return {
     created,
@@ -1559,14 +1569,15 @@ export function createReviewDraft(
   };
 }
 
-export function buildReviewInstruction(review: ReviewDraft): string {
+export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt = ""): string {
   const reviewScope = review.scope === "whole-codebase"
     ? "whole codebase"
     : review.storyLabel !== "—"
       ? `${review.storyLabel} and its direct integration points`
       : "recent changes";
 
-  return [
+  const sections = [
+    ...(staticAnalysisPrompt ? [staticAnalysisPrompt, ""] : []),
     `Run a code review and write the results to .context/reviews/${review.fileName}.`,
     "",
     "Requirements:",
@@ -1584,7 +1595,9 @@ export function buildReviewInstruction(review: ReviewDraft): string {
     `12. Review focus: ${review.focus}.`,
     review.storyLabel !== "—" ? `13. Story: ${review.storyLabel}.` : "13. No story is attached; keep the review manual and comprehensive within the requested scope.",
     `14. Trigger: ${review.trigger}.`,
-  ].join("\n");
+  ];
+
+  return sections.join("\n");
 }
 
 export function reviewFileTemplate(
@@ -1593,6 +1606,7 @@ export function reviewFileTemplate(
   storyLabel: string,
   focus: string,
   trigger: string,
+  staticAnalysis: string,
 ): string {
   return [
     `# Code Review ${created}`,
@@ -1602,6 +1616,7 @@ export function reviewFileTemplate(
     `**Completed:** —  `,
     `**Scope:** ${scope}  `,
     `**Story:** ${storyLabel}  `,
+    `**Static analysis:** ${staticAnalysis}  `,
     `**Focus:** ${focus}  `,
     `**Trigger:** ${trigger}`,
     "",
