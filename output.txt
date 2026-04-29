@@ -1,41 +1,94 @@
-Persisted JJ Labels
-cwd: /tmp/vazir-checkpoint-labels-QYiIMm
-options:
-  - 1 hour ago · Fix auth refresh flow
-  - 2 hours ago · Tighten retry rule handling
+Done importing changes from the underlying Git repo.
+Status Chrome
+cwd: /tmp/vazir-status-chrome-v8Jffg
+notifications:
+  - [warning] Before logging — make sure your complaint doesn't contain API keys, database URLs, or credentials. complaints-log.md is plaintext and persists across sessions.
+  - [info] Issue logged to story-003
+statusLines:
+  - ▸ story-003 · in-progress · ▐███████░░░▌ 2/3 tasks · ⚠ 2 issues · last saved just now
+footerLines:
+  - ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  - vazir-statu… · story-003 · 2 issues · main 1 uncommitted · haiku-3.5 (xhigh) · ↑2.1k ↓8.4k · 1.1%/200k · $0.002              Ctrl+? for help
+workingFooterLines:
+  - ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  - vazir-statu… · story-003 · 2 issues · main · 1.1%/200k · $0.002 · ⠧ Reading · vazir-context.ts                               Ctrl+C to abort
+refreshedStatusLines:
+  - ▸ story-003 · in-progress · ▐███████░░░▌ 2/3 tasks · ⚠ 3 issues · last saved just now
+refreshedFooterLines:
+  - ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  - vazir-statu… · story-003 · 3 issues · main 1 uncommitted · haiku-3.5 (off) · ↑2.1k ↓8.4k · 1.1%/200k · $0.002                Ctrl+? for help
+sentMessages:
+  - The user reported an issue via /fix: "save indicator missing"
 
-Describe Label Backfill
-cwd: /tmp/vazir-checkpoint-describe-backfill-ityJi7
-options:
-  - 1 minute ago · Make retry labels readable
-  - 2 minutes ago · Checkpoint
+Issue logged to story-003 and complaints-log.md.
 
-Unlabeled JJ Fallback
-cwd: /tmp/vazir-checkpoint-fallback-eoctIA
-options:
-  - 1 hour ago · Checkpoint
-  - 2 hours ago · Restored checkpoint
+Your job:
+1. Investigate and attempt to fix the issue.
+2. After fixing, explicitly state what you can verify mechanically and what requires user confirmation.
+3. If you cannot verify the fix (UI behaviour, browser state), leave the issue status as "pending" and ask the user to confirm.
+4. Never claim "should be working now" without declaring your verification limits.
 
-Long JJ History
-cwd: /tmp/vazir-checkpoint-long-history-zvMUlX
-optionCount: 12
-first: 1 hour ago · Checkpoint
-last: 12 hours ago · Checkpoint
+Clean Folder Startup
+cwd: /tmp/vazir-status-clean-folder-075CJ9
+notifications:
+  - [info] Vazir is not initialized here. Run /vazir-init to bootstrap .context and optional git/JJ setup.
+statusLines:
+  - ▸ run /vazir-init to bootstrap Vazir
+footerLines:
+  - ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  - ◈ vazir-status-clean-folder-075CJ9 · setup required · run /vazir-init                                                        Ctrl+? for help
 
-Recency Ordering
-cwd: /tmp/vazir-checkpoint-recency-order-AoFoXS
-options:
-  - 1 minute ago · Checkpoint
-  - 2 minutes ago · Older labeled checkpoint
-  - 3 minutes ago · Restored checkpoint
-  - 4 minutes ago · Checkpoint
+Bootstrapped Plain Folder
+cwd: /tmp/vazir-status-no-git-UcMVDW
+notifications:
+statusLines:
+  - ▸ no active story
+footerLines:
+  - ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  - vazir-statu… · no active story · no-git ✓ clean · haiku-3.5 (xhigh) · ↑2.1k ↓8.4k · 1.1%/200k · $0.002                       Ctrl+? for help
 
-Skip Current Snapshot
-cwd: /tmp/vazir-checkpoint-skip-current-snapshot-wNlU9M
-options:
-  - 2 minutes ago · Restored checkpoint
-  - 4 minutes ago · Good previous checkpoint
+Init Refresh
+cwd: /tmp/vazir-status-init-refresh-hIrJ7q
+notifications:
+  - [info] Vazir is not initialized here. Run /vazir-init to bootstrap .context and optional git/JJ setup.
+  - [info] intake README created
+  - [info] system.md created
+  - [info] complaints-log.md created
+  - [info] project.json created
+  - [info] AGENTS.md created
+  - [info] Added common ignore boilerplate to .gitignore
+  - [info] index.md generated
+  - [info] context-map.md seeded — Pi will refine it using the current model
+  - [info] Vazir bootstrap complete • context-map.md: seeded • index.md: 1 files indexed • Git check runs now
+  - [info] ✓ git initialised
+Remember to add a remote:
+git remote add origin <url>
+  - [info] JJ initialised
+  - [info] Added .jj/ to .gitignore
+  - [info] Vazir init summary
+☑ JJ (Jujutsu): active
+  ↳ Learn more about JJ https://www.jj-vcs.dev/latest/
+☑ Added files:
+    ☑ .context/memory/system.md
+    ☑ .context/memory/index.md
+    ☑ .context/memory/context-map.md
+    ☑ .context/stories/
+    ☑ .context/intake/
+    ☑ .context/reviews/
+    ☑ .context/archive/
+    ☑ .context/complaints-log.md
+    ☑ AGENTS.md
+    ☑ .context/settings/project.json
+beforeInitLines:
+  - ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  - ◈ vazir-status-init-refresh-hIrJ7q · setup required · run /vazir-init                                                        Ctrl+? for help
+afterInitLines:
+  - ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  - vazir-statu… · no active story · jj 10 uncommitted · haiku-3.5 (xhigh) · ↑2.1k ↓8.4k · 1.1%/200k · $0.002                    Ctrl+? for help
+dirtyLines:
+  - ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  - vazir-statu… · no active story · jj 11 uncommitted · haiku-3.5 (xhigh) · ↑2.1k ↓8.4k · 1.1%/200k · $0.002                    Ctrl+? for help
+cleanLines:
+  - ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  - vazir-statu… · no active story · master ✓ clean · haiku-3.5 (xhigh) · ↑2.1k ↓8.4k · 1.1%/200k · $0.002                       Ctrl+? for help
 
-Saved JJ Label
-cwd: /tmp/vazir-checkpoint-save-PYGrCl
-savedLabel: Make retry labels readable

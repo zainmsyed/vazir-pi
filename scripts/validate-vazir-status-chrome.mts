@@ -461,7 +461,7 @@ async function runInitRefreshScenario() {
   const cwd = createPlainFolder("vazir-status-init-refresh-");
   const notifications: Notification[] = [];
   const harness = makePi([registerTracker, registerContext]);
-  const ctx = makeCtx(cwd, notifications, { selectResponses: ["Yes — initialise git"] });
+  const ctx = makeCtx(cwd, notifications, { selectResponses: ["No — skip Fallow", "Yes — initialise git"] });
   const theme: Theme = { fg: (_label: string, text: string) => text };
 
   await harness.emit("session_start", {}, ctx);
