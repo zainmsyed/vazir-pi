@@ -2,18 +2,15 @@ import { createRequire } from "node:module";
 import childProcess from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
-import { cleanupStubModules, installCommonPiStubs, repoRoot } from "./lib/validation-harness.mts";
+import { cleanupStubModules, installCommonPiStubs, loadExtensionModule } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
-const trackerExtensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "index.ts");
-const contextExtensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-context", "index.ts");
 const stubModuleDirs = installCommonPiStubs();
 
-const trackerExtensionModule = await import(`${pathToFileURL(trackerExtensionPath).href}?t=${Date.now()}`);
-const contextExtensionModule = await import(`${pathToFileURL(contextExtensionPath).href}?t=${Date.now()}`);
+const trackerExtensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-tracker", String(Date.now()));
+const contextExtensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context", String(Date.now()));
 const registerTracker = trackerExtensionModule.default;
 const registerContext = contextExtensionModule.default;
 

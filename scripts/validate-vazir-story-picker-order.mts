@@ -1,19 +1,13 @@
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { loadFileModule, repoRoot } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
-const chromePath = path.join(
-  path.dirname(path.dirname(fileURLToPath(import.meta.url))),
-  ".pi",
-  "extensions",
-  "vazir-tracker",
-  "chrome.ts",
-);
-const chromeModule = await import(pathToFileURL(chromePath).href);
+const chromePath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "chrome.ts");
+const chromeModule = await loadFileModule<typeof import("../.pi/extensions/vazir-tracker/chrome.ts")>(chromePath);
 const storyPickerChoices = chromeModule.storyPickerChoices as (cwd: string) => Array<{ label: string; file: string; kind: "plan" | "story" }>;
 
 function assert(condition: boolean, message: string): void {

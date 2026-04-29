@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { assert, loadExtensionModule, makePi as createPiHarness } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
@@ -24,21 +24,10 @@ globalThis.fetch = (async () => ({
 
 process.env.ANTHROPIC_API_KEY = "test-key";
 
-const extensionPath = path.join(
-  path.dirname(path.dirname(fileURLToPath(import.meta.url))),
-  ".pi",
-  "extensions",
-  "vazir-context",
-  "index.ts",
-);
-const extensionModule = await import(pathToFileURL(extensionPath).href);
+const extensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context");
 const register = extensionModule.default;
 
 type Notification = { message: string; level: string };
-
-function assert(condition: boolean, message: string): void {
-  if (!condition) throw new Error(message);
-}
 
 function createProject(prefix: string): string {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -88,25 +77,11 @@ function createProject(prefix: string): string {
 }
 
 function makePi() {
-  const eventHandlers = new Map<string, Array<(event: any, ctx: any) => Promise<any>>>();
-  const pi = {
-    on(name: string, handler: (event: any, ctx: any) => Promise<any>) {
-      const handlers = eventHandlers.get(name) ?? [];
-      handlers.push(handler);
-      eventHandlers.set(name, handlers);
-    },
-    registerCommand() {},
-    async sendUserMessage() {},
-  };
-
-  register(pi as any);
+  const harness = createPiHarness([register]);
 
   return {
     async emit(name: string, event: any, ctx: any) {
-      const handlers = eventHandlers.get(name) ?? [];
-      for (const handler of handlers) {
-        await handler(event, ctx);
-      }
+      await harness.emit(name, event, ctx);
     },
   };
 }

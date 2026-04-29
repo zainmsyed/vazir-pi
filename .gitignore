@@ -48,6 +48,7 @@ coverage/
 # Archives / backups / bundles
 repo-backup.bundle
 *.bundle
+*.bak
 
 # Misc caches
 .cache/

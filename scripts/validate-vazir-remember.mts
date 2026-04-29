@@ -1,26 +1,15 @@
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { assert, loadExtensionModule, makePi as createPiHarness } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
-const extensionPath = path.join(
-  path.dirname(path.dirname(fileURLToPath(import.meta.url))),
-  ".pi",
-  "extensions",
-  "vazir-context",
-  "index.ts",
-);
-const extensionModule = await import(pathToFileURL(extensionPath).href);
+const extensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context");
 const register = extensionModule.default;
 
 type Notification = { message: string; level: string };
-
-function assert(condition: boolean, message: string): void {
-  if (!condition) throw new Error(message);
-}
 
 function createProject(prefix: string): string {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -41,24 +30,11 @@ function createProject(prefix: string): string {
 }
 
 function makePi() {
-  const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
-  const sentMessages: Array<{ message: string; options?: unknown }> = [];
-
-  const pi = {
-    on() {},
-    registerCommand(name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) {
-      commands.set(name, definition);
-    },
-    async sendUserMessage(message: string, options?: unknown) {
-      sentMessages.push({ message, options });
-    },
-  };
-
-  register(pi as any);
-  const remember = commands.get("remember");
+  const harness = createPiHarness([register]);
+  const remember = harness.getCommand("remember");
   assert(Boolean(remember), "remember command was not registered");
 
-  return { remember: remember!, sentMessages };
+  return { remember: remember!, sentMessages: harness.sentMessages };
 }
 
 function makeCtx(cwd: string, notifications: Notification[]) {
@@ -94,8 +70,8 @@ assert(remembered.includes("- Rule candidate: do not rename auth helpers during 
 assert(notifications.some(note => note.message.includes("Remembered:")), "remember command did not notify the user");
 assert(notifications.some(note => note.message.includes("Drafting a remembered rule")), "remember command did not notify when drafting from context");
 assert(sentMessages.length === 1, "remember without args should send one follow-up message to the model");
-assert(sentMessages[0].message.includes("Write one short reusable lesson to .context/reviews/remembered.md"), "remember draft instruction did not mention remembered.md");
-assert(sentMessages[0].message.includes("recent fix context"), "remember draft instruction did not mention recent fix context");
+assert(String(sentMessages[0].message).includes("Write one short reusable lesson to .context/reviews/remembered.md"), "remember draft instruction did not mention remembered.md");
+assert(String(sentMessages[0].message).includes("recent fix context"), "remember draft instruction did not mention recent fix context");
 
 console.log("Remember command validation");
 console.log(`cwd: ${cwd}`);
@@ -105,7 +81,7 @@ for (const note of notifications) {
 }
 console.log("sentMessages:");
 for (const message of sentMessages) {
-  console.log(`  - ${message.message.split("\n")[0]}`);
+  console.log(`  - ${String(message.message).split("\n")[0]}`);
 }
 console.log("summary:");
 for (const line of summary.trim().split("\n")) {
