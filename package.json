@@ -4,5 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "node --experimental-strip-types ./scripts/run-validations.mts"
+  },
+  "devDependencies": {
+    "fallow": "^2.54.2"
   }
 }

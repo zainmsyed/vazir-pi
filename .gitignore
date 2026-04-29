@@ -61,4 +61,7 @@ __pycache__/
 .pi/cache/
 .pi/tmp/
 .pi/extensions/**/.validate-*.ts
-
+.fallow/
+.local/
+*.local
+Thumbs.db

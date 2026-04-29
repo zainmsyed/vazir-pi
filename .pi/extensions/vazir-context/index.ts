@@ -138,6 +138,16 @@ const AGENTS_MD_TEMPLATE = [
 
 const JJ_DOCS_URL = "https://www.jj-vcs.dev/latest/install-and-setup/";
 const JJ_OVERVIEW_URL = "https://www.jj-vcs.dev/latest/";
+const FALLOW_INSTALL_COMMAND = "npm install -D fallow";
+const FALLOW_MAX_PROMPT_ISSUES = 12;
+
+type FallowAuditVerdict = "pass" | "warn" | "fail";
+type FallowAuditIssue = { rule: string; location: string; summary: string };
+type FallowAuditResult = { summaryLine: string; promptPrefix: string };
+type GitAuditScope =
+  | { mode: "base"; files: string[] }
+  | { mode: "initial"; files: string[] }
+  | { mode: "unavailable" };
 
 let lastUserPrompt = "";
 let useJJ = false;
@@ -147,6 +157,7 @@ type PendingCompleteStoryRequest = { storyFile: string; reviewFile?: string; rev
 type PendingManualReviewRequest = { reviewFile: string; reviewCloseoutReady?: boolean };
 const pendingCompleteStoryRequests = new Map<string, PendingCompleteStoryRequest>();
 const pendingManualReviewRequests = new Map<string, PendingManualReviewRequest>();
+const missingFallowNoticeShown = new Set<string>();
 type ManualReviewScope = "story" | "whole-codebase";
 type ReviewCloseoutTarget = "story" | "review";
 const INTERNAL_AGENT_MESSAGE_TYPE = "vazir-internal-request";
@@ -165,6 +176,338 @@ export default function (pi: ExtensionAPI) {
 
   function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function fallowBinaryPath(cwd: string): string {
+    return path.join(cwd, "node_modules", ".bin", process.platform === "win32" ? "fallow.cmd" : "fallow");
+  }
+
+  function fallowNotRun(reason: string): FallowAuditResult {
+    return {
+      summaryLine: `not run (${reason})`,
+      promptPrefix: "",
+    };
+  }
+
+  function pickString(...values: unknown[]): string | null {
+    for (const value of values) {
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return null;
+  }
+
+  function pickNumber(...values: unknown[]): number | null {
+    for (const value of values) {
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      if (typeof value === "string" && value.trim()) {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) return parsed;
+      }
+    }
+    return null;
+  }
+
+  function maybeNotifyMissingFallow(ctx: any, cwd: string): void {
+    if (missingFallowNoticeShown.has(cwd)) return;
+    missingFallowNoticeShown.add(cwd);
+    ctx.ui.notify(`Fallow not found — running LLM-only review. Install with: ${FALLOW_INSTALL_COMMAND}`, "info");
+  }
+
+  async function maybePromptForFallowInstall(ctx: any, cwd: string): Promise<void> {
+    if (fs.existsSync(fallowBinaryPath(cwd)) || typeof ctx.ui?.select !== "function") return;
+
+    const choice = await ctx.ui.select(
+      "Install Fallow for Vazir's optional /review static-analysis pre-pass?",
+      [
+        "Yes — install Fallow",
+        "No — skip Fallow",
+      ],
+    );
+
+    if (choice !== "Yes — install Fallow") return;
+
+    try {
+      childProcess.execFileSync("npm", ["install", "-D", "fallow"], { cwd, stdio: "pipe" });
+      missingFallowNoticeShown.delete(cwd);
+      ctx.ui.notify("Fallow installed for /review static analysis. For manual CLI use, run: npx fallow", "info");
+    } catch (error: any) {
+      ctx.ui.notify(`Fallow install failed: ${error?.message || String(error)}. /review will continue without it.`, "warning");
+    }
+  }
+
+  function listGitVisibleFiles(cwd: string): string[] {
+    try {
+      const output = childProcess.execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
+        cwd,
+        encoding: "utf-8",
+        stdio: "pipe",
+      });
+      return Array.from(new Set(
+        output
+          .split("\n")
+          .map(line => line.trim())
+          .filter(Boolean)
+          .filter(file => fs.existsSync(path.join(cwd, file))),
+      ));
+    } catch {
+      return [];
+    }
+  }
+
+  function collectGitAuditScope(cwd: string): GitAuditScope {
+    try {
+      const output = childProcess.execFileSync("git", ["diff", "--name-only", "--diff-filter=ACMR", "HEAD~1"], {
+        cwd,
+        encoding: "utf-8",
+        stdio: "pipe",
+      });
+      const files = Array.from(new Set(
+        output
+          .split("\n")
+          .map(line => line.trim())
+          .filter(Boolean)
+          .filter(file => fs.existsSync(path.join(cwd, file))),
+      ));
+      return { mode: "base", files };
+    } catch {
+      const initialFiles = listGitVisibleFiles(cwd);
+      if (initialFiles.length > 0) {
+        return { mode: "initial", files: initialFiles };
+      }
+      return { mode: "unavailable" };
+    }
+  }
+
+  function collectJjAuditFiles(cwd: string): string[] | null {
+    try {
+      const output = childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8", stdio: "pipe" });
+      const files = output
+        .split("\n")
+        .map(line => line.match(/^\s*(.+?)\s+\|/)?.[1]?.trim() ?? "")
+        .filter(Boolean)
+        .filter(file => fs.existsSync(path.join(cwd, file)));
+      return Array.from(new Set(files));
+    } catch {
+      return null;
+    }
+  }
+
+  function normalizeFallowRule(sectionName: string, key: string): string {
+    if (sectionName === "duplication") return "duplication";
+    if (sectionName === "complexity") return "complexity";
+    return key.replace(/_/g, "-");
+  }
+
+  function formatLocation(value: unknown): string | null {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (!value || typeof value !== "object") return null;
+
+    const entry = value as Record<string, unknown>;
+    const file = pickString(
+      entry.file,
+      entry.path,
+      entry.relative_path,
+      entry.relativePath,
+      entry.module,
+      entry.source_path,
+      entry.sourcePath,
+    );
+    const line = pickNumber(entry.line, entry.start_line, entry.startLine, entry.line_number, entry.lineNumber);
+    const column = pickNumber(entry.column, entry.start_column, entry.startColumn, entry.column_number, entry.columnNumber);
+
+    if (file) {
+      return line == null ? file : `${file}:${line}${column == null ? "" : `:${column}`}`;
+    }
+
+    const locations = [entry.files, entry.paths, entry.locations, entry.occurrences]
+      .filter(Array.isArray)
+      .flatMap(group => (group as unknown[]).map(item => formatLocation(item)).filter(Boolean) as string[]);
+    if (locations.length > 0) return locations.slice(0, 2).join(" ↔ ");
+
+    return pickString(entry.name, entry.symbol, entry.export, entry.id);
+  }
+
+  function formatIssueSummary(rule: string, entry: Record<string, unknown>): string {
+    const direct = pickString(entry.message, entry.summary, entry.reason, entry.description, entry.details, entry.title);
+    if (direct) return direct;
+
+    const symbol = pickString(entry.symbol, entry.name, entry.export, entry.function, entry.function_name, entry.functionName);
+    const score = pickNumber(entry.score, entry.cyclomatic, entry.cyclomatic_score, entry.cyclomaticScore, entry.complexity);
+
+    if (rule === "complexity") {
+      if (symbol && score != null) return `function ${symbol} exceeds complexity threshold (score: ${score})`;
+      if (symbol) return `function ${symbol} exceeds complexity threshold`;
+      if (score != null) return `complexity exceeds threshold (score: ${score})`;
+      return "complexity exceeds threshold";
+    }
+
+    if (rule === "duplication") {
+      const locationCount = Array.isArray(entry.occurrences)
+        ? entry.occurrences.length
+        : Array.isArray(entry.locations)
+          ? entry.locations.length
+          : 0;
+      return locationCount > 0 ? `duplicate code across ${locationCount} locations` : "duplicate code detected";
+    }
+
+    if (symbol) return `${symbol} triggered ${rule}`;
+    return rule.replace(/-/g, " ");
+  }
+
+  function collectFallowIssues(parsed: Record<string, unknown>): FallowAuditIssue[] {
+    const issues: FallowAuditIssue[] = [];
+    const seen = new Set<string>();
+
+    const pushIssue = (rule: string, value: unknown): void => {
+      const entry = value && typeof value === "object" ? value as Record<string, unknown> : { value };
+      const location = formatLocation(entry) ?? pickString(entry.value) ?? "location unavailable";
+      const summary = formatIssueSummary(rule, entry);
+      const key = `${rule}|${location}|${summary}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      issues.push({ rule, location, summary });
+    };
+
+    if (Array.isArray(parsed.issues)) {
+      for (const entry of parsed.issues) {
+        const record = entry && typeof entry === "object" ? entry as Record<string, unknown> : { value: entry };
+        const rule = pickString(record.code, record.kind, record.rule, record.type) ?? "issue";
+        pushIssue(rule.replace(/_/g, "-"), record);
+      }
+    }
+
+    for (const [sectionName, sectionValue] of [
+      ["dead-code", parsed.dead_code ?? parsed.deadCode],
+      ["duplication", parsed.duplication ?? parsed.dupes],
+      ["complexity", parsed.complexity ?? parsed.health],
+    ] as const) {
+      if (!sectionValue || typeof sectionValue !== "object") continue;
+      for (const [key, value] of Object.entries(sectionValue as Record<string, unknown>)) {
+        if (!Array.isArray(value)) continue;
+        const rule = normalizeFallowRule(sectionName, key);
+        for (const entry of value) {
+          pushIssue(rule, entry);
+        }
+      }
+    }
+
+    return issues;
+  }
+
+  function parseFallowAuditOutput(raw: string, fileCount: number | null): FallowAuditResult | null {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+
+    const issues = collectFallowIssues(parsed);
+    const verdictValue = pickString(parsed.verdict, (parsed.summary as Record<string, unknown> | undefined)?.verdict)?.toLowerCase();
+    const verdict: FallowAuditVerdict = verdictValue === "warn" || verdictValue === "fail" || verdictValue === "pass"
+      ? verdictValue
+      : issues.length > 0
+        ? "warn"
+        : "pass";
+
+    const summaryLine = issues.length === 0
+      ? fileCount == null
+        ? `fallow audit — ${verdict} (no issues found)`
+        : `fallow audit — ${verdict} (${fileCount} file${fileCount === 1 ? "" : "s"} scanned, no issues found)`
+      : fileCount == null
+        ? `fallow audit — ${verdict}`
+        : `fallow audit — ${verdict} (${fileCount} file${fileCount === 1 ? "" : "s"} scanned)`;
+
+    if (issues.length === 0) {
+      return { summaryLine, promptPrefix: "" };
+    }
+
+    const visibleIssues = issues.slice(0, FALLOW_MAX_PROMPT_ISSUES);
+    const scopeLine = fileCount == null ? "changed files" : `${fileCount} changed file${fileCount === 1 ? "" : "s"}`;
+    const extraIssues = issues.length - visibleIssues.length;
+    return {
+      summaryLine,
+      promptPrefix: [
+        "## Static Analysis Findings (Fallow)",
+        `Verdict: ${verdict}`,
+        `Scope: ${scopeLine}`,
+        "",
+        "Issues:",
+        ...visibleIssues.map(issue => `- [${issue.rule}] ${issue.location} — ${issue.summary}`),
+        ...(extraIssues > 0 ? [`- [summary] ${extraIssues} additional finding${extraIssues === 1 ? "" : "s"} omitted from this prompt block`] : []),
+        "",
+        "Treat these as verified findings. Do not re-derive them. Synthesise with your own inspection where relevant.",
+      ].join("\n"),
+    };
+  }
+
+  function runFallowAudit(ctx: any, cwd: string): FallowAuditResult {
+    const binaryPath = fallowBinaryPath(cwd);
+    if (!fs.existsSync(binaryPath)) {
+      maybeNotifyMissingFallow(ctx, cwd);
+      return fallowNotRun("fallow unavailable");
+    }
+
+    const gitScope = collectGitAuditScope(cwd);
+    const changedFiles = gitScope.mode !== "unavailable"
+      ? gitScope.files
+      : detectJJ(cwd)
+        ? collectJjAuditFiles(cwd)
+        : null;
+
+    if (changedFiles == null) {
+      ctx.ui.notify("Fallow audit scope could not be resolved — running LLM-only review.", "warning");
+      return fallowNotRun("audit scope unavailable");
+    }
+
+    if (changedFiles.length === 0) {
+      return fallowNotRun("no changed files");
+    }
+
+    if (gitScope.mode === "unavailable") {
+      ctx.ui.notify("Fallow audit is unavailable for this JJ-only checkout — running LLM-only review.", "warning");
+      return fallowNotRun("audit scope unavailable");
+    }
+
+    const args = gitScope.mode === "initial"
+      ? ["--format", "json"]
+      : ["audit", "--base", "HEAD~1", "--format", "json"];
+    const summaryFileCount = gitScope.mode === "initial" ? null : changedFiles.length;
+
+    try {
+      const stdout = childProcess.execFileSync(binaryPath, args, {
+        cwd,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: process.platform === "win32",
+      });
+      const parsed = parseFallowAuditOutput(stdout, summaryFileCount);
+      if (!parsed) return fallowNotRun("fallow audit failed");
+      if (gitScope.mode === "initial") {
+        return {
+          summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
+          promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
+        };
+      }
+      return parsed;
+    } catch (error: any) {
+      const stdout = typeof error?.stdout === "string" ? error.stdout : error?.stdout?.toString("utf-8") ?? "";
+      const parsed = parseFallowAuditOutput(stdout, summaryFileCount);
+      if (parsed) {
+        if (gitScope.mode === "initial") {
+          return {
+            summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
+            promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
+          };
+        }
+        return parsed;
+      }
+      ctx.ui.notify(`Fallow audit failed — running LLM-only review. ${error?.message || String(error)}`, "warning");
+      return fallowNotRun("fallow audit failed");
+    }
   }
 
   function matchReviewPrefix(input: string, prefixes: string[]): string | null {
@@ -712,10 +1055,11 @@ export default function (pi: ExtensionAPI) {
     options: { focus: string; scope?: ManualReviewScope; storyLabel?: string; trigger?: string },
     beforeDispatch?: (review: ReturnType<typeof createReviewDraft>) => void,
   ): Promise<ReturnType<typeof createReviewDraft>> {
-    const review = createReviewDraft(ctx.cwd, options);
+    const fallowAudit = runFallowAudit(ctx, ctx.cwd);
+    const review = createReviewDraft(ctx.cwd, { ...options, staticAnalysis: fallowAudit.summaryLine });
     syncReviewSummaryAndPromoteRules(ctx.cwd);
     ctx.ui.notify(`Created ${review.fileName} in .context/reviews/`, "info");
-    const instruction = buildReviewInstruction(review);
+    const instruction = buildReviewInstruction(review, fallowAudit.promptPrefix);
 
     if (beforeDispatch) {
       beforeDispatch(review);
@@ -788,6 +1132,7 @@ export default function (pi: ExtensionAPI) {
     storyFrontmatterSnapshots.delete(ctx.cwd);
     pendingCompleteStoryRequests.delete(ctx.cwd);
     pendingManualReviewRequests.delete(ctx.cwd);
+    missingFallowNoticeShown.delete(ctx.cwd);
   });
 
   // ── agent_end: zero-token index.md structural updates ─────────────────
@@ -1084,6 +1429,8 @@ export default function (pi: ExtensionAPI) {
 
       ensureGitignoreEntries(
         [
+          "node_modules/",
+          ".fallow/",
           ".local/",
           ".env",
           ".env.local",
@@ -1098,6 +1445,8 @@ export default function (pi: ExtensionAPI) {
         ],
         "Added common ignore boilerplate to .gitignore",
       );
+
+      await maybePromptForFallowInstall(ctx, cwd);
 
       const sourceFiles = walkSourceFiles(cwd);
       const indexSummary = writeIndex(cwd, sourceFiles);

@@ -5,9 +5,36 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
+const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+
+function ensureStubModule(moduleName: string, content: string): string | null {
+  const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
+  if (fs.existsSync(moduleDir)) {
+    return null;
+  }
+
+  fs.mkdirSync(moduleDir, { recursive: true });
+  fs.writeFileSync(path.join(moduleDir, "package.json"), JSON.stringify({ name: moduleName, type: "commonjs" }, null, 2));
+  fs.writeFileSync(path.join(moduleDir, "index.js"), content);
+  return moduleDir;
+}
+
+const stubModuleDirs = [
+  ensureStubModule("@mariozechner/pi-tui", [
+    "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape', ctrl: value => value, ctrlShift: value => value, shiftCtrl: value => value };",
+    "exports.matchesKey = (data, key) => data === key;",
+    "exports.Container = class {};",
+    "exports.Text = class {};",
+    "",
+  ].join("\n")),
+  ensureStubModule("@mariozechner/pi-coding-agent", [
+    "exports.DynamicBorder = class {};",
+    "",
+  ].join("\n")),
+].filter((dir): dir is string => dir !== null);
 
 const extensionPath = path.join(
-  path.dirname(path.dirname(fileURLToPath(import.meta.url))),
+  repoRoot,
   ".pi",
   "extensions",
   "vazir-context",
@@ -195,6 +222,7 @@ function makeCtx(
   };
 }
 
+try {
 const cwd = createProject("vazir-review-loop-");
 writeCompletedStory(cwd, 2, "2026-04-03", "2026-04-04");
 writeCompletedStory(cwd, 3, "2026-04-02", "2026-04-05");
@@ -234,6 +262,7 @@ const createdReview = fs.readFileSync(createdReviewPath, "utf-8");
 assert(createdReview.includes("**Status:** in-progress"), "new review files should start in-progress");
 assert(createdReview.includes("**Scope:** story"), "story-scoped reviews should record their scope");
 assert(createdReview.includes("**Story:** story-003"), "new review files should reference the selected story");
+assert(createdReview.includes("**Static analysis:** not run (fallow unavailable)"), "new review files should record when Fallow is unavailable");
 assert(createdReview.includes("## Checklist"), "new review files should include a checklist section");
 assert(createdReview.includes("Check for dead code, duplication, and simplification opportunities"), "new review files should include simplification and dead-code checks");
 assert(createdReview.includes("## Recommended Fixes"), "new review files should include a recommended-fixes checklist section");
@@ -241,6 +270,10 @@ assert(createdReview.includes("## Completion Summary"), "new review files should
 assert(
   harness.sentMessages[0].message.includes("Treat the review file as the source of truth"),
   "review follow-up should instruct the agent to keep the review file updated",
+);
+assert(
+  !harness.sentMessages[0].message.includes("## Static Analysis Findings (Fallow)"),
+  "review follow-up should stay LLM-only when Fallow is unavailable",
 );
 
 fs.writeFileSync(
@@ -566,4 +599,9 @@ for (const note of notifications) {
 console.log("summary:");
 for (const line of summary.trim().split("\n")) {
   console.log(`  ${line}`);
+}
+} finally {
+  for (const moduleDir of stubModuleDirs.reverse()) {
+    fs.rmSync(moduleDir, { recursive: true, force: true });
+  }
 }
