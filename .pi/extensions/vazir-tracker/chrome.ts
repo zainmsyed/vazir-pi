@@ -925,19 +925,23 @@ function sessionFooterLine(
   const summary = storyProgressSummary(cwd);
   const storyLabel = summary?.slug ?? "no active story";
   const branch = clipInline(_hasGitRepo ? (footerData.getGitBranch() ?? branchLabel(cwd)) : branchLabel(cwd), 24);
-  const branchWithStatus = `${paint(branch, "branch")}${separatorDot()}${footerGitStatusSegment()}`;
+  const branchWithStatus = paint(branch, "branch");
   const modelLabel = clipInline(shortModelLabel(snapshot), 30);
   const thinkingLevel = latestThinkingLevel(snapshot);
   const leftSegments = activeToolCalls > 0 && currentWorkingMessage
     ? [
         paint(`◈ ${repoNameLabel(cwd)}`, "accent", true),
+        paint(storyLabel, "text"),
+        footerIssueSegment(summary),
         branchWithStatus,
-        footerTokenOrWorkSegment(snapshot),
         footerContextSegment(snapshot),
         footerSpendSegment(snapshot),
+        footerTokenOrWorkSegment(snapshot),
       ].filter(Boolean)
     : [
         paint(`◈ ${repoNameLabel(cwd)}`, "accent", true),
+        paint(storyLabel, "text"),
+        footerIssueSegment(summary),
         branchWithStatus,
         `${paint(modelLabel, "dim")} ${paint(`(${thinkingLevel})`, "dim")}`,
         footerTokenOrWorkSegment(snapshot),

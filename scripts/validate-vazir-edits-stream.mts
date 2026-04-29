@@ -2,14 +2,11 @@ import childProcess from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import * as fs from "node:fs";
-import { pathToFileURL } from "node:url";
-import { cleanupStubModules, installCommonPiStubs, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
-
-const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "index.ts");
+import { cleanupStubModules, installCommonPiStubs, loadExtensionModule, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
 
 const stubModuleDirs = installCommonPiStubs();
 
-const extensionModule = await import(pathToFileURL(extensionPath).href);
+const extensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-tracker");
 const register = extensionModule.default;
 
 type Notification = { message: string; level: string };

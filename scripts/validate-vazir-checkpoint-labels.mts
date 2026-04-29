@@ -1,8 +1,7 @@
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { cleanupStubModules, installCommonPiStubs } from "./lib/validation-harness.mts";
+import { cleanupStubModules, installCommonPiStubs, loadFileModule, repoRoot } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
@@ -11,7 +10,6 @@ const childProcess = require("node:child_process") as typeof import("node:child_
 const originalExecSync = childProcess.execSync;
 const originalExecFileSync = childProcess.execFileSync;
 let importNonce = 0;
-const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 const stubModuleDirs = installCommonPiStubs();
 
@@ -111,7 +109,7 @@ async function loadHarness() {
   );
   fs.writeFileSync(tempTrackerPath, trackerSource);
 
-  const extensionModule = await import(`${pathToFileURL(tempTrackerPath).href}?t=${Date.now()}-${nonce}`);
+  const extensionModule = await loadFileModule<{ default: (pi: any) => void }>(tempTrackerPath, `${Date.now()}-${nonce}`);
   fs.rmSync(tempTrackerPath, { force: true });
   const register = extensionModule.default;
 

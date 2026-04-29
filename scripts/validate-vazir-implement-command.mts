@@ -1,28 +1,20 @@
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { assert, loadExtensionModule, makePi as createPiHarness } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
-const extensionPath = path.join(
-  path.dirname(path.dirname(fileURLToPath(import.meta.url))),
-  ".pi",
-  "extensions",
-  "vazir-tracker",
-  "index.ts",
-);
-const extensionModule = await import(pathToFileURL(extensionPath).href);
+const extensionModule = await loadExtensionModule<{
+  default: (pi: any) => void;
+  normalizeTrackerInputText: (text: string) => string;
+}>("vazir-tracker");
 const register = extensionModule.default;
-const { normalizeTrackerInputText } = extensionModule as { normalizeTrackerInputText: (text: string) => string };
+const { normalizeTrackerInputText } = extensionModule;
 
 type Notification = { message: string; level: string };
 type SelectCall = { prompt: string; choices: string[] };
-
-function assert(condition: boolean, message: string): void {
-  if (!condition) throw new Error(message);
-}
 
 function createProject(prefix: string): string {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -78,27 +70,13 @@ function writeStory(cwd: string, number: number, status: string, lastAccessed: s
 }
 
 function makePi() {
-  const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
-  const sentMessages: string[] = [];
-
-  const pi = {
-    on() {},
-    registerCommand(name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) {
-      commands.set(name, definition);
-    },
-    async sendUserMessage(message: string) {
-      sentMessages.push(message);
-    },
-  };
-
-  register(pi as any);
-
-  const implement = commands.get("implement");
+  const harness = createPiHarness([register]);
+  const implement = harness.getCommand("implement");
   assert(Boolean(implement), "implement command was not registered");
 
   return {
     implement: implement!,
-    sentMessages,
+    sentMessages: harness.sentMessages,
   };
 }
 
@@ -158,7 +136,7 @@ async function runStartNextStoryScenario() {
   assert(storyFour.includes(`**Last accessed:** ${today}`), "start-story flow should update last accessed");
   assert(!storyFive.includes(`**Last accessed:** ${today}`), "start-story flow should not touch later stories");
   assert(harness.sentMessages.length === 1, "start-story flow should send one follow-up message");
-  assert(harness.sentMessages[0].includes("Implement the in-progress story in .context/stories/story-004.md."), "start-story flow should target story 004");
+  assert(String(harness.sentMessages[0]?.message).includes("Implement the in-progress story in .context/stories/story-004.md."), "start-story flow should target story 004");
 
   return { cwd, notifications };
 }
@@ -203,7 +181,7 @@ async function runPickStoryScenario() {
   assert(storyFour.includes("**Status:** not-started"), "pick-story flow should leave story 004 unchanged");
   assert(storyFive.includes("**Status:** in-progress"), "pick-story flow should promote story 005");
   assert(harness.sentMessages.length === 1, "implement should send one follow-up message");
-  assert(harness.sentMessages[0].includes(`Implement the in-progress story in .context/stories/${selectedStoryFile}`), "implement should target the selected story");
+  assert(String(harness.sentMessages[0]?.message).includes(`Implement the in-progress story in .context/stories/${selectedStoryFile}`), "implement should target the selected story");
 
   return { cwd, notifications };
 }
@@ -226,7 +204,7 @@ async function runActiveStoryScenario() {
   assert(storyTwo.includes("**Status:** in-progress"), "implement should keep the active story in-progress");
   assert(!storyOne.includes(`**Last accessed:** ${today}`), "implement should not touch older in-progress stories");
   assert(harness.sentMessages.length === 1, "implement should send one follow-up message");
-  assert(harness.sentMessages[0].includes("Implement the in-progress story in .context/stories/story-002.md."), "implement should target the most recent in-progress story");
+  assert(String(harness.sentMessages[0]?.message).includes("Implement the in-progress story in .context/stories/story-002.md."), "implement should target the most recent in-progress story");
 
   return { cwd, notifications };
 }

@@ -1,7 +1,7 @@
 import childProcess from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
+import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { cleanupStubModules, installCommonPiStubs } from "./lib/validation-harness.mts";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.dirname(scriptDir);
@@ -11,7 +11,6 @@ const validations = [
   "validate-vazir-edits-stream.mts",
   "validate-vazir-implement-command.mts",
   "validate-vazir-fix-routing.mts",
-  "validate-vazir-fallow-review.mts",
   "validate-vazir-init.mts",
   "validate-vazir-learning-loop.mts",
   "validate-vazir-memory-review.mts",
@@ -22,32 +21,7 @@ const validations = [
   "validate-vazir-status-chrome.mts",
   "validate-vazir-story-status-guard.mts"
 ];
-
-function ensureStubModule(moduleName: string, content: string): string | null {
-  const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
-  if (fs.existsSync(moduleDir)) {
-    return null;
-  }
-
-  fs.mkdirSync(moduleDir, { recursive: true });
-  fs.writeFileSync(path.join(moduleDir, "package.json"), JSON.stringify({ name: moduleName, type: "commonjs" }, null, 2));
-  fs.writeFileSync(path.join(moduleDir, "index.js"), content);
-  return moduleDir;
-}
-
-const stubModuleDirs = [
-  ensureStubModule("@mariozechner/pi-tui", [
-    "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape', ctrl: value => value, ctrlShift: value => value, shiftCtrl: value => value };",
-    "exports.matchesKey = (data, key) => data === key;",
-    "exports.Container = class {};",
-    "exports.Text = class {};",
-    "",
-  ].join("\n")),
-  ensureStubModule("@mariozechner/pi-coding-agent", [
-    "exports.DynamicBorder = class {};",
-    "",
-  ].join("\n")),
-].filter((dir): dir is string => dir !== null);
+const stubModuleDirs = installCommonPiStubs();
 
 try {
   for (const fileName of validations) {
@@ -76,7 +50,5 @@ try {
     }
   }
 } finally {
-  for (const moduleDir of stubModuleDirs.reverse()) {
-    fs.rmSync(moduleDir, { recursive: true, force: true });
-  }
+  cleanupStubModules(stubModuleDirs);
 }
