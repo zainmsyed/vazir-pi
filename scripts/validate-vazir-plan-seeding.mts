@@ -1,26 +1,15 @@
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { assert, loadExtensionModule, makePi as createPiHarness } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
-const extensionPath = path.join(
-  path.dirname(path.dirname(fileURLToPath(import.meta.url))),
-  ".pi",
-  "extensions",
-  "vazir-context",
-  "index.ts",
-);
-const extensionModule = await import(pathToFileURL(extensionPath).href);
+const extensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context");
 const register = extensionModule.default;
 
 type Notification = { message: string; level: string };
-
-function assert(condition: boolean, message: string): void {
-  if (!condition) throw new Error(message);
-}
 
 function createProject(prefix: string): string {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -33,29 +22,11 @@ function createProject(prefix: string): string {
 }
 
 function makePi() {
-  const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
-  const eventHandlers = new Map<string, Array<(event: any, ctx: any) => Promise<any>>>();
-  const sentMessages: Array<{ message: string; options?: unknown }> = [];
-
-  const pi = {
-    on(name: string, handler: (event: any, ctx: any) => Promise<any>) {
-      const handlers = eventHandlers.get(name) ?? [];
-      handlers.push(handler);
-      eventHandlers.set(name, handlers);
-    },
-    registerCommand(name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) {
-      commands.set(name, definition);
-    },
-    async sendUserMessage(message: string, options?: unknown) {
-      sentMessages.push({ message, options });
-    },
-  };
-
-  register(pi as any);
-  const command = commands.get("plan");
+  const harness = createPiHarness([register]);
+  const command = harness.getCommand("plan");
   assert(Boolean(command), "plan command was not registered");
 
-  return { command: command!, sentMessages };
+  return { command: command!, sentMessages: harness.sentMessages };
 }
 
 function makeCtx(cwd: string, notifications: Notification[], selectChoice = "Cancel") {
@@ -93,12 +64,12 @@ async function runFreshPlanScenario() {
   assert(fs.existsSync(planPath), "plan.md was not created");
   assert(storyFiles.length === 0, `expected no upfront story files, found ${storyFiles.length}`);
   assert(sentMessages.length === 1, "plan should send one follow-up message to the model");
-  assert(sentMessages[0].message.includes("Create as many story-NNN.md files as needed"), "planning instruction did not allow unbounded story creation");
-  assert(sentMessages[0].message.includes("There is NO preset cap"), "planning instruction still appears to cap story creation");
-  assert(sentMessages[0].message.includes("Read .context/stories/intake-brief.md now."), "planning instruction did not mention intake brief review");
-  assert(sentMessages[0].message.includes(".context/intake/prd/product-brief.md"), "planning instruction did not list the intake file");
+  assert(String(sentMessages[0].message).includes("Create as many story-NNN.md files as needed"), "planning instruction did not allow unbounded story creation");
+  assert(String(sentMessages[0].message).includes("There is NO preset cap"), "planning instruction still appears to cap story creation");
+  assert(String(sentMessages[0].message).includes("Read .context/stories/intake-brief.md now."), "planning instruction did not mention intake brief review");
+  assert(String(sentMessages[0].message).includes(".context/intake/prd/product-brief.md"), "planning instruction did not list the intake file");
   assert(
-    sentMessages[0].message.includes("ONE AT A TIME"),
+    String(sentMessages[0].message).includes("ONE AT A TIME"),
     "planning instruction did not request sequential questions",
   );
   const intakeBrief = fs.readFileSync(intakeBriefPath, "utf-8");
@@ -166,9 +137,9 @@ async function runReuseScenario() {
   const storyFiles = fs.readdirSync(storiesDir).filter((name: string) => /^story-\d+\.md$/.test(name)).sort();
   assert(storyFiles.length === 1, "replan should reuse existing stories instead of reseeding duplicates");
   assert(sentMessages.length === 1, "replan should send one follow-up message to the model");
-  assert(sentMessages[0].message.includes("Preserve existing story files"), "replan instruction did not preserve existing stories");
-  assert(sentMessages[0].message.includes("Do NOT overwrite, repurpose, or renumber them."), "replan instruction did not forbid overwriting preserved stories");
-  assert(sentMessages[0].message.includes("append a replanning log entry"), "replan instruction did not require replanning log updates");
+  assert(String(sentMessages[0].message).includes("Preserve existing story files"), "replan instruction did not preserve existing stories");
+  assert(String(sentMessages[0].message).includes("Do NOT overwrite, repurpose, or renumber them."), "replan instruction did not forbid overwriting preserved stories");
+  assert(String(sentMessages[0].message).includes("append a replanning log entry"), "replan instruction did not require replanning log updates");
   assert(notifications.some(note => note.message.startsWith("Existing story files preserved for replanning:")), "missing preserved-story notification");
 
   return { cwd, storyFiles, notifications };

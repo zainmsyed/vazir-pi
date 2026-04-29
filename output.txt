@@ -1,0 +1,41 @@
+Persisted JJ Labels
+cwd: /tmp/vazir-checkpoint-labels-QYiIMm
+options:
+  - 1 hour ago · Fix auth refresh flow
+  - 2 hours ago · Tighten retry rule handling
+
+Describe Label Backfill
+cwd: /tmp/vazir-checkpoint-describe-backfill-ityJi7
+options:
+  - 1 minute ago · Make retry labels readable
+  - 2 minutes ago · Checkpoint
+
+Unlabeled JJ Fallback
+cwd: /tmp/vazir-checkpoint-fallback-eoctIA
+options:
+  - 1 hour ago · Checkpoint
+  - 2 hours ago · Restored checkpoint
+
+Long JJ History
+cwd: /tmp/vazir-checkpoint-long-history-zvMUlX
+optionCount: 12
+first: 1 hour ago · Checkpoint
+last: 12 hours ago · Checkpoint
+
+Recency Ordering
+cwd: /tmp/vazir-checkpoint-recency-order-AoFoXS
+options:
+  - 1 minute ago · Checkpoint
+  - 2 minutes ago · Older labeled checkpoint
+  - 3 minutes ago · Restored checkpoint
+  - 4 minutes ago · Checkpoint
+
+Skip Current Snapshot
+cwd: /tmp/vazir-checkpoint-skip-current-snapshot-wNlU9M
+options:
+  - 2 minutes ago · Restored checkpoint
+  - 4 minutes ago · Good previous checkpoint
+
+Saved JJ Label
+cwd: /tmp/vazir-checkpoint-save-PYGrCl
+savedLabel: Make retry labels readable

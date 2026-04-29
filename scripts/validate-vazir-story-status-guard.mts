@@ -1,11 +1,9 @@
 import os from "node:os";
 import path from "node:path";
 import * as fs from "node:fs";
-import { pathToFileURL } from "node:url";
-import { cleanupStubModules, installCommonPiStubs, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
+import { cleanupStubModules, installCommonPiStubs, loadExtensionModule, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
 
-const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-context", "index.ts");
-const extensionModule = await import(pathToFileURL(extensionPath).href);
+const extensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context");
 const register = extensionModule.default;
 const stubModuleDirs = installCommonPiStubs();
 

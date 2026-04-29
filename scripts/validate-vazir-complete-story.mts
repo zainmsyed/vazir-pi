@@ -1,39 +1,13 @@
 import { createRequire } from "node:module";
 import os from "node:os";
-import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import * as path from "node:path";
+import { assert, cleanupStubModules, installCommonPiStubs, loadExtensionModule, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
-const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const stubModuleDirs = installCommonPiStubs();
 
-function ensureStubModule(moduleName: string, content: string): string | null {
-  const moduleDir = path.join(repoRoot, "node_modules", ...moduleName.split("/"));
-  if (fs.existsSync(moduleDir)) {
-    return null;
-  }
-
-  fs.mkdirSync(moduleDir, { recursive: true });
-  fs.writeFileSync(path.join(moduleDir, "package.json"), JSON.stringify({ name: moduleName, type: "commonjs" }, null, 2));
-  fs.writeFileSync(path.join(moduleDir, "index.js"), content);
-  return moduleDir;
-}
-
-ensureStubModule("@mariozechner/pi-tui", [
-  "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape' };",
-  "exports.matchesKey = (data, key) => data === key;",
-  "exports.Container = class {};",
-  "exports.Text = class {};",
-  "",
-].join("\n"));
-
-ensureStubModule("@mariozechner/pi-coding-agent", [
-  "exports.DynamicBorder = class {};",
-  "",
-].join("\n"));
-
-const extensionPath = path.join(repoRoot, ".pi", "extensions", "vazir-context", "index.ts");
-const extensionModule = await import(pathToFileURL(extensionPath).href);
+const extensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context");
 const register = extensionModule.default;
 
 type Notification = { message: string; level: string };
@@ -43,10 +17,6 @@ type InternalMessage = {
   message: { customType: string; content: string; display: boolean; details?: unknown };
   options?: unknown;
 };
-
-function assert(condition: boolean, message: string): void {
-  if (!condition) throw new Error(message);
-}
 
 function createProject(prefix: string): string {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -109,42 +79,16 @@ function writeStory(
 }
 
 function makePi() {
-  const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
-  const eventHandlers = new Map<string, Array<(event: any, ctx: any) => Promise<any>>>();
-  const sentUserMessages: Array<{ message: string; options?: unknown }> = [];
-  const sentInternalMessages: InternalMessage[] = [];
-
-  const pi = {
-    on(name: string, handler: (event: any, ctx: any) => Promise<any>) {
-      const handlers = eventHandlers.get(name) ?? [];
-      handlers.push(handler);
-      eventHandlers.set(name, handlers);
-    },
-    registerCommand(name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) {
-      commands.set(name, definition);
-    },
-    async sendUserMessage(message: string, options?: unknown) {
-      sentUserMessages.push({ message, options });
-    },
-    sendMessage(message: InternalMessage["message"], options?: unknown) {
-      sentInternalMessages.push({ message, options });
-    },
-  };
-
-  register(pi as any);
-
-  const completeStory = commands.get("complete-story");
+  const harness = createPiHarness([register]);
+  const completeStory = harness.getCommand("complete-story");
   assert(Boolean(completeStory), "complete-story command was not registered");
 
   return {
     completeStory: completeStory!,
-    sentInternalMessages,
-    sentUserMessages,
+    sentInternalMessages: harness.sentInternalMessages,
+    sentUserMessages: harness.sentMessages.map(entry => String(entry.message)),
     async emit(name: string, event: any, ctx: any) {
-      const handlers = eventHandlers.get(name) ?? [];
-      for (const handler of handlers) {
-        await handler(event, ctx);
-      }
+      await harness.emit(name, event, ctx);
     },
   };
 }
@@ -315,7 +259,7 @@ async function runReviewGatedScenario() {
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "selecting remediation should keep the story open");
   assert(customCalls.length === 1, "review-gated closeout should allow opening the review document and returning to the choices");
   assert(customCalls[0].title.includes(path.basename(reviewPath)), "review document viewer should show the review file title");
-  assert(harness.sentInternalMessages.length === 2, "review-gated closeout should queue a remediation turn after the user selects a fix path");
+  assert((harness.sentInternalMessages.length as number) === 2, "review-gated closeout should queue a remediation turn after the user selects a fix path");
   assert(harness.sentInternalMessages[1].message.content.includes("Only work the unchecked items marked `high` or `critical`"), "review-gated closeout should support high-priority-only remediation");
   assert(harness.sentInternalMessages[1].message.content.includes("high: Add a local error boundary around the login form"), "review-gated closeout should target the high-priority checklist item");
 
@@ -469,39 +413,43 @@ async function runKeepWorkingScenario() {
   return { cwd, notifications, selectCalls };
 }
 
-const reviewGated = await runReviewGatedScenario();
-const restartedReviewCloseout = await runRestartedReviewCloseoutScenario();
-const readyClose = await runReadyCloseScenario();
-const keepWorking = await runKeepWorkingScenario();
+try {
+  const reviewGated = await runReviewGatedScenario();
+  const restartedReviewCloseout = await runRestartedReviewCloseoutScenario();
+  const readyClose = await runReadyCloseScenario();
+  const keepWorking = await runKeepWorkingScenario();
 
-console.log("Review Gated Closeout");
-console.log(`cwd: ${reviewGated.cwd}`);
-console.log("notifications:");
-for (const note of reviewGated.notifications) {
-  console.log(`  - [${note.level}] ${note.message}`);
-}
-console.log("reviewFiles:");
-for (const file of reviewGated.reviewFiles) {
-  console.log(`  - ${file}`);
-}
+  console.log("Review Gated Closeout");
+  console.log(`cwd: ${reviewGated.cwd}`);
+  console.log("notifications:");
+  for (const note of reviewGated.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+  console.log("reviewFiles:");
+  for (const file of reviewGated.reviewFiles) {
+    console.log(`  - ${file}`);
+  }
 
-console.log("Restarted Review Closeout");
-console.log(`cwd: ${restartedReviewCloseout.cwd}`);
-console.log("notifications:");
-for (const note of restartedReviewCloseout.notifications) {
-  console.log(`  - [${note.level}] ${note.message}`);
-}
+  console.log("Restarted Review Closeout");
+  console.log(`cwd: ${restartedReviewCloseout.cwd}`);
+  console.log("notifications:");
+  for (const note of restartedReviewCloseout.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
 
-console.log("Ready Closeout");
-console.log(`cwd: ${readyClose.cwd}`);
-console.log("notifications:");
-for (const note of readyClose.notifications) {
-  console.log(`  - [${note.level}] ${note.message}`);
-}
+  console.log("Ready Closeout");
+  console.log(`cwd: ${readyClose.cwd}`);
+  console.log("notifications:");
+  for (const note of readyClose.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
 
-console.log("Keep Working Closeout");
-console.log(`cwd: ${keepWorking.cwd}`);
-console.log("notifications:");
-for (const note of keepWorking.notifications) {
-  console.log(`  - [${note.level}] ${note.message}`);
+  console.log("Keep Working Closeout");
+  console.log(`cwd: ${keepWorking.cwd}`);
+  console.log("notifications:");
+  for (const note of keepWorking.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+} finally {
+  cleanupStubModules(stubModuleDirs);
 }

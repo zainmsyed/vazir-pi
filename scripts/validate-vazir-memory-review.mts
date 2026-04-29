@@ -1,28 +1,16 @@
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { assert, loadExtensionModule, makePi as createPiHarness } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
-
-const extensionPath = path.join(
-  path.dirname(path.dirname(fileURLToPath(import.meta.url))),
-  ".pi",
-  "extensions",
-  "vazir-context",
-  "index.ts",
-);
-const extensionModule = await import(pathToFileURL(extensionPath).href);
+const extensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context");
 const register = extensionModule.default;
 
 type Notification = { message: string; level: string };
 type SelectCall = { prompt: string; options: string[] };
 type ConfirmCall = { prompt: string; detail: string };
-
-function assert(condition: boolean, message: string): void {
-  if (!condition) throw new Error(message);
-}
 
 function writeStory(
   cwd: string,
@@ -168,18 +156,8 @@ function createProject(prefix: string): string {
 }
 
 function makePi() {
-  const commands = new Map<string, { handler: (args: string, ctx: any) => Promise<void> }>();
-
-  const pi = {
-    on() {},
-    registerCommand(name: string, definition: { handler: (args: string, ctx: any) => Promise<void> }) {
-      commands.set(name, definition);
-    },
-    async sendUserMessage() {},
-  };
-
-  register(pi as any);
-  const memoryReview = commands.get("memory-review");
+  const harness = createPiHarness([register]);
+  const memoryReview = harness.getCommand("memory-review");
   assert(Boolean(memoryReview), "memory-review command was not registered");
 
   return { memoryReview: memoryReview! };
