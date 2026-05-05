@@ -42,13 +42,6 @@ import {
   viewSelectedStoryOrPlan,
 } from "./chrome.ts";
 import {
-  brandPath,
-  componentsPath,
-  designSystemPath,
-  hasUiTypeOverride,
-  isUiStory,
-} from "../vazir-context/helpers.ts";
-import {
   autoDescribeCurrentJjChange,
   type CheckpointMeta,
   checkpointLabel,
@@ -74,10 +67,6 @@ let lastUserPrompt = "";
 let useJJ = false;
 let hasGitRepo = false;
 let currentSessionId = "";
-
-export function normalizeTrackerInputText(text: string): string {
-  return text.trim() === "/impliment" ? "/implement" : text;
-}
 
 // ── Story issue helpers ────────────────────────────────────────────────
 
@@ -175,132 +164,7 @@ async function resolveStoryForFix(
   return { story: selected, reason: "resolved" };
 }
 
-function cwdFromStoryPath(storyPath: string): string {
-  const marker = `${path.sep}.context${path.sep}stories${path.sep}`;
-  const index = storyPath.indexOf(marker);
-  if (index >= 0) return storyPath.slice(0, index);
-  return process.cwd();
-}
-
-function designSystemHasGaps(content: string): boolean {
-  const stripped = content.replace(/<!--[^>]*-->/g, "").trim();
-  return !stripped || stripped.includes("—");
-}
-
-function buildImplementStoryInstruction(storyPath: string): string {
-  const storyLabel = path.basename(storyPath, ".md");
-  const cwd = cwdFromStoryPath(storyPath);
-  const isUi = hasUiTypeOverride(storyPath) || isUiStory(storyPath);
-  const designSystem = isUi ? readIfExists(designSystemPath(cwd)) : "";
-  const hasDesignGaps = isUi && designSystemHasGaps(designSystem);
-  const instructions = [
-    `Implement the in-progress story in .context/stories/${storyLabel}.md.`,
-    "",
-    "Your job:",
-    "1. Read the story goal, verification, scope, checklist, issues, and completion summary.",
-    "2. Make the code and content changes needed to satisfy the story checklist.",
-    "3. Stay inside the story scope unless you need explicit approval for an exception.",
-    "4. Update the checklist as you complete items.",
-    "5. If you hit blockers, record them in the Issues section instead of pretending the work is done.",
-    "6. If the implementation is complete but the summary is weak or missing, write a useful Completion Summary.",
-  ];
-
-  if (isUi) {
-    instructions.push(
-      `7. If this is a UI story, read \`${path.relative(cwd, brandPath(cwd)).replace(/\\/g, "/")}\` and \`${path.relative(cwd, componentsPath(cwd)).replace(/\\/g, "/")}\` before writing component code.`,
-    );
-    if (hasDesignGaps) {
-      instructions.push(
-        "8. If `.context/design/design-system.md` is empty or contains `—` placeholders, before writing UI code pause and ask the standard design gap questions in one batch: primary colour, font, visual style (minimal/playful/dense/data-heavy), and hard constraints (dark mode only, no external font CDN, etc.). Ask only for gaps that are still missing.",
-        `9. After the user answers, fill the gaps in ${path.relative(cwd, designSystemPath(cwd)).replace(/\\/g, "/")} and ${path.relative(cwd, brandPath(cwd)).replace(/\\/g, "/")} before implementing. Mark filled fields with \`<!-- source: ${storyLabel} -->\`.`,
-        "10. Do not mark the story complete. Vazir will handle the final /complete-story closeout after implementation.",
-        "11. Report what changed and whether the story is ready for /complete-story.",
-      );
-    } else {
-      instructions.push(
-        "8. Do not mark the story complete. Vazir will handle the final /complete-story closeout after implementation.",
-        "9. Report what changed and whether the story is ready for /complete-story.",
-      );
-    }
-  } else {
-    instructions.push(
-      "7. Do not mark the story complete. Vazir will handle the final /complete-story closeout after implementation.",
-      "8. Report what changed and whether the story is ready for /complete-story.",
-    );
-  }
-
-  return instructions.join("\n");
-}
-
-function implementStoryPickerLabel(cwd: string, storyFile: string): string {
-  const pickerChoice = storyPickerChoices(cwd).find(choice => choice.kind === "story" && choice.file === storyFile);
-  if (!pickerChoice) {
-    return path.basename(storyFile, ".md");
-  }
-
-  return pickerChoice.label;
-}
-
-function implementStoryStartLabel(cwd: string, storyFile: string): string {
-  const pickerChoice = implementStoryPickerLabel(cwd, storyFile);
-  const labelParts = pickerChoice.split(" — ");
-  const storyNumber = labelParts[0]?.replace(/^story-/, "story ") || path.basename(storyFile, ".md");
-  const titleAndAge = labelParts.slice(2).join(" — ");
-  return titleAndAge ? `Start ${storyNumber} — ${titleAndAge}` : `Start ${storyNumber}`;
-}
-
-async function resolveStoryForImplementation(
-  cwd: string,
-  ui: { select: (prompt: string, choices: string[]) => Promise<string | undefined> },
-): Promise<StoryFrontmatter | null> {
-  const active = findActiveStory(cwd);
-  if (active) return active;
-
-  const candidates = nonTerminalStories(cwd)
-    .filter(story => story.status === "in-progress" || story.status === "not-started")
-    .sort((left, right) => left.number - right.number);
-  const firstStory = candidates[0];
-  const startNextStoryLabel = firstStory
-    ? implementStoryStartLabel(cwd, firstStory.file)
-    : "Start story — begin the earliest open story";
-  const pickStoryLabel = "Pick story — choose an existing story to implement";
-
-  const choice = await ui.select("No in-progress story found. What would you like to do?", [
-    pickStoryLabel,
-    startNextStoryLabel,
-    "Cancel",
-  ]);
-
-  if (!choice || choice === "Cancel") return null;
-
-  if (choice === startNextStoryLabel) {
-    if (!firstStory) return null;
-
-    const now = todayDate();
-    updateStoryFrontmatter(firstStory.file, { status: "in-progress", lastAccessed: now });
-    return { ...firstStory, status: "in-progress", lastAccessed: now };
-  }
-
-  if (choice !== pickStoryLabel || candidates.length === 0) {
-    return null;
-  }
-
-  const labels = candidates.map(story => implementStoryPickerLabel(cwd, story.file));
-  const pick = await ui.select("Which story should /implement use?", [...labels, "Cancel"]);
-  if (!pick || pick === "Cancel") return null;
-
-  const selectedIndex = labels.indexOf(pick);
-  if (selectedIndex < 0) return null;
-
-  const selected = candidates[selectedIndex];
-  if (selected.status === "not-started") {
-    const now = todayDate();
-    updateStoryFrontmatter(selected.file, { status: "in-progress", lastAccessed: now });
-    return { ...selected, status: "in-progress", lastAccessed: now };
-  }
-
-  return selected;
-}
+// ── VCS refresh (callable by other extensions post-init) ─────────────
 
 export function refreshVcsState(cwd: string): void {
   hasGitRepo = detectGitRepo(cwd);
@@ -315,10 +179,6 @@ export function refreshVcsState(cwd: string): void {
 
 export default function (pi: ExtensionAPI) {
   pi.on("input", async (event: { text?: string }) => {
-    if (event.text?.trim() === "/impliment") {
-      event.text = normalizeTrackerInputText(event.text);
-    }
-
     if (event.text?.trim() && !event.text.startsWith("/")) {
       lastUserPrompt = event.text.trim();
     }
@@ -741,31 +601,6 @@ export default function (pi: ExtensionAPI) {
 
       await pi.sendUserMessage(instruction);
     },
-  });
-
-  // ── /implement ──────────────────────────────────────────────────────
-
-  const implementStoryHandler = async (_args: string, ctx: { cwd: string; ui: any }) => {
-    const cwd = ctx.cwd;
-    const story = await resolveStoryForImplementation(cwd, ctx.ui);
-
-    if (!story) {
-      ctx.ui.notify("No in-progress story is available to implement.", "info");
-      return;
-    }
-
-    updateStoryFrontmatter(story.file, { lastAccessed: todayDate() });
-    invalidateStoryProgressCache(cwd);
-    refreshWidgets();
-
-    const storyLabel = path.basename(story.file, ".md");
-    ctx.ui.notify(`Implementing ${storyLabel}`, "info");
-    await pi.sendUserMessage(buildImplementStoryInstruction(story.file));
-  };
-
-  pi.registerCommand("implement", {
-    description: "Implement the active in-progress story and report whether it is ready for closeout",
-    handler: implementStoryHandler,
   });
 
   // ── /checkpoint and /reset ────────────────────────────────────────────

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-cli/fallow/main/fallow.schema.json",
+  "entry": [
+    "scripts/run-validations.mts",
+    "scripts/validate-*.mts"
+  ],
+  "ignorePatterns": [
+    ".context/archive/**"
+  ],
+  "duplicates": {
+    "ignore": ["scripts/**"]
+  },
+  "health": {
+    "ignore": ["scripts/**"]
+  }
+}

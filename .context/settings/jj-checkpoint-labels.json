@@ -1,6 +1,7 @@
 {
   "labels": {
     "44165894": "please commit and push the gitignore file? also check it to see if there is anyt",
+    "63415714": "No — based on the /plan instructions I found, I was not explicitly required to c",
     "d2371bae": "please remove .context from the commit history and repo. this is a repo only i u",
     "8fbbd22a": "please remove .context from the commit history and repo. this is a repo only i u",
     "398b9562": "please commit and push the gitignore file? also check it to see if there is anyt",
@@ -23,6 +24,28 @@
     "ba2bf562": "ok lets take a look at /home/zain/Documents/coding/vazir-pi/.context/intake/prd/",
     "d53afafe": "ok take a look at the updates to the same file based on your rec",
     "d33cc521": "The user wants to plan their project.\nNo story files are pre-seeded in .context/",
-    "fa51f9e5": "lets create a new branch and commit and push to that. did you already push?"
+    "fa51f9e5": "lets create a new branch and commit and push to that. did you already push?",
+    "3f1c7886": "ah ok that makes sense lets remove it from gitignore and create a new branch for",
+    "1e6f9404": "Implement the in-progress story in .context/stories/story-001.md.\n\nYour job:\n1. ",
+    "cf4abbcd": "Implement the in-progress story in .context/stories/story-001.md.\n\nYour job:\n1. ",
+    "64cb5e35": "Implement the in-progress story in .context/stories/story-001.md.\n\nYour job:\n1. ",
+    "282ebe57": "Implement the in-progress story in .context/stories/story-001.md.\n\nYour job:\n1. ",
+    "ed68fa19": "Implement the in-progress story in .context/stories/story-001.md.\n\nYour job:\n1. ",
+    "3ba166f7": "Implement the in-progress story in .context/stories/story-001.md.\n\nYour job:\n1. ",
+    "68bfcc3e": "did fallow run on that last code review?",
+    "2c3a0f12": "ummm it def is check the vazir files",
+    "3c2543a2": "it should always run when code reviews run. even in the /complete stry review is",
+    "81e14b1e": "it should always run when code reviews run. even in the /complete stry review is",
+    "e32d5927": "check our commit history and see where we lost the fallow install on vazir init ",
+    "34bd07e8": "Complete the Vazir bootstrap context drafting using the currently selected Pi mo",
+    "39083bb9": "Run a code review and write the results to .context/reviews/review-20260505-2217",
+    "e4e24201": "Run a code review and write the results to .context/reviews/review-20260505-2217",
+    "c6bb1cb6": "Run a code review and write the results to .context/reviews/review-20260505-2217",
+    "1fbd807a": "i saw fallow ran right",
+    "c089cca5": "Implement the in-progress story in .context/stories/story-002.md.\n\nYour job:\n1. ",
+    "edea90d1": "Implement the in-progress story in .context/stories/story-002.md.\n\nYour job:\n1. ",
+    "5c6bb54a": "No — based on the /plan instructions I found, I was not explicitly required to c",
+    "3ba204c4": "No — based on the /plan instructions I found, I was not explicitly required to c",
+    "71a13da5": "commit and push please"
   }
 }

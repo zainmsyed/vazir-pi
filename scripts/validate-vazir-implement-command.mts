@@ -22,13 +22,22 @@ function createProject(prefix: string): string {
   return cwd;
 }
 
-function writeStory(cwd: string, number: number, status: string, lastAccessed: string, completed = "—", title = "Example"): string {
+function writeStory(
+  cwd: string,
+  number: number,
+  status: string,
+  lastAccessed: string,
+  completed = "—",
+  title = "Example",
+  options: { scopeFile?: string; type?: "ui" } = {},
+): string {
   const filePath = path.join(cwd, ".context", "stories", `story-${String(number).padStart(3, "0")}.md`);
   fs.writeFileSync(
     filePath,
     [
       `# Story ${String(number).padStart(3, "0")}: ${title}`,
       "",
+      ...(options.type ? [`**Type:** ${options.type}  `] : []),
       `**Status:** ${status}  `,
       "**Created:** 2026-03-25  ",
       `**Last accessed:** ${lastAccessed}  `,
@@ -43,7 +52,7 @@ function writeStory(cwd: string, number: number, status: string, lastAccessed: s
       "Run the corresponding command and confirm the workflow opens.",
       "",
       "## Scope — files this story may touch",
-      "- src/example.ts",
+      `- ${options.scopeFile ?? "src/example.ts"}`,
       "",
       "## Out of scope — do not touch",
       "- src/other.ts",
@@ -67,6 +76,14 @@ function writeStory(cwd: string, number: number, status: string, lastAccessed: s
     ].join("\n"),
   );
   return filePath;
+}
+
+function writeDesignFiles(cwd: string, designSystem: string): void {
+  const designDir = path.join(cwd, ".context", "design");
+  fs.mkdirSync(designDir, { recursive: true });
+  fs.writeFileSync(path.join(designDir, "design-system.md"), designSystem);
+  fs.writeFileSync(path.join(designDir, "brand.md"), "# Brand\n\n- Voice: concise\n");
+  fs.writeFileSync(path.join(designDir, "components.md"), "# Components\n\n- Buttons: standard\n");
 }
 
 function makePi() {
@@ -186,6 +203,41 @@ async function runPickStoryScenario() {
   return { cwd, notifications };
 }
 
+async function runUiDesignInstructionScenario() {
+  const cwd = createProject("vazir-implement-ui-design-");
+  writeDesignFiles(cwd, "# Design System\n\n## Colours\n- Primary: —\n");
+  const notifications: Notification[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications);
+  writeStory(cwd, 2, "in-progress", "2026-04-22", "—", "Build dashboard card", { scopeFile: "src/DashboardCard.tsx" });
+
+  await harness.implement.handler("", ctx);
+
+  const message = String(harness.sentMessages[0]?.message ?? "");
+  assert(message.includes("`.context/design/brand.md`") && message.includes("`.context/design/components.md`"), "UI implement instruction should require reading brand and components files");
+  assert(message.includes("primary colour") && message.includes("font") && message.includes("visual style") && message.includes("hard constraints"), "UI implement instruction should include the four lazy design gap questions when design-system has placeholders");
+  assert(message.includes("<!-- source: story-002 -->"), "UI implement instruction should require source markers for filled design fields");
+
+  return { cwd, notifications };
+}
+
+async function runNonUiDesignOmissionScenario() {
+  const cwd = createProject("vazir-implement-non-ui-design-");
+  writeDesignFiles(cwd, "# Design System\n\n## Colours\n- Primary: —\n");
+  const notifications: Notification[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications);
+  writeStory(cwd, 2, "in-progress", "2026-04-22", "—", "Add API route", { scopeFile: "src/route.ts" });
+
+  await harness.implement.handler("", ctx);
+
+  const message = String(harness.sentMessages[0]?.message ?? "");
+  assert(!message.includes(".context/design/brand.md"), "non-UI implement instruction should not mention brand.md");
+  assert(!message.includes("primary colour"), "non-UI implement instruction should not ask lazy design questions");
+
+  return { cwd, notifications };
+}
+
 async function runActiveStoryScenario() {
   const cwd = createProject("vazir-implement-active-story-");
   const notifications: Notification[] = [];
@@ -211,6 +263,8 @@ async function runActiveStoryScenario() {
 
 const startNextStory = await runStartNextStoryScenario();
 const pickStory = await runPickStoryScenario();
+const uiDesignInstruction = await runUiDesignInstructionScenario();
+const nonUiDesignOmission = await runNonUiDesignOmissionScenario();
 const activeStory = await runActiveStoryScenario();
 
 console.log("Start Next Story Scenario");
@@ -222,6 +276,18 @@ console.log("");
 console.log("Pick Story Scenario");
 console.log(`cwd: ${pickStory.cwd}`);
 for (const note of pickStory.notifications) {
+  console.log(`  - [${note.level}] ${note.message}`);
+}
+console.log("");
+console.log("UI Design Instruction Scenario");
+console.log(`cwd: ${uiDesignInstruction.cwd}`);
+for (const note of uiDesignInstruction.notifications) {
+  console.log(`  - [${note.level}] ${note.message}`);
+}
+console.log("");
+console.log("Non-UI Design Omission Scenario");
+console.log(`cwd: ${nonUiDesignOmission.cwd}`);
+for (const note of nonUiDesignOmission.notifications) {
   console.log(`  - [${note.level}] ${note.message}`);
 }
 console.log("");

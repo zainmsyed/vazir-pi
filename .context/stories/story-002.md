@@ -1,9 +1,9 @@
 # Story 002: Design context injection and lazy first-UI-story questions
 
-**Status:** not-started  
+**Status:** complete  
 **Created:** 2026-05-05  
 **Last accessed:** 2026-05-05  
-**Completed:** —
+**Completed:** 2026-05-05
 
 ---
 
@@ -28,13 +28,13 @@ Start a UI story (`.tsx` scope or `Type: ui`) — the injected system prompt con
 ---
 
 ## Checklist
-- [ ] Update `before_agent_start` in vazir-context/index.ts to detect active story UI status via helpers from story-001
-- [ ] If UI story, read `design-system.md` and append it to the injected context alongside context-map.md and system.md
-- [ ] Ensure `brand.md` and `components.md` are NOT injected per-turn; instead, update `buildImplementStoryInstruction()` in vazir-tracker/index.ts to tell the agent to read them at story start
-- [ ] Update `buildImplementStoryInstruction()` to include: "If this is a UI story, read `.context/design/brand.md` and `.context/design/components.md` before writing component code"
-- [ ] Add lazy-question logic: if `design-system.md` is empty or contains `—` placeholders, the implement instruction tells the agent to pause and ask the four standard gap questions (primary colour, font, visual style, hard constraints)
-- [ ] After user answers, the agent fills gaps in `design-system.md` and `brand.md` and marks fields with `<!-- source: story-NNN -->`
-- [ ] Confirm non-UI stories skip all design injection and questioning
+- [x] Update `before_agent_start` in vazir-context/index.ts to detect active story UI status via helpers from story-001
+- [x] If UI story, read `design-system.md` and append it to the injected context alongside context-map.md and system.md
+- [x] Ensure `brand.md` and `components.md` are NOT injected per-turn; instead, update `buildImplementStoryInstruction()` in vazir-tracker/index.ts to tell the agent to read them at story start
+- [x] Update `buildImplementStoryInstruction()` to include: "If this is a UI story, read `.context/design/brand.md` and `.context/design/components.md` before writing component code"
+- [x] Add lazy-question logic: if `design-system.md` is empty or contains `—` placeholders, the implement instruction tells the agent to pause and ask the four standard gap questions (primary colour, font, visual style, hard constraints)
+- [x] After user answers, the agent fills gaps in `design-system.md` and `brand.md` and marks fields with `<!-- source: story-NNN -->`
+- [x] Confirm non-UI stories skip all design injection and questioning
 
 ---
 
@@ -43,4 +43,10 @@ Start a UI story (`.tsx` scope or `Type: ui`) — the injected system prompt con
 ---
 
 ## Completion Summary
+Implemented UI-only design context injection and lazy design-question instructions.
+
+- `before_agent_start` now checks the active story with the UI story helpers and injects `.context/design/design-system.md` only for UI stories.
+- `/implement` now tells agents on UI stories to read `.context/design/brand.md` and `.context/design/components.md` before component work, without injecting those files every turn.
+- `/implement` now detects empty/incomplete `design-system.md` content and instructs agents to ask the standard design gap questions, then fill `design-system.md` and `brand.md` with story source markers before implementing.
+- Non-UI stories keep the existing implementation instruction path and skip design injection/questioning.
 

@@ -25,7 +25,6 @@ import {
   appendLearnedRules,
   applyLocalRuleDedupe,
   assessStoryCompletionReadiness,
-  brandPath,
   buildConsolidationInstruction,
   buildContextMapDraftInstruction,
   buildInitSummary,
@@ -33,21 +32,15 @@ import {
   buildRememberInstruction,
   buildReviewInstruction,
   clearLegacyPendingLearnings,
-  componentsPath,
   contextMapPath,
   createReviewDraft,
-  designDir,
-  designSystemPath,
   formatReviewFindingSummary,
   formatReviewRecommendedFixSummary,
-  hasUiTypeOverride,
-  isUiStory,
   parseReviewFrontmatter,
   reviewFindingsFromFile,
   reviewRecommendedFixesFromFile,
   reviewOtherFixesFromFile,
   reviewRecommendedFixesFromFindings,
-  reviewDetailFiles,
   activeStoryLabelForManualReview,
   defaultReviewFocus,
   defaultStoryLabelForReview,
@@ -65,7 +58,6 @@ import {
   intakeReadmePath,
   learnedRulesFromMd,
   listIntakeFiles,
-  listPlanIntakeFiles,
   manualReviewStoryChoiceLabel,
   malformedStoryFiles,
   memoryDir,
@@ -82,10 +74,6 @@ import {
   reviewSummaryPath,
   REMEMBERED_RULES_TEMPLATE,
   REVIEW_SUMMARY_TEMPLATE,
-  seedDesignFromIntake,
-  DESIGN_SYSTEM_TEMPLATE,
-  BRAND_TEMPLATE,
-  COMPONENTS_TEMPLATE,
   selectableStoriesForManualReview,
   settingsDir,
   snapshotStoryFrontmatter,
@@ -149,28 +137,13 @@ const AGENTS_MD_TEMPLATE = [
 
 const JJ_DOCS_URL = "https://www.jj-vcs.dev/latest/install-and-setup/";
 const JJ_OVERVIEW_URL = "https://www.jj-vcs.dev/latest/";
-const FALLOW_INSTALL_COMMAND = "npm install -D fallow";
-const FALLOW_MAX_PROMPT_ISSUES = 12;
-
-type FallowAuditVerdict = "pass" | "warn" | "fail";
-type FallowAuditIssue = { rule: string; location: string; summary: string };
-type FallowAuditResult = { summaryLine: string; promptPrefix: string };
-type GitAuditScope =
-  | { mode: "base"; files: string[] }
-  | { mode: "initial"; files: string[] }
-  | { mode: "unavailable" };
 
 let lastUserPrompt = "";
 let useJJ = false;
 let pendingInitSummary: string | null = null;
 const storyFrontmatterSnapshots = new Map<string, Map<string, { status: string; completed: string }>>();
-type PendingCompleteStoryRequest = { storyFile: string; reviewFile?: string; reviewCloseoutReady?: boolean };
-type PendingManualReviewRequest = { reviewFile: string; reviewCloseoutReady?: boolean };
-const pendingCompleteStoryRequests = new Map<string, PendingCompleteStoryRequest>();
-const pendingManualReviewRequests = new Map<string, PendingManualReviewRequest>();
-const missingFallowNoticeShown = new Set<string>();
+const pendingCompleteStoryRequests = new Map<string, { storyFile: string; reviewFile?: string }>();
 type ManualReviewScope = "story" | "whole-codebase";
-type ReviewCloseoutTarget = "story" | "review";
 const INTERNAL_AGENT_MESSAGE_TYPE = "vazir-internal-request";
 
 export default function (pi: ExtensionAPI) {
@@ -187,328 +160,6 @@ export default function (pi: ExtensionAPI) {
 
   function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
-
-  function fallowBinaryPath(cwd: string): string {
-    return path.join(cwd, "node_modules", ".bin", process.platform === "win32" ? "fallow.cmd" : "fallow");
-  }
-
-  function fallowNotRun(reason: string): FallowAuditResult {
-    return {
-      summaryLine: `not run (${reason})`,
-      promptPrefix: "",
-    };
-  }
-
-  function pickString(...values: unknown[]): string | null {
-    for (const value of values) {
-      if (typeof value === "string" && value.trim()) return value.trim();
-    }
-    return null;
-  }
-
-  function pickNumber(...values: unknown[]): number | null {
-    for (const value of values) {
-      if (typeof value === "number" && Number.isFinite(value)) return value;
-      if (typeof value === "string" && value.trim()) {
-        const parsed = Number(value);
-        if (Number.isFinite(parsed)) return parsed;
-      }
-    }
-    return null;
-  }
-
-  function maybeNotifyMissingFallow(ctx: any, cwd: string): void {
-    if (missingFallowNoticeShown.has(cwd)) return;
-    missingFallowNoticeShown.add(cwd);
-    ctx.ui.notify(`Fallow not found — running LLM-only review. Install with: ${FALLOW_INSTALL_COMMAND}`, "info");
-  }
-
-  async function maybePromptForFallowInstall(ctx: any, cwd: string): Promise<void> {
-    if (fs.existsSync(fallowBinaryPath(cwd)) || typeof ctx.ui?.select !== "function") return;
-
-    const choice = await ctx.ui.select(
-      "Install Fallow for Vazir's optional /review static-analysis pre-pass?",
-      [
-        "Yes — install Fallow",
-        "No — skip Fallow",
-      ],
-    );
-
-    if (choice !== "Yes — install Fallow") return;
-
-    try {
-      childProcess.execFileSync("npm", ["install", "-D", "fallow"], { cwd, stdio: "pipe" });
-      missingFallowNoticeShown.delete(cwd);
-      ctx.ui.notify("Fallow installed for /review static analysis. For manual CLI use, run: npx fallow", "info");
-    } catch (error: any) {
-      ctx.ui.notify(`Fallow install failed: ${error?.message || String(error)}. /review will continue without it.`, "warning");
-    }
-  }
-
-  function listGitVisibleFiles(cwd: string): string[] {
-    try {
-      const output = childProcess.execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
-        cwd,
-        encoding: "utf-8",
-        stdio: "pipe",
-      });
-      return Array.from(new Set(
-        output
-          .split("\n")
-          .map(line => line.trim())
-          .filter(Boolean)
-          .filter(file => fs.existsSync(path.join(cwd, file))),
-      ));
-    } catch {
-      return [];
-    }
-  }
-
-  function collectGitAuditScope(cwd: string): GitAuditScope {
-    try {
-      const output = childProcess.execFileSync("git", ["diff", "--name-only", "--diff-filter=ACMR", "HEAD~1"], {
-        cwd,
-        encoding: "utf-8",
-        stdio: "pipe",
-      });
-      const files = Array.from(new Set(
-        output
-          .split("\n")
-          .map(line => line.trim())
-          .filter(Boolean)
-          .filter(file => fs.existsSync(path.join(cwd, file))),
-      ));
-      return { mode: "base", files };
-    } catch {
-      const initialFiles = listGitVisibleFiles(cwd);
-      if (initialFiles.length > 0) return { mode: "initial", files: initialFiles };
-      return { mode: "unavailable" };
-    }
-  }
-
-  function collectJjAuditFiles(cwd: string): string[] | null {
-    try {
-      const output = childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8", stdio: "pipe" });
-      const files = output
-        .split("\n")
-        .map(line => line.match(/^\s*(.+?)\s+\|/)?.[1]?.trim() ?? "")
-        .filter(Boolean)
-        .filter(file => fs.existsSync(path.join(cwd, file)));
-      return Array.from(new Set(files));
-    } catch {
-      return null;
-    }
-  }
-
-  function normalizeFallowRule(sectionName: string, key: string): string {
-    if (sectionName === "duplication") return "duplication";
-    if (sectionName === "complexity") return "complexity";
-    return key.replace(/_/g, "-");
-  }
-
-  function formatLocation(value: unknown): string | null {
-    if (typeof value === "string" && value.trim()) return value.trim();
-    if (!value || typeof value !== "object") return null;
-
-    const entry = value as Record<string, unknown>;
-    const file = pickString(
-      entry.file,
-      entry.path,
-      entry.relative_path,
-      entry.relativePath,
-      entry.module,
-      entry.source_path,
-      entry.sourcePath,
-    );
-    const line = pickNumber(entry.line, entry.start_line, entry.startLine, entry.line_number, entry.lineNumber);
-    const column = pickNumber(entry.column, entry.start_column, entry.startColumn, entry.column_number, entry.columnNumber);
-
-    if (file) return line == null ? file : `${file}:${line}${column == null ? "" : `:${column}`}`;
-
-    const locations = [entry.files, entry.paths, entry.locations, entry.occurrences]
-      .filter(Array.isArray)
-      .flatMap(group => (group as unknown[]).map(item => formatLocation(item)).filter(Boolean) as string[]);
-    if (locations.length > 0) return locations.slice(0, 2).join(" ↔ ");
-
-    return pickString(entry.name, entry.symbol, entry.export, entry.id);
-  }
-
-  function formatIssueSummary(rule: string, entry: Record<string, unknown>): string {
-    const direct = pickString(entry.message, entry.summary, entry.reason, entry.description, entry.details, entry.title);
-    if (direct) return direct;
-
-    const symbol = pickString(entry.symbol, entry.name, entry.export, entry.function, entry.function_name, entry.functionName);
-    const score = pickNumber(entry.score, entry.cyclomatic, entry.cyclomatic_score, entry.cyclomaticScore, entry.complexity);
-
-    if (rule === "complexity") {
-      if (symbol && score != null) return `function ${symbol} exceeds complexity threshold (score: ${score})`;
-      if (symbol) return `function ${symbol} exceeds complexity threshold`;
-      if (score != null) return `complexity exceeds threshold (score: ${score})`;
-      return "complexity exceeds threshold";
-    }
-
-    if (rule === "duplication") {
-      const locationCount = Array.isArray(entry.occurrences)
-        ? entry.occurrences.length
-        : Array.isArray(entry.locations)
-          ? entry.locations.length
-          : 0;
-      return locationCount > 0 ? `duplicate code across ${locationCount} locations` : "duplicate code detected";
-    }
-
-    if (symbol) return `${symbol} triggered ${rule}`;
-    return rule.replace(/-/g, " ");
-  }
-
-  function collectFallowIssues(parsed: Record<string, unknown>): FallowAuditIssue[] {
-    const issues: FallowAuditIssue[] = [];
-    const seen = new Set<string>();
-
-    const pushIssue = (rule: string, value: unknown): void => {
-      const entry = value && typeof value === "object" ? value as Record<string, unknown> : { value };
-      const location = formatLocation(entry) ?? pickString(entry.value) ?? "location unavailable";
-      const summary = formatIssueSummary(rule, entry);
-      const key = `${rule}|${location}|${summary}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      issues.push({ rule, location, summary });
-    };
-
-    if (Array.isArray(parsed.issues)) {
-      for (const entry of parsed.issues) {
-        const record = entry && typeof entry === "object" ? entry as Record<string, unknown> : { value: entry };
-        const rule = pickString(record.code, record.kind, record.rule, record.type) ?? "issue";
-        pushIssue(rule.replace(/_/g, "-"), record);
-      }
-    }
-
-    for (const [sectionName, sectionValue] of [
-      ["dead-code", parsed.dead_code ?? parsed.deadCode],
-      ["duplication", parsed.duplication ?? parsed.dupes],
-      ["complexity", parsed.complexity ?? parsed.health],
-    ] as const) {
-      if (!sectionValue || typeof sectionValue !== "object") continue;
-      for (const [key, value] of Object.entries(sectionValue as Record<string, unknown>)) {
-        if (!Array.isArray(value)) continue;
-        const rule = normalizeFallowRule(sectionName, key);
-        for (const entry of value) pushIssue(rule, entry);
-      }
-    }
-
-    return issues;
-  }
-
-  function parseFallowAuditOutput(raw: string, fileCount: number | null): FallowAuditResult | null {
-    const trimmed = raw.trim();
-    if (!trimmed) return null;
-
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
-
-    const issues = collectFallowIssues(parsed);
-    const verdictValue = pickString(parsed.verdict, (parsed.summary as Record<string, unknown> | undefined)?.verdict)?.toLowerCase();
-    const verdict: FallowAuditVerdict = verdictValue === "warn" || verdictValue === "fail" || verdictValue === "pass"
-      ? verdictValue
-      : issues.length > 0
-        ? "warn"
-        : "pass";
-
-    const summaryLine = issues.length === 0
-      ? fileCount == null
-        ? `fallow audit — ${verdict} (no issues found)`
-        : `fallow audit — ${verdict} (${fileCount} file${fileCount === 1 ? "" : "s"} scanned, no issues found)`
-      : fileCount == null
-        ? `fallow audit — ${verdict}`
-        : `fallow audit — ${verdict} (${fileCount} file${fileCount === 1 ? "" : "s"} scanned)`;
-
-    if (issues.length === 0) return { summaryLine, promptPrefix: "" };
-
-    const visibleIssues = issues.slice(0, FALLOW_MAX_PROMPT_ISSUES);
-    const scopeLine = fileCount == null ? "changed files" : `${fileCount} changed file${fileCount === 1 ? "" : "s"}`;
-    const extraIssues = issues.length - visibleIssues.length;
-    return {
-      summaryLine,
-      promptPrefix: [
-        "## Static Analysis Findings (Fallow)",
-        `Verdict: ${verdict}`,
-        `Scope: ${scopeLine}`,
-        "",
-        "Issues:",
-        ...visibleIssues.map(issue => `- [${issue.rule}] ${issue.location} — ${issue.summary}`),
-        ...(extraIssues > 0 ? [`- [summary] ${extraIssues} additional finding${extraIssues === 1 ? "" : "s"} omitted from this prompt block`] : []),
-        "",
-        "Treat these as verified findings. Do not re-derive them. Synthesise with your own inspection where relevant.",
-      ].join("\n"),
-    };
-  }
-
-  function runFallowAudit(ctx: any, cwd: string): FallowAuditResult {
-    const binaryPath = fallowBinaryPath(cwd);
-    if (!fs.existsSync(binaryPath)) {
-      maybeNotifyMissingFallow(ctx, cwd);
-      return fallowNotRun("fallow unavailable");
-    }
-
-    const gitScope = collectGitAuditScope(cwd);
-    const changedFiles = gitScope.mode !== "unavailable"
-      ? gitScope.files
-      : detectJJ(cwd)
-        ? collectJjAuditFiles(cwd)
-        : null;
-
-    if (changedFiles == null) {
-      ctx.ui.notify("Fallow audit scope could not be resolved — running LLM-only review.", "warning");
-      return fallowNotRun("audit scope unavailable");
-    }
-
-    if (changedFiles.length === 0) return fallowNotRun("no changed files");
-
-    if (gitScope.mode === "unavailable") {
-      ctx.ui.notify("Fallow audit is unavailable for this JJ-only checkout — running LLM-only review.", "warning");
-      return fallowNotRun("audit scope unavailable");
-    }
-
-    const args = gitScope.mode === "initial"
-      ? ["audit", "--format", "json"]
-      : ["audit", "--base", "HEAD~1", "--format", "json"];
-    const summaryFileCount = gitScope.mode === "initial" ? null : changedFiles.length;
-
-    try {
-      const stdout = childProcess.execFileSync(binaryPath, args, {
-        cwd,
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-        shell: process.platform === "win32",
-      });
-      const parsed = parseFallowAuditOutput(stdout, summaryFileCount);
-      if (!parsed) return fallowNotRun("fallow audit failed");
-      if (gitScope.mode === "initial") {
-        return {
-          summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
-          promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
-        };
-      }
-      return parsed;
-    } catch (error: any) {
-      const stdout = typeof error?.stdout === "string" ? error.stdout : error?.stdout?.toString("utf-8") ?? "";
-      const parsed = parseFallowAuditOutput(stdout, summaryFileCount);
-      if (parsed) {
-        if (gitScope.mode === "initial") {
-          return {
-            summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
-            promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
-          };
-        }
-        return parsed;
-      }
-      ctx.ui.notify(`Fallow audit failed — running LLM-only review. ${error?.message || String(error)}`, "warning");
-      return fallowNotRun("fallow audit failed");
-    }
   }
 
   function matchReviewPrefix(input: string, prefixes: string[]): string | null {
@@ -693,65 +344,6 @@ export default function (pi: ExtensionAPI) {
     return null;
   }
 
-  async function processCompleteStoryReviewCloseout(
-    ctx: any,
-    cwd: string,
-    storyPath: string,
-    reviewFilePath: string,
-  ): Promise<boolean> {
-    const storyLabel = path.basename(storyPath, ".md");
-    const reviewFrontmatter = parseReviewFrontmatter(reviewFilePath);
-    const pendingRequest = pendingCompleteStoryRequests.get(cwd);
-    const canResumeCloseout = pendingRequest?.reviewFile === reviewFilePath && pendingRequest.reviewCloseoutReady === true;
-    if (reviewFrontmatter?.status !== "complete" && !canResumeCloseout) {
-      return false;
-    }
-
-    pendingCompleteStoryRequests.set(cwd, {
-      storyFile: storyPath,
-      reviewFile: reviewFilePath,
-      reviewCloseoutReady: true,
-    });
-
-    const findings = reviewFindingsFromFile(reviewFilePath);
-    const recommendedFixes = reviewRecommendedFixesFromFile(reviewFilePath);
-    const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
-    const decision = await promptReviewFindingsCloseout(
-      ctx,
-      reviewFilePath,
-      findings,
-      "story",
-    );
-    if (decision == null) return true;
-
-    if (decision === "fix-high" || decision === "fix-all") {
-      const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
-      sendInternalAgentMessage(
-        ctx,
-        buildReviewRemediationInstruction(
-          ctx.cwd,
-          reviewFilePath,
-          decision === "fix-high" ? "high" : "all",
-          targetedFixes,
-          "story",
-        ),
-        {
-          purpose: "review-remediation",
-          story: storyLabel,
-          reviewFile: path.basename(reviewFilePath),
-          mode: decision,
-        },
-      );
-      return true;
-    }
-
-    pendingCompleteStoryRequests.delete(cwd);
-    if (decision === "close") {
-      completeStoryNow(ctx, storyPath);
-    }
-    return true;
-  }
-
   async function resolveStoryForCompletion(ctx: any, cwd: string): Promise<string | null> {
     const inProgressStories = listStories(cwd)
       .filter(story => story.status === "in-progress")
@@ -842,10 +434,11 @@ export default function (pi: ExtensionAPI) {
 
   async function promptReviewFindingsCloseout(
     ctx: any,
+    storyPath: string,
     reviewFilePath: string,
     findings: ReviewFindingSummary[],
-    targetNoun: ReviewCloseoutTarget = "story",
   ): Promise<"fix-high" | "fix-all" | "close" | "not-yet" | null> {
+    const storyLabel = path.basename(storyPath, ".md");
     const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
     const recommendedFixes = reviewRecommendedFixesFromFile(reviewFilePath);
     const otherFixes = reviewOtherFixesFromFile(reviewFilePath);
@@ -859,8 +452,8 @@ export default function (pi: ExtensionAPI) {
     if (!ctx.hasUI) {
       ctx.ui.notify(
         pendingFixes.length > 0
-          ? `Review ${reviewLabel} is complete with pending recommended fixes. Re-run ${targetNoun === "story" ? "/complete-story" : "/review"} in an interactive session to decide whether to fix them or close it out.`
-          : `Review ${reviewLabel} is complete. Re-run ${targetNoun === "story" ? "/complete-story" : "/review"} in an interactive session to close it out.`,
+          ? `${storyLabel} review is complete with pending recommended fixes. Re-run /complete-story in an interactive session to decide whether to fix them or close the story.`
+          : `${storyLabel} review is complete. Re-run /complete-story in an interactive session to close it out.`,
         "info",
       );
       return null;
@@ -872,12 +465,10 @@ export default function (pi: ExtensionAPI) {
         pendingFixes,
         pendingHighPriorityFixes,
         pendingLowerPriorityFixes,
-        targetNoun,
       });
       const choice = await ctx.ui.select(promptLines.join("\n"), buildReviewCloseoutOptions({
         pendingFixCount: pendingFixes.length,
         pendingHighPriorityFixCount: pendingHighPriorityFixes.length,
-        targetNoun,
       }));
 
       if (choice == null) return null;
@@ -886,12 +477,12 @@ export default function (pi: ExtensionAPI) {
         continue;
       }
 
-      if (choice === `Keep ${targetNoun} open and fix high-priority recommended items`) return "fix-high";
-      if (choice === `Keep ${targetNoun} open and fix all recommended items` || choice === `Keep ${targetNoun} open and fix remaining recommended items`) {
+      if (choice === "Keep story open and fix high-priority recommended items") return "fix-high";
+      if (choice === "Keep story open and fix all recommended items" || choice === "Keep story open and fix remaining recommended items") {
         return "fix-all";
       }
 
-      if (choice.includes(`Close ${targetNoun} now`)) return "close";
+      if (choice.includes("Close story now")) return "close";
       return "not-yet";
     }
   }
@@ -906,20 +497,18 @@ export default function (pi: ExtensionAPI) {
     pendingFixes: ReviewRecommendedFix[];
     pendingHighPriorityFixes: ReviewRecommendedFix[];
     pendingLowerPriorityFixes: ReviewRecommendedFix[];
-    targetNoun: ReviewCloseoutTarget;
   }): string[] {
     const {
       findings,
       pendingFixes,
       pendingHighPriorityFixes,
       pendingLowerPriorityFixes,
-      targetNoun,
     } = options;
 
     if (findings.length === 0 && pendingFixes.length === 0) {
       return [
         "Review complete. No findings.",
-        `Close the ${targetNoun} now?`,
+        "Close the story now?",
       ];
     }
 
@@ -929,7 +518,7 @@ export default function (pi: ExtensionAPI) {
 
     if (pendingFixes.length === 0) {
       lines.push("All recommended fixes in the review file are marked complete.");
-      lines.push(`Close the ${targetNoun} now or inspect the review document first?`);
+      lines.push("Close the story now or inspect the review document first?");
       return lines;
     }
 
@@ -960,21 +549,20 @@ export default function (pi: ExtensionAPI) {
   function buildReviewCloseoutOptions(options: {
     pendingFixCount: number;
     pendingHighPriorityFixCount: number;
-    targetNoun: ReviewCloseoutTarget;
   }): string[] {
-    const { pendingFixCount, pendingHighPriorityFixCount, targetNoun } = options;
+    const { pendingFixCount, pendingHighPriorityFixCount } = options;
     const choices: string[] = [];
 
     if (pendingHighPriorityFixCount > 0) {
-      choices.push(`Keep ${targetNoun} open and fix high-priority recommended items`);
+      choices.push("Keep story open and fix high-priority recommended items");
     }
     if (pendingFixCount > 0) {
       choices.push(pendingHighPriorityFixCount > 0
-        ? `Keep ${targetNoun} open and fix all recommended items`
-        : `Keep ${targetNoun} open and fix remaining recommended items`);
+        ? "Keep story open and fix all recommended items"
+        : "Keep story open and fix remaining recommended items");
     }
     choices.push("Open review document");
-    choices.push(pendingFixCount > 0 ? `Close ${targetNoun} now (remaining items noted)` : `Close ${targetNoun} now`);
+    choices.push(pendingFixCount > 0 ? "Close story now (remaining items noted)" : "Close story now");
     choices.push("Not yet, keep working");
     return choices;
   }
@@ -996,10 +584,10 @@ export default function (pi: ExtensionAPI) {
 
   function buildReviewRemediationInstruction(
     cwd: string,
+    storyLabel: string,
     reviewFilePath: string,
     mode: "high" | "all",
     targetedFixes: ReviewRecommendedFix[],
-    targetNoun: ReviewCloseoutTarget,
   ): string {
     const reviewLabel = path.relative(cwd, reviewFilePath).replace(/\\/g, "/");
     const scopeLabel = mode === "high" ? "high-priority unchecked recommended items only" : "all unchecked recommended items";
@@ -1008,7 +596,7 @@ export default function (pi: ExtensionAPI) {
       : ["- No tracked checklist items yet — derive them from the findings and add them before fixing."];
 
     return [
-      `Review ${reviewLabel} and fix ${scopeLabel} before the ${targetNoun} closeout continues.`,
+      `Review ${reviewLabel} and fix ${scopeLabel} before the ${storyLabel} closeout continues.`,
       "",
       "Targeted recommended fixes:",
       ...listedItems,
@@ -1021,9 +609,7 @@ export default function (pi: ExtensionAPI) {
         : "3. Work all unchecked recommended fix items that remain in the review file.",
       "4. Mark an item `[x]` only after the code or docs change is complete and you have verified what you can.",
       "5. Leave unresolved or deferred items unchecked and explain blockers briefly in the review file's Completion Summary.",
-      targetNoun === "story"
-        ? "6. Do not mark the story complete. Vazir will return to the closeout choices after this pass."
-        : "6. Do not close the review. Vazir will return to the closeout choices after this pass.",
+      "6. Do not mark the story complete. Vazir will return to the closeout choices after this pass.",
     ].join("\n");
   }
 
@@ -1054,17 +640,11 @@ export default function (pi: ExtensionAPI) {
   async function startReviewFlow(
     ctx: any,
     options: { focus: string; scope?: ManualReviewScope; storyLabel?: string; trigger?: string },
-    beforeDispatch?: (review: ReturnType<typeof createReviewDraft>) => void,
   ): Promise<ReturnType<typeof createReviewDraft>> {
-    const fallowAudit = runFallowAudit(ctx, ctx.cwd);
-    const review = createReviewDraft(ctx.cwd, { ...options, staticAnalysis: fallowAudit.summaryLine });
+    const review = createReviewDraft(ctx.cwd, options);
     syncReviewSummaryAndPromoteRules(ctx.cwd);
     ctx.ui.notify(`Created ${review.fileName} in .context/reviews/`, "info");
-    const instruction = buildReviewInstruction(review, fallowAudit.promptPrefix);
-
-    if (beforeDispatch) {
-      beforeDispatch(review);
-    }
+    const instruction = buildReviewInstruction(review);
 
     if (shouldHideReviewTurn(review.trigger)) {
       sendInternalAgentMessage(ctx, instruction, {
@@ -1098,17 +678,14 @@ export default function (pi: ExtensionAPI) {
     const agents = strip(readIfExists(path.join(ctx.cwd, "AGENTS.md")));
     const systemMd = strip(readIfExists(systemPath(ctx.cwd)));
     const indexMd = strip(readIfExists(indexPath(ctx.cwd)));
-    const active = findActiveStory(ctx.cwd);
-    const activeIsUiStory = active ? hasUiTypeOverride(active.file) || isUiStory(active.file) : false;
-    const designSystem = activeIsUiStory ? strip(readIfExists(designSystemPath(ctx.cwd))) : "";
 
     if (contextMap) parts.push(contextMap);
     else if (agents) parts.push(agents);
     if (systemMd) parts.push(systemMd);
-    if (designSystem) parts.push(`[Design System]\n${designSystem}`);
     if (indexMd) parts.push(indexMd);
 
     // Inject active story
+    const active = findActiveStory(ctx.cwd);
     if (active) {
       const storyContent = strip(readIfExists(active.file));
       if (storyContent) {
@@ -1135,8 +712,6 @@ export default function (pi: ExtensionAPI) {
     applyLocalRuleDedupe(ctx.cwd);
     storyFrontmatterSnapshots.delete(ctx.cwd);
     pendingCompleteStoryRequests.delete(ctx.cwd);
-    pendingManualReviewRequests.delete(ctx.cwd);
-    missingFallowNoticeShown.delete(ctx.cwd);
   });
 
   // ── agent_end: zero-token index.md structural updates ─────────────────
@@ -1206,15 +781,52 @@ export default function (pi: ExtensionAPI) {
 
     const pendingCompleteStory = pendingCompleteStoryRequests.get(cwd);
     if (pendingCompleteStory) {
-      const completionStoryFile = pendingCompleteStory.storyFile;
-      const storyLabel = path.basename(completionStoryFile, ".md");
-      const readiness = assessStoryCompletionReadiness(completionStoryFile);
+      const storyLabel = path.basename(pendingCompleteStory.storyFile, ".md");
+      const readiness = assessStoryCompletionReadiness(pendingCompleteStory.storyFile);
       const blockers = listCompletionBlockers(readiness);
 
-      const reviewFilePath = pendingCompleteStory.reviewFile;
-      if (reviewFilePath) {
-        const handledReview = await processCompleteStoryReviewCloseout(ctx, cwd, completionStoryFile, reviewFilePath);
-        if (handledReview) return;
+      if (pendingCompleteStory.reviewFile) {
+        const reviewFrontmatter = parseReviewFrontmatter(pendingCompleteStory.reviewFile);
+        if (reviewFrontmatter?.status !== "complete") {
+          return;
+        }
+
+        const findings = reviewFindingsFromFile(pendingCompleteStory.reviewFile);
+        const recommendedFixes = reviewRecommendedFixesFromFile(pendingCompleteStory.reviewFile);
+        const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
+        const decision = await promptReviewFindingsCloseout(
+          ctx,
+          pendingCompleteStory.storyFile,
+          pendingCompleteStory.reviewFile,
+          findings,
+        );
+        if (decision == null) return;
+
+        if (decision === "fix-high" || decision === "fix-all") {
+          const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
+          sendInternalAgentMessage(
+            ctx,
+            buildReviewRemediationInstruction(
+              ctx.cwd,
+              storyLabel,
+              pendingCompleteStory.reviewFile,
+              decision === "fix-high" ? "high" : "all",
+              targetedFixes,
+            ),
+            {
+              purpose: "review-remediation",
+              story: storyLabel,
+              reviewFile: path.basename(pendingCompleteStory.reviewFile),
+              mode: decision,
+            },
+          );
+          return;
+        }
+
+        pendingCompleteStoryRequests.delete(cwd);
+        if (decision === "close") {
+          completeStoryNow(ctx, pendingCompleteStory.storyFile);
+        }
         return;
       }
 
@@ -1232,11 +844,7 @@ export default function (pi: ExtensionAPI) {
           storyLabel,
           trigger: "complete-story",
         });
-        pendingCompleteStoryRequests.set(cwd, {
-          storyFile: pendingCompleteStory.storyFile,
-          reviewFile: review.filePath,
-          reviewCloseoutReady: false,
-        });
+        pendingCompleteStoryRequests.set(cwd, { storyFile: pendingCompleteStory.storyFile, reviewFile: review.filePath });
         return;
       }
 
@@ -1244,59 +852,6 @@ export default function (pi: ExtensionAPI) {
       if (decision === "close") {
         completeStoryNow(ctx, pendingCompleteStory.storyFile);
       }
-    }
-
-    const pendingManualReview = pendingManualReviewRequests.get(cwd);
-    if (pendingManualReview) {
-      const reviewFrontmatter = parseReviewFrontmatter(pendingManualReview.reviewFile);
-      const canResumeCloseout = pendingManualReview.reviewCloseoutReady === true;
-      if (reviewFrontmatter?.status !== "complete" && !canResumeCloseout) {
-        return;
-      }
-
-      pendingManualReviewRequests.set(cwd, {
-        reviewFile: pendingManualReview.reviewFile,
-        reviewCloseoutReady: true,
-      });
-
-      const findings = reviewFindingsFromFile(pendingManualReview.reviewFile);
-      const recommendedFixes = reviewRecommendedFixesFromFile(pendingManualReview.reviewFile);
-      const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
-      const attachedStoryPath = reviewFrontmatter?.scope === "story" && reviewFrontmatter.story !== "—"
-        ? path.join(storiesDir(cwd), `${reviewFrontmatter.story}.md`)
-        : null;
-      const targetNoun: ReviewCloseoutTarget = attachedStoryPath && fs.existsSync(attachedStoryPath) ? "story" : "review";
-      const decision = await promptReviewFindingsCloseout(ctx, pendingManualReview.reviewFile, findings, targetNoun);
-      if (decision == null) return;
-
-      if (decision === "fix-high" || decision === "fix-all") {
-        const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
-        sendInternalAgentMessage(
-          ctx,
-          buildReviewRemediationInstruction(
-            ctx.cwd,
-            pendingManualReview.reviewFile,
-            decision === "fix-high" ? "high" : "all",
-            targetedFixes,
-            targetNoun,
-          ),
-          {
-            purpose: "review-remediation",
-            reviewFile: path.basename(pendingManualReview.reviewFile),
-            mode: decision,
-            reviewTarget: targetNoun,
-          },
-        );
-        return;
-      }
-
-      pendingManualReviewRequests.delete(cwd);
-      if (decision === "close" && targetNoun === "story" && attachedStoryPath) {
-        completeStoryNow(ctx, attachedStoryPath);
-      } else if (decision === "close") {
-        ctx.ui.notify(`${path.basename(pendingManualReview.reviewFile)} closeout finished`, "info");
-      }
-      return;
     }
 
     const currentStoryStatuses = new Map(listStories(cwd).map(story => [story.file, story.status]));
@@ -1375,18 +930,6 @@ export default function (pi: ExtensionAPI) {
       ensureArchiveStructure(cwd);
       ensureDir(path.join(cwd, ".context", "checkpoints"));
 
-      // design system stubs
-      ensureDir(designDir(cwd));
-      if (!fs.existsSync(designSystemPath(cwd))) {
-        fs.writeFileSync(designSystemPath(cwd), DESIGN_SYSTEM_TEMPLATE);
-      }
-      if (!fs.existsSync(brandPath(cwd))) {
-        fs.writeFileSync(brandPath(cwd), BRAND_TEMPLATE);
-      }
-      if (!fs.existsSync(componentsPath(cwd))) {
-        fs.writeFileSync(componentsPath(cwd), COMPONENTS_TEMPLATE);
-      }
-
       if (!fs.existsSync(intakeReadmePath(cwd))) {
         fs.writeFileSync(intakeReadmePath(cwd), INTAKE_README_TEMPLATE);
         ctx.ui.notify("intake README created", "info");
@@ -1424,45 +967,6 @@ export default function (pi: ExtensionAPI) {
         fs.writeFileSync(agentsPath, AGENTS_MD_TEMPLATE);
         ctx.ui.notify("AGENTS.md created", "info");
       }
-
-      const gitignorePath = path.join(cwd, ".gitignore");
-      const ensureGitignoreEntry = (entry: string): boolean => {
-        const gitignore = readIfExists(gitignorePath);
-        if (new RegExp(`^${escapeRegExp(entry)}$`, "m").test(gitignore)) return false;
-
-        const nextGitignore = `${gitignore.trimEnd()}${gitignore.trim() ? "\n" : ""}${entry}\n`;
-        fs.writeFileSync(gitignorePath, nextGitignore);
-        return true;
-      };
-
-      const ensureGitignoreEntries = (entries: string[], notification: string): void => {
-        let changed = false;
-        for (const entry of entries) {
-          changed = ensureGitignoreEntry(entry) || changed;
-        }
-        if (changed) ctx.ui.notify(notification, "info");
-      };
-
-      ensureGitignoreEntries(
-        [
-          "node_modules/",
-          ".fallow/",
-          ".local/",
-          ".env",
-          ".env.local",
-          ".env.*.local",
-          "*.local",
-          ".DS_Store",
-          "Thumbs.db",
-          "*.log",
-          "*.tmp",
-          "*.temp",
-          "*.swp",
-        ],
-        "Added common ignore boilerplate to .gitignore",
-      );
-
-      await maybePromptForFallowInstall(ctx, cwd);
 
       const sourceFiles = walkSourceFiles(cwd);
       const indexSummary = writeIndex(cwd, sourceFiles);
@@ -1551,7 +1055,13 @@ export default function (pi: ExtensionAPI) {
             jjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
           }
 
-          ensureGitignoreEntries([".jj/"], "Added .jj/ to .gitignore");
+          const gitignorePath = path.join(cwd, ".gitignore");
+          const gitignore = readIfExists(gitignorePath);
+          if (!gitignore.includes(".jj/")) {
+            const nextGitignore = `${gitignore.trimEnd()}${gitignore.trim() ? "\n" : ""}.jj/\n`;
+            fs.writeFileSync(gitignorePath, nextGitignore);
+            ctx.ui.notify("Added .jj/ to .gitignore", "info");
+          }
         }
       } catch (error: any) {
         ctx.ui.notify(`JJ setup failed: ${error?.message || String(error)} — continuing with git fallback`, "warning");
@@ -1595,7 +1105,6 @@ export default function (pi: ExtensionAPI) {
       const planPath = path.join(storiesDir(cwd), "plan.md");
       const planExists = fs.existsSync(planPath);
       const intakeFiles = listIntakeFiles(cwd);
-      const planningSources = listPlanIntakeFiles(cwd);
       const existingStoryFiles = listStories(cwd)
         .sort((a, b) => a.number - b.number)
         .map(story => path.basename(story.file));
@@ -1635,33 +1144,21 @@ export default function (pi: ExtensionAPI) {
       if (!planningBrief) {
         planningBrief = (await ctx.ui.input?.(
           "What are we planning?",
-          planningSources.length > 0
-            ? "Keep it short if needed — /plan will review existing planning material first"
+          intakeFiles.length > 0
+            ? "Keep it short if needed — /plan will review .context/intake first"
             : "e.g. a SaaS dashboard for tracking team OKRs",
         ))?.trim() ?? "";
       }
       planningBrief = normalizeProjectBrief(planningBrief, projectName);
 
-      fs.writeFileSync(intakeBriefPath(cwd), buildIntakeBrief(cwd, planningBrief, planningSources));
+      fs.writeFileSync(intakeBriefPath(cwd), buildIntakeBrief(cwd, planningBrief, intakeFiles));
 
-      // Silent design seeding pass
-      ensureDir(designDir(cwd));
-      const designSeed = seedDesignFromIntake(cwd);
-      if (!designSeed.seeded) {
-        if (!fs.existsSync(designSystemPath(cwd))) fs.writeFileSync(designSystemPath(cwd), DESIGN_SYSTEM_TEMPLATE);
-        if (!fs.existsSync(brandPath(cwd))) fs.writeFileSync(brandPath(cwd), BRAND_TEMPLATE);
-        if (!fs.existsSync(componentsPath(cwd))) fs.writeFileSync(componentsPath(cwd), COMPONENTS_TEMPLATE);
-      }
-
-      if (planningSources.length > 0) {
-        ctx.ui.notify(`Found ${planningSources.length} user-authored planning source file${planningSources.length === 1 ? "" : "s"}`, "info");
+      if (intakeFiles.length > 0) {
+        ctx.ui.notify(`Found ${intakeFiles.length} intake file${intakeFiles.length === 1 ? "" : "s"} in .context/intake/`, "info");
       } else {
-        ctx.ui.notify("No user-authored planning material found — /plan will rely on the conversation", "info");
+        ctx.ui.notify("No intake files found in .context/intake/ — /plan will rely on the conversation", "info");
       }
       ctx.ui.notify("intake-brief.md refreshed in .context/stories/", "info");
-      if (designSeed.note) {
-        ctx.ui.notify(designSeed.note, "info");
-      }
 
       // Generate a plan scaffold if needed; the model fills it in after clarifying questions.
       if (!planExists) {
@@ -1689,7 +1186,6 @@ export default function (pi: ExtensionAPI) {
           ? "NOTE: This is a replan. Preserve every existing story file, keep existing story queue rows in plan.md, append only new stories needed for the added scope, and append a replanning log entry. If older work is invalidated, retire or supersede it without overwriting the original story file."
           : "NOTE: This is a replan with no existing story files yet. Treat the plan update as an addendum and create as many new story files as needed."
         : "NOTE: Create as many story files as needed for the scoped work. Do not stop at an arbitrary count.";
-      const planningSourcesList = planningSources.length > 0 ? planningSources.join(", ") : "none";
 
       // Instruct the agent to run the planning conversation
       const instruction = [
@@ -1698,68 +1194,36 @@ export default function (pi: ExtensionAPI) {
           ? `Existing story files already exist in .context/stories/: ${existingStoryFiles.join(", ")}. Treat them as preserved history, not scaffolds.`
           : "No story files are pre-seeded in .context/stories/. Create the final story set in Phase 2.",
         "",
-        "GUIDING PRINCIPLE",
-        "When user-authored planning material exists, your job is extraction and story generation, not discovery.",
-        "Questions are the exception. Ask only when a genuine implementation-blocking gap remains after careful reading and safe default assumptions.",
-        "",
         "THIS IS A STRICT TWO-PHASE PROCESS. Follow the phases in order.",
         "",
-        "━━ PHASE 1 — DETECT, READ, AND ONLY ASK IF BLOCKED (ask questions only if needed, write nothing) ━━",
-        planningSources.length > 0
-          ? `Step 1. intake_found = true. User-authored planning sources detected: ${planningSourcesList}.`
-          : "Step 1. intake_found = false. No user-authored planning sources were detected.",
-        "        Primary intake sources are repo-root plan.md or .context/plan.md when user-authored, files in .context/intake/, and top-level *.prd.md or PRD.md.",
-        "        Do NOT treat .context/stories/plan.md, story-NNN.md, or .context/stories/intake-brief.md as primary intake. They are Vazir-generated replan context only unless the user explicitly asks to replan from them.",
-        planningSources.length > 0
-          ? `Step 2. Read .context/stories/intake-brief.md first, then read every detected user-authored planning source before asking anything. Sources listed in the brief: ${planningSourcesList}.`
-          : "Step 2. No user-authored planning material exists. Start a discovery conversation from scratch.",
-        planningSources.length > 0
-          ? "        For text-based files, read them fully. For very large files, read enough to extract evidence for every planning field before asking. Skip unsupported binary files with a note."
-          : "Step 3. Ask about what they are building, who it is for, what problem it solves, what success looks like, what is out of scope for v1, what stack exists, and any hard constraints or deadlines.",
-        planningSources.length > 0
-          ? "Step 3. Internally extract these fields from the intake before deciding whether to ask anything: objectives, success_metrics, users, user_journeys, inputs_outputs, integrations, auth_security, acceptance_criteria, constraints_non_goals, edge_cases, monitoring, deployment, timeline_stakeholders."
-          : "        Group related questions, ask the most important ones first, label blocking questions clearly, and do not dump the full list at once.",
-        planningSources.length > 0
-          ? "Step 4. For each field ask: 'If I wrote story files right now, would I be forced to make an assumption that could be wrong in a way that materially affects implementation?'"
-          : "Step 4. Once you have enough to write stories, say 'I have what I need — writing the plan and stories now.' Then move immediately to Phase 2.",
-        planningSources.length > 0
-          ? "        Default to present when the intake is clear enough for a developer to act. Do not mark a field incomplete or missing just because wording is informal or lacks precise numbers."
-          : "",
-        planningSources.length > 0
-          ? "Step 5. For any field that still seems incomplete, missing, or conflicting, ask: 'Can I answer this by reading the intake more carefully, or by making a safe, reasonable default assumption?'"
-          : "",
-        planningSources.length > 0
-          ? "        If yes, do not ask. Note the assumption briefly and continue. If no, ask exactly one concise implementation-blocking question for that field."
-          : "",
-        planningSources.length > 0
-          ? "Step 6. Never ask about a field classified present. Never ask more than one question per field. Never ask a question whose answer is already in the intake or can be safely defaulted. Do not present field-by-field classification to the user. Surface only the assumptions and questions that matter."
-          : "",
-        planningSources.length > 0
-          ? "Step 7. Ask any surviving questions ONE AT A TIME in the chat conversation and wait for the user's full answer before the next question. If no questions survive, say: 'I have what I need — writing the plan and stories now.' Then move immediately to Phase 2."
-          : "",
+        "━━ PHASE 1 — GATHER INFORMATION (ask questions, write nothing) ━━",
+        `Step 1. Read .context/stories/intake-brief.md now.${intakeFiles.length > 0 ? ` Intake files listed there: ${intakeFiles.join(", ")}` : ""}`,
+        intakeFiles.length > 0
+          ? "Step 2. Use raw .context/intake/ files only when the brief is ambiguous, incomplete, or conflicting. They are planning inputs, not permanent rules."
+          : "Step 2. No intake files were provided. Start from the conversation alone.",
+        "Step 3. Identify every gap you need answered to write a complete, specific plan.",
+        "Step 4. Ask clarifying questions ONE AT A TIME in the chat conversation.",
+        "        Wait for the user's full answer before asking the next question.",
+        "        Cover all unresolved areas. Common gaps:",
+        "        - Who are the users?",
+        "        - What is the most important thing to get right in v1?",
+        "        - What are we explicitly NOT building in v1?",
+        "        - What stack or existing codebase are we working with?",
         "RULE: Do NOT write or edit any files — not intake-brief.md, not plan.md, not story files — until Phase 2.",
         "RULE: Do NOT put questions or open issues inside checklist items in story files.",
+        "Step 5. Once all questions are answered, tell the user: 'I have everything I need — writing the plan and stories now.'",
+        "        Then move immediately to Phase 2.",
         "",
         "━━ PHASE 2 — WRITE FILES (after ALL questions answered) ━━",
-        planningSources.length > 0
-          ? `Step 8. Update .context/stories/intake-brief.md to reflect the final distilled answers and any assumptions you made. Brief so far: ${planningBrief}`
-          : `Step 5. Update .context/stories/intake-brief.md to reflect the final distilled answers. Brief so far: ${planningBrief}`,
-        planningSources.length > 0 ? planWriteStep.replace("Step 7.", "Step 9.") : planWriteStep.replace("Step 7.", "Step 6."),
-        planningSources.length > 0 ? storyWriteStep.replace("Step 8.", "Step 10.") : storyWriteStep.replace("Step 8.", "Step 7."),
-        planningSources.length > 0
-          ? "Step 11. Every story must use the exact template: Status, Created, Last accessed, Completed, Goal, Verification,"
-          : "Step 8. Every story must use the exact template: Status, Created, Last accessed, Completed, Goal, Verification,",
+        `Step 6. Update .context/stories/intake-brief.md to reflect the final distilled answers. Brief so far: ${planningBrief}`,
+        planWriteStep,
+        storyWriteStep,
+        "Step 9. Every story must use the exact template: Status, Created, Last accessed, Completed, Goal, Verification,",
         "        Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary.",
         "        Checklist items must be concrete implementation tasks — not questions, not open issues.",
-        planningSources.length > 0
-          ? `Step 12. Number any new stories from ${nextStoryNumber(cwd)}.`
-          : `Step 9. Number any new stories from ${nextStoryNumber(cwd)}.`,
-        planningSources.length > 0
-          ? "Step 13. Each story must be completable in one focused session with one clear, observable verification step."
-          : "Step 10. Each story must be completable in one focused session with one clear, observable verification step.",
-        planningSources.length > 0
-          ? "Step 14. Present the final story list to the user and ask if anything needs adjusting."
-          : "Step 11. Present the final story list to the user and ask if anything needs adjusting.",
+        `Step 10. Number any new stories from ${nextStoryNumber(cwd)}.`,
+        "Step 11. Each story must be completable in one focused session with one clear, observable verification step.",
+        "Step 12. Present the final story list to the user and ask if anything needs adjusting.",
         "",
         planModeNote,
       ].filter(Boolean).join("\n");
@@ -1830,9 +1294,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       const focus = parsed.focus || defaultReviewFocus(cwd, { scope, storyLabel });
-      await startReviewFlow(ctx, { focus, scope, storyLabel, trigger: "manual" }, review => {
-        pendingManualReviewRequests.set(cwd, { reviewFile: review.filePath, reviewCloseoutReady: false });
-      });
+      await startReviewFlow(ctx, { focus, scope, storyLabel, trigger: "manual" });
     },
   });
 
@@ -1869,18 +1331,13 @@ export default function (pi: ExtensionAPI) {
       if (choice == null) return;
 
       if (choice === "review") {
-        await startReviewFlow(ctx, {
+        const review = await startReviewFlow(ctx, {
           focus: `${storyLabel} completion review`,
           scope: "story",
           storyLabel,
           trigger: "complete-story",
-        }, review => {
-          pendingCompleteStoryRequests.set(cwd, {
-            storyFile: storyPath,
-            reviewFile: review.filePath,
-            reviewCloseoutReady: false,
-          });
         });
+        pendingCompleteStoryRequests.set(cwd, { storyFile: storyPath, reviewFile: review.filePath });
         return;
       }
 

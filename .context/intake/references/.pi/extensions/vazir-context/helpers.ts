@@ -116,7 +116,6 @@ export interface ReviewDraft {
   scope: ReviewScope;
   storyLabel: string;
   trigger: string;
-  staticAnalysis: string;
   fileName: string;
   filePath: string;
 }
@@ -238,22 +237,6 @@ export function intakeReadmePath(cwd: string) {
   return path.join(intakeDir(cwd), "README.md");
 }
 
-export function designDir(cwd: string) {
-  return path.join(cwd, ".context", "design");
-}
-
-export function designSystemPath(cwd: string) {
-  return path.join(designDir(cwd), "design-system.md");
-}
-
-export function brandPath(cwd: string) {
-  return path.join(designDir(cwd), "brand.md");
-}
-
-export function componentsPath(cwd: string) {
-  return path.join(designDir(cwd), "components.md");
-}
-
 export const INTAKE_README_TEMPLATE = [
   "# Vazir Intake",
   "",
@@ -292,56 +275,6 @@ export const REMEMBERED_RULES_TEMPLATE = [
   "# Remembered Rules",
   "",
   "Manual rules captured via /remember.",
-  "",
-].join("\n");
-
-export const DESIGN_SYSTEM_TEMPLATE = [
-  "# Design System",
-  "",
-  "<!-- source: seed -->",
-  "<!-- Keep under ~300 tokens. Colours, typography, spacing, and top-level component conventions. -->",
-  "",
-  "## Colours",
-  "- Primary: —",
-  "- Secondary: —",
-  "- Surface: —",
-  "- Text: —",
-  "",
-  "## Typography",
-  "- Font family: —",
-  "- Scale: —",
-  "",
-  "## Spacing",
-  "- Base unit: —",
-  "- Scale: —",
-  "",
-  "## Component conventions",
-  "- —",
-  "",
-].join("\n");
-
-export const BRAND_TEMPLATE = [
-  "# Brand",
-  "",
-  "<!-- source: seed -->",
-  "<!-- Tone of voice, naming conventions, logo/asset notes, brand constraints. -->",
-  "",
-  "## Tone",
-  "- —",
-  "",
-  "## Naming",
-  "- —",
-  "",
-  "## Constraints",
-  "- —",
-  "",
-].join("\n");
-
-export const COMPONENTS_TEMPLATE = [
-  "# Components",
-  "",
-  "<!-- source: seed -->",
-  "<!-- Living registry of established components. Populated incrementally by UI stories. -->",
   "",
 ].join("\n");
 
@@ -457,7 +390,7 @@ export function buildIntakeBrief(cwd: string, planningBrief: string, intakeFiles
 
     if (size > MAX_INTAKE_PREVIEW_BYTES) {
       sections.push(
-        `Large file (${size} bytes). Read enough of it to extract evidence for every planning field before asking questions.`,
+        `Large file (${size} bytes). Do not read it wholesale by default. Skim selectively or ask the user which section matters most.`,
         "",
       );
       continue;
@@ -475,11 +408,8 @@ export function buildIntakeBrief(cwd: string, planningBrief: string, intakeFiles
 
   sections.push(
     "## Planning rules",
-    "- Treat listed source files as user-authored planning inputs unless they are explicitly marked as generated artifacts.",
-    "- Vazir-generated files in .context/stories/ are replan context, not primary intake.",
-    "- Read all text-based planning sources before asking questions.",
-    "- Ask only implementation-blocking delta questions after reviewing this brief and any raw files you actually need.",
-    "- State safe default assumptions briefly so the user can correct them.",
+    "- Treat intake files as raw planning inputs, not permanent system rules.",
+    "- Ask only delta questions after reviewing this brief and any raw files you actually need.",
     "- Surface contradictions instead of resolving them silently.",
     "",
   );
@@ -516,85 +446,6 @@ export function listIntakeFiles(cwd: string): string[] {
 
   walk(root);
   return files.sort((left, right) => left.localeCompare(right));
-}
-
-function earliestGeneratedPlanningArtifactMtime(cwd: string): number | null {
-  const root = storiesDir(cwd);
-  if (!fs.existsSync(root)) return null;
-
-  let earliest: number | null = null;
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(root);
-  } catch {
-    return null;
-  }
-
-  for (const entry of entries) {
-    if (!/^story-\d+\.md$/.test(entry) && entry !== "plan.md" && entry !== "intake-brief.md") continue;
-
-    try {
-      const stat = fs.statSync(path.join(root, entry));
-      if (!stat.isFile()) continue;
-      earliest = earliest == null ? stat.mtimeMs : Math.min(earliest, stat.mtimeMs);
-    } catch {
-      continue;
-    }
-  }
-
-  return earliest;
-}
-
-function includeUserAuthoredPlanCandidate(cwd: string, relPath: string): boolean {
-  const fullPath = path.join(cwd, relPath);
-  let stat: ReturnType<typeof fs.statSync>;
-  try {
-    stat = fs.statSync(fullPath);
-  } catch {
-    return false;
-  }
-
-  if (!stat.isFile()) return false;
-
-  const earliestArtifactMtime = earliestGeneratedPlanningArtifactMtime(cwd);
-  if (earliestArtifactMtime == null) return true;
-
-  return stat.mtimeMs <= earliestArtifactMtime;
-}
-
-export function listPlanIntakeFiles(cwd: string): string[] {
-  const files: string[] = [];
-  const seen = new Set<string>();
-
-  function add(relPath: string) {
-    const normalized = relPath.replace(/\\/g, "/");
-    if (seen.has(normalized)) return;
-    seen.add(normalized);
-    files.push(normalized);
-  }
-
-  for (const relPath of ["plan.md", ".context/plan.md"]) {
-    if (includeUserAuthoredPlanCandidate(cwd, relPath)) add(relPath);
-  }
-
-  for (const relPath of listIntakeFiles(cwd)) {
-    add(relPath);
-  }
-
-  let rootEntries: Array<{ name: string; isDirectory(): boolean }> = [];
-  try {
-    rootEntries = fs.readdirSync(cwd, { withFileTypes: true });
-  } catch {
-    return files;
-  }
-
-  for (const entry of rootEntries) {
-    if (entry.isDirectory()) continue;
-    if (!/(?:^PRD\.md$|\.prd\.md$)/i.test(entry.name)) continue;
-    add(entry.name);
-  }
-
-  return files;
 }
 
 export function findWorkableStory(cwd: string): StoryFrontmatter | null {
@@ -690,7 +541,6 @@ export function storyTemplate(num: number, title: string): string {
     `# Story ${String(num).padStart(3, "0")}: ${title}`,
     "",
     `**Status:** not-started  `,
-    `**Type:** —  `,
     `**Created:** ${today}  `,
     `**Last accessed:** ${today}  `,
     `**Completed:** —`,
@@ -726,166 +576,6 @@ export function storyTemplate(num: number, title: string): string {
     "## Completion Summary",
     "",
   ].join("\n");
-}
-
-// ── Design system helpers ──────────────────────────────────────────────
-
-export function isUiStory(storyFilePath: string): boolean {
-  const content = readIfExists(storyFilePath);
-  if (!content) return false;
-
-  const scopeMatch = content.match(/## Scope[\s\S]*?(?=## Out of scope|## Dependencies|$)/i);
-  if (!scopeMatch) return false;
-
-  const scope = scopeMatch[0];
-  const uiExtensions = new Set([".tsx", ".jsx", ".css", ".scss", ".html", ".svelte"]);
-  const lines = scope.split("\n");
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("- ")) continue;
-    const pathPart = trimmed.slice(2).trim().split(/\s+/)[0];
-    if (!pathPart) continue;
-    const ext = path.extname(pathPart).toLowerCase();
-    if (uiExtensions.has(ext)) return true;
-  }
-  return false;
-}
-
-export function hasUiTypeOverride(storyFilePath: string): boolean {
-  const content = readIfExists(storyFilePath);
-  if (!content) return false;
-  return /^\*\*Type:\*\*\s*ui\b/m.test(content);
-}
-
-function extractHexColors(text: string): string[] {
-  const hexSet = new Set<string>();
-  const matches = text.match(/#[0-9a-fA-F]{3,8}(?![0-9a-fA-F])/g);
-  if (matches) {
-    for (const m of matches) {
-      const len = m.length - 1; // exclude '#'
-      if (len === 3 || len === 6 || len === 8) {
-        hexSet.add(m.toLowerCase());
-      }
-    }
-  }
-  return [...hexSet];
-}
-
-function extractTypographyHints(text: string): { font?: string; scale?: string } {
-  const fontMatch = text.match(/(?:font[-\s]?family|typeface)\s*[:=]\s*([^\n]+)/i);
-  const scaleMatch = text.match(/(?:scale|sizes?)\s*[:=]\s*([^\n]+)/i);
-  return {
-    font: fontMatch?.[1]?.trim(),
-    scale: scaleMatch?.[1]?.trim(),
-  };
-}
-
-function extractSpacingHints(text: string): { baseUnit?: string; scale?: string } {
-  const spacingSection = text.match(/##\s+Spacing[\s\S]*?(?=\n##\s+|$)/i)?.[0] ?? text;
-  const baseMatch = spacingSection.match(/(?:base[-\s]?unit|grid|spacing[-\s]?base)\s*[:=]\s*([^\n]+)/i);
-  const scaleMatch = spacingSection.match(/(?:spacing[-\s]?scale|scale)\s*[:=]\s*([^\n]+)/i);
-  return {
-    baseUnit: baseMatch?.[1]?.trim(),
-    scale: scaleMatch?.[1]?.trim(),
-  };
-}
-
-export function seedDesignFromIntake(cwd: string): { seeded: boolean; note: string } {
-  const refsDir = path.join(intakeDir(cwd), "references");
-  if (!fs.existsSync(refsDir)) return { seeded: false, note: "" };
-
-  const designKeywords = /(?:style.?guide|brand|design.?token|colour|color|palette|typography|spacing|theme|visual|ui.?kit)/i;
-  let candidateFiles: string[] = [];
-
-  function walk(dir: string) {
-    let entries: Array<{ name: string; isDirectory(): boolean }>;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch { return; }
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(fullPath);
-        continue;
-      }
-      const rel = relativeToCwd(cwd, fullPath).replace(/\\/g, "/");
-      if (!isPreviewableTextFile(rel)) continue;
-      if (designKeywords.test(entry.name) || designKeywords.test(readIfExists(fullPath).slice(0, 2000))) {
-        candidateFiles.push(fullPath);
-      }
-    }
-  }
-  walk(refsDir);
-
-  if (candidateFiles.length === 0) return { seeded: false, note: "" };
-
-  let colors: string[] = [];
-  let font: string | undefined;
-  let typeScale: string | undefined;
-  let baseUnit: string | undefined;
-  let spacingScale: string | undefined;
-
-  for (const filePath of candidateFiles) {
-    const text = readIfExists(filePath);
-    if (!text) continue;
-    colors.push(...extractHexColors(text));
-    const typography = extractTypographyHints(text);
-    if (typography.font && !font) font = typography.font;
-    if (typography.scale && !typeScale) typeScale = typography.scale;
-    const spacing = extractSpacingHints(text);
-    if (spacing.baseUnit && !baseUnit) baseUnit = spacing.baseUnit;
-    if (spacing.scale && !spacingScale) spacingScale = spacing.scale;
-  }
-
-  const dsLines: string[] = [
-    "# Design System",
-    "",
-    "<!-- source: intake -->",
-    "<!-- Keep under ~300 tokens. Colours, typography, spacing, and top-level component conventions. -->",
-    "",
-  ];
-
-  if (colors.length > 0) {
-    dsLines.push("## Colours");
-    const unique = [...new Set(colors)].slice(0, 6);
-    for (let i = 0; i < unique.length; i++) {
-      dsLines.push(`- ${i === 0 ? "Primary" : i === 1 ? "Secondary" : `Color ${i + 1}`}: ${unique[i]}`);
-    }
-    dsLines.push("");
-  } else {
-    dsLines.push("## Colours", "- Primary: —", "- Secondary: —", "- Surface: —", "- Text: —", "");
-  }
-
-  dsLines.push("## Typography");
-  dsLines.push(`- Font family: ${font || "—"}`);
-  dsLines.push(`- Scale: ${typeScale || "—"}`);
-  dsLines.push("");
-
-  dsLines.push("## Spacing");
-  dsLines.push(`- Base unit: ${baseUnit || "—"}`);
-  dsLines.push(`- Scale: ${spacingScale || "—"}`);
-  dsLines.push("");
-
-  dsLines.push("## Component conventions", "- —", "");
-
-  fs.writeFileSync(designSystemPath(cwd), dsLines.join("\n"));
-
-  const brandLines: string[] = [
-    "# Brand",
-    "",
-    "<!-- source: intake -->",
-    "<!-- Tone of voice, naming conventions, logo/asset notes, brand constraints. -->",
-    "",
-    "## Tone", "- —", "", "## Naming", "- —", "", "## Constraints", "- —", "",
-  ];
-  fs.writeFileSync(brandPath(cwd), brandLines.join("\n"));
-
-  fs.writeFileSync(componentsPath(cwd), COMPONENTS_TEMPLATE);
-
-  return {
-    seeded: true,
-    note: `Seeded design system from ${candidateFiles.length} intake file${candidateFiles.length === 1 ? "" : "s"}`,
-  };
 }
 
 export function normalizeProjectBrief(input: string, projectName: string): string {
@@ -1669,7 +1359,7 @@ export function archivedStoryLabels(cwd: string): string[] {
   if (!fs.existsSync(dir)) return [];
 
   return fs.readdirSync(dir)
-    .map((name: string) => name.match(/(story-\d+)/i)?.[1]?.toLowerCase() ?? "")
+    .map(name => name.match(/(story-\d+)/i)?.[1]?.toLowerCase() ?? "")
     .filter(Boolean);
 }
 
@@ -1836,7 +1526,7 @@ export function buildRememberInstruction(cwd: string): string {
 
 export function createReviewDraft(
   cwd: string,
-  options: { focus: string; scope?: ReviewScope; storyLabel?: string; trigger?: string; staticAnalysis?: string },
+  options: { focus: string; scope?: ReviewScope; storyLabel?: string; trigger?: string },
 ): ReviewDraft {
   ensureReviewStructure(cwd);
 
@@ -1845,19 +1535,10 @@ export function createReviewDraft(
   const storyLabel = options.storyLabel?.trim() || fallbackStoryLabel;
   const scope = options.scope ?? (storyLabel === "—" ? "whole-codebase" : "story");
   const trigger = options.trigger?.trim() || "manual";
-  const reviewBaseName = `review-${compactTimestamp(created)}`;
-  let fileName = `${reviewBaseName}.md`;
-  let filePath = path.join(reviewsDir(cwd), fileName);
-  let suffix = 2;
+  const fileName = `review-${compactTimestamp(created)}.md`;
+  const filePath = path.join(reviewsDir(cwd), fileName);
 
-  while (fs.existsSync(filePath)) {
-    fileName = `${reviewBaseName}-${suffix}.md`;
-    filePath = path.join(reviewsDir(cwd), fileName);
-    suffix += 1;
-  }
-
-  const staticAnalysis = options.staticAnalysis ?? "not run (fallow unavailable)";
-  fs.writeFileSync(filePath, reviewFileTemplate(created, scope, storyLabel, options.focus, trigger, staticAnalysis));
+  fs.writeFileSync(filePath, reviewFileTemplate(created, scope, storyLabel, options.focus, trigger));
 
   return {
     created,
@@ -1865,13 +1546,12 @@ export function createReviewDraft(
     scope,
     storyLabel,
     trigger,
-    staticAnalysis,
     fileName,
     filePath,
   };
 }
 
-export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt = ""): string {
+export function buildReviewInstruction(review: ReviewDraft): string {
   const reviewScope = review.scope === "whole-codebase"
     ? "whole codebase"
     : review.storyLabel !== "—"
@@ -1879,7 +1559,6 @@ export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt
       : "recent changes";
 
   return [
-    ...(staticAnalysisPrompt ? [staticAnalysisPrompt, ""] : []),
     `Run a code review and write the results to .context/reviews/${review.fileName}.`,
     "",
     "Requirements:",
@@ -1906,7 +1585,6 @@ export function reviewFileTemplate(
   storyLabel: string,
   focus: string,
   trigger: string,
-  staticAnalysis: string,
 ): string {
   return [
     `# Code Review ${created}`,
@@ -1916,7 +1594,6 @@ export function reviewFileTemplate(
     `**Completed:** —  `,
     `**Scope:** ${scope}  `,
     `**Story:** ${storyLabel}  `,
-    `**Static analysis:** ${staticAnalysis}  `,
     `**Focus:** ${focus}  `,
     `**Trigger:** ${trigger}`,
     "",

@@ -108,5 +108,13 @@ export function makePi(registerExtensions: Array<(pi: any) => void>) {
         await handler(event, ctx);
       }
     },
+    async emitResults(name: string, event: any, ctx: any) {
+      const handlers = eventHandlers.get(name) ?? [];
+      const results: unknown[] = [];
+      for (const handler of handlers) {
+        results.push(await handler(event, ctx));
+      }
+      return results;
+    },
   };
 }

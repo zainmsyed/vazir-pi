@@ -1,9 +1,9 @@
 # Story 001: Design system folder, UI story detection, and seeding
 
-**Status:** in-progress  
+**Status:** complete  
 **Created:** 2026-05-05  
 **Last accessed:** 2026-05-05  
-**Completed:** —
+**Completed:** 2026-05-05
 
 ---
 
@@ -29,14 +29,14 @@ Run `/vazir-init` in a fresh project — `.context/design/` exists with `design-
 ---
 
 ## Checklist
-- [ ] Add design-system path helpers: `designDir()`, `designSystemPath()`, `brandPath()`, `componentsPath()` in helpers.ts
-- [ ] Update `/vazir-init` to create `.context/design/` with three stub files (empty with frontmatter comments)
-- [ ] Update `/plan` handler to run silent design seeding pass after writing `intake-brief.md`
-- [ ] Implement `seedDesignFromIntake(cwd)` that scans `.context/intake/references/` for text files matching design-flavoured names/patterns and extracts colours, typography, spacing into stubs
-- [ ] Implement `isUiStory(storyFilePath)` helper that reads story scope and returns true if any path ends in `.tsx`, `.jsx`, `.css`, `.scss`, `.html`, or `.svelte`
-- [ ] Implement `hasUiTypeOverride(storyFilePath)` helper that returns true if frontmatter contains `**Type:** ui`
-- [ ] Update `storyTemplate()` in helpers.ts to include optional `**Type:**` line after Status
-- [ ] Write tests or manual verification steps in a local temp repo
+- [x] Add design-system path helpers: `designDir()`, `designSystemPath()`, `brandPath()`, `componentsPath()` in helpers.ts
+- [x] Update `/vazir-init` to create `.context/design/` with three stub files (empty with frontmatter comments)
+- [x] Update `/plan` handler to run silent design seeding pass after writing `intake-brief.md`
+- [x] Implement `seedDesignFromIntake(cwd)` that scans `.context/intake/references/` for text files matching design-flavoured names/patterns and extracts colours, typography, spacing into stubs
+- [x] Implement `isUiStory(storyFilePath)` helper that reads story scope and returns true if any path ends in `.tsx`, `.jsx`, `.css`, `.scss`, `.html`, or `.svelte`
+- [x] Implement `hasUiTypeOverride(storyFilePath)` helper that returns true if frontmatter contains `**Type:** ui`
+- [x] Update `storyTemplate()` in helpers.ts to include optional `**Type:**` line after Status
+- [x] Write tests or manual verification steps in a local temp repo
 
 ---
 
@@ -46,3 +46,13 @@ Run `/vazir-init` in a fresh project — `.context/design/` exists with `design-
 
 ## Completion Summary
 
+**What changed:**
+- **helpers.ts**: Added design-system path helpers (`designDir`, `designSystemPath`, `brandPath`, `componentsPath`), three stub templates (`DESIGN_SYSTEM_TEMPLATE`, `BRAND_TEMPLATE`, `COMPONENTS_TEMPLATE`), `seedDesignFromIntake()` with heuristic extraction of hex colours, typography, and spacing from `.context/intake/references/`, `isUiStory()` that detects UI stories by scope-path extensions (`.tsx`, `.jsx`, `.css`, `.scss`, `.html`, `.svelte`), `hasUiTypeOverride()` that checks for `**Type:** ui` frontmatter, and updated `storyTemplate()` to include an optional `**Type:** —` line after Status.
+- **index.ts**: Updated `/vazir-init` to create `.context/design/` with stub files on bootstrap. Updated `/plan` to run a silent design seeding pass after writing `intake-brief.md`; if no design-flavoured intake files are found, it creates empty stubs instead. Imports and wiring for all new helpers added.
+
+**Manual verification performed:**
+- `isUiStory` returns `true` for a story with `.tsx` in scope and `false` for a story with only `.ts` files.
+- `hasUiTypeOverride` returns `true` for a story with `**Type:** ui` and `false` otherwise.
+- `seedDesignFromIntake` successfully extracted colours (#2d6be4, #1a1a2e, etc.), font family (Inter, system-ui), base unit (4px), and scale from a mock brand style guide in `.context/intake/references/`.
+
+**Ready for `/complete-story`.**
