@@ -9,7 +9,6 @@ node_modules/
 .jj/
 
 # Pi-coding-agent transient state (workspace-specific)
-.context/
 .context/chat/
 .context/history/
 .context/sandbox/

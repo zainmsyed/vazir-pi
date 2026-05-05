@@ -1,0 +1,28 @@
+{
+  "labels": {
+    "44165894": "please commit and push the gitignore file? also check it to see if there is anyt",
+    "d2371bae": "please remove .context from the commit history and repo. this is a repo only i u",
+    "8fbbd22a": "please remove .context from the commit history and repo. this is a repo only i u",
+    "398b9562": "please commit and push the gitignore file? also check it to see if there is anyt",
+    "26bf91e5": "please commit and push the gitignore file? also check it to see if there is anyt",
+    "32d449da": "please commit and push the gitignore file? also check it to see if there is anyt",
+    "5d7b7a54": "Complete the Vazir bootstrap context drafting using the currently selected Pi mo",
+    "f62470fb": "Run a code review and write the results to .context/reviews/review-20260422-1209",
+    "2dcd73ae": "Run a code review and write the results to .context/reviews/review-20260422-1209",
+    "6265eac6": "Complete the Vazir bootstrap context drafting using the currently selected Pi mo",
+    "0aaa3aed": "Complete the Vazir bootstrap context drafting using the currently selected Pi mo",
+    "d62d4f44": "## Static Analysis Findings (Fallow)\nVerdict: fail\nScope: 9 changed files\n\nIssue",
+    "e525b809": "Complete the Vazir bootstrap context drafting using the currently selected Pi mo",
+    "84eff57d": "lets rebase and merge with main and delete this branch once youre done",
+    "0654dd3e": "can we see all the branches in this repo?",
+    "3f20df47": "please delte all other branches to clean up the repo",
+    "7c4f288b": "i want to talk about some enhancements.\n\ni want to create design.md file when we",
+    "574c3770": "please go back to the last commit bc i wanted to have a discussion not make chan",
+    "b5f3469d": "this is only a sicussion dont chenge code unless i explicitly tell you to",
+    "9f8328c0": "1. im thinking a design system??\n2. i like creating a design directory where mul",
+    "ba2bf562": "ok lets take a look at /home/zain/Documents/coding/vazir-pi/.context/intake/prd/",
+    "d53afafe": "ok take a look at the updates to the same file based on your rec",
+    "d33cc521": "The user wants to plan their project.\nNo story files are pre-seeded in .context/",
+    "fa51f9e5": "lets create a new branch and commit and push to that. did you already push?"
+  }
+}
