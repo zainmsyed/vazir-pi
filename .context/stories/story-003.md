@@ -1,6 +1,6 @@
 # Story 003: `/design` command and chrome registration
 
-**Status:** not-started  
+**Status:** in-progress  
 **Created:** 2026-05-05  
 **Last accessed:** 2026-05-05  
 **Completed:** —

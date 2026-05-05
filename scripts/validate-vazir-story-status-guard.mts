@@ -77,6 +77,17 @@ function writeNotStartedStory(cwd: string, number: number, lastAccessed: string)
   return writeStory(cwd, number, "not-started", lastAccessed);
 }
 
+function setStoryScope(storyPath: string, scopeFile: string): void {
+  const content = fs.readFileSync(storyPath, "utf-8");
+  fs.writeFileSync(storyPath, content.replace("- src/example.ts", `- ${scopeFile}`));
+}
+
+function writeDesignSystem(cwd: string, content: string): void {
+  const designDir = path.join(cwd, ".context", "design");
+  fs.mkdirSync(designDir, { recursive: true });
+  fs.writeFileSync(path.join(designDir, "design-system.md"), content);
+}
+
 function makePi() {
   const harness = createPiHarness([register]);
 
@@ -85,6 +96,9 @@ function makePi() {
     sentUserMessages: harness.sentMessages,
     async emit(name: string, event: any, ctx: any) {
       await harness.emit(name, event, ctx);
+    },
+    async emitResults(name: string, event: any, ctx: any) {
+      return await harness.emitResults(name, event, ctx);
     },
   };
 }
@@ -187,6 +201,36 @@ async function runAutoStartScenario() {
   return { cwd, notifications, story };
 }
 
+async function runDesignContextInjectionScenario() {
+  const uiCwd = createProject("vazir-story-guard-ui-design-context-");
+  const nonUiCwd = createProject("vazir-story-guard-non-ui-design-context-");
+  const designContent = "# Design System\n\nUnique review test token: UI-DESIGN-INJECTION\n";
+
+  const uiNotifications: Notification[] = [];
+  const uiHarness = makePi();
+  const uiCtx = makeCtx(uiCwd, uiNotifications);
+  const uiStoryPath = writeStory(uiCwd, 1, "in-progress", "2026-03-25");
+  setStoryScope(uiStoryPath, "src/Card.tsx");
+  writeDesignSystem(uiCwd, designContent);
+
+  const uiResults = await uiHarness.emitResults("before_agent_start", { systemPrompt: "BASE PROMPT" }, uiCtx);
+  const uiPrompt = String((uiResults.find(result => result && typeof result === "object" && "systemPrompt" in result) as { systemPrompt?: string } | undefined)?.systemPrompt ?? "");
+  assert(uiPrompt.includes("UI-DESIGN-INJECTION"), "UI active story should inject design-system.md into the system prompt");
+  assert(uiPrompt.includes("[Design System]"), "UI design injection should include a design-system section label");
+
+  const nonUiNotifications: Notification[] = [];
+  const nonUiHarness = makePi();
+  const nonUiCtx = makeCtx(nonUiCwd, nonUiNotifications);
+  writeStory(nonUiCwd, 1, "in-progress", "2026-03-25");
+  writeDesignSystem(nonUiCwd, designContent);
+
+  const nonUiResults = await nonUiHarness.emitResults("before_agent_start", { systemPrompt: "BASE PROMPT" }, nonUiCtx);
+  const nonUiPrompt = String((nonUiResults.find(result => result && typeof result === "object" && "systemPrompt" in result) as { systemPrompt?: string } | undefined)?.systemPrompt ?? "");
+  assert(!nonUiPrompt.includes("UI-DESIGN-INJECTION"), "non-UI active story should not inject design-system.md");
+
+  return { uiCwd, nonUiCwd, uiNotifications, nonUiNotifications };
+}
+
 async function runCompletionReviewPromptScenario() {
   const cwd = createProject("vazir-story-guard-review-prompt-");
   const notifications: Notification[] = [];
@@ -264,11 +308,13 @@ try {
   const blocked = await runBlockedScenario();
   const allowed = await runAllowedScenario();
   const autoStart = await runAutoStartScenario();
+  const designContext = await runDesignContextInjectionScenario();
   const reviewPrompt = await runCompletionReviewPromptScenario();
 
   printScenario("Blocked Unauthorized Completion", blocked);
   printScenario("Allowed Explicit Completion", allowed);
   printScenario("Auto-Start Not-Started Story", autoStart);
+  printScenario("Design Context Injection", designContext);
   printScenario("Completion Review Prompt", reviewPrompt);
 } finally {
   cleanupStubModules(stubModuleDirs);
