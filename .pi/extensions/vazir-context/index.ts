@@ -86,6 +86,8 @@ import {
   DESIGN_SYSTEM_TEMPLATE,
   BRAND_TEMPLATE,
   COMPONENTS_TEMPLATE,
+  buildDesignSummary,
+  warnIfDesignSystemOverCap,
   selectableStoriesForManualReview,
   settingsDir,
   snapshotStoryFrontmatter,
@@ -1060,7 +1062,7 @@ export default function (pi: ExtensionAPI) {
     const review = createReviewDraft(ctx.cwd, { ...options, staticAnalysis: fallowAudit.summaryLine });
     syncReviewSummaryAndPromoteRules(ctx.cwd);
     ctx.ui.notify(`Created ${review.fileName} in .context/reviews/`, "info");
-    const instruction = buildReviewInstruction(review, fallowAudit.promptPrefix);
+    const instruction = buildReviewInstruction(review, fallowAudit.promptPrefix, ctx.cwd);
 
     if (beforeDispatch) {
       beforeDispatch(review);
@@ -2076,4 +2078,110 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.notify("Consolidation handed to the current Pi model", "info");
     },
   });
+
+  // ── /design ─────────────────────────────────────────────────────────
+
+  pi.registerCommand("design", {
+    description: "Review and update design-system, brand, and components files",
+    handler: async (args: string, ctx: any) => {
+      const cwd = ctx.cwd;
+      ensureDir(designDir(cwd));
+      const dsPath = designSystemPath(cwd);
+      const brandP = brandPath(cwd);
+      const compsP = componentsPath(cwd);
+
+      // Ensure stubs exist
+      if (!fs.existsSync(dsPath)) fs.writeFileSync(dsPath, DESIGN_SYSTEM_TEMPLATE);
+      if (!fs.existsSync(brandP)) fs.writeFileSync(brandP, BRAND_TEMPLATE);
+      if (!fs.existsSync(compsP)) fs.writeFileSync(compsP, COMPONENTS_TEMPLATE);
+
+      const applyInstruction = async (instruction: string) => {
+        const inst = instruction.trim();
+        if (!inst) return;
+
+        // switch primary colour to slate-900
+        const mPrimary = inst.match(/(?:switch|set)\s+primary\s+(?:colour|color)\s+to\s+(.+)$/i);
+        if (mPrimary) {
+          const value = mPrimary[1].trim();
+          const ds = readIfExists(dsPath) || DESIGN_SYSTEM_TEMPLATE;
+          const lines = ds.split("\n");
+          let inColours = false;
+          let replaced = false;
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (/^##\s+Colours/.test(line)) { inColours = true; continue; }
+            if (inColours) {
+              if (/^##\s+/.test(line)) break;
+              if (/^-\s*Primary:/i.test(line)) {
+                lines[i] = `- Primary: ${value} <!-- source: story-003 -->`;
+                replaced = true;
+                break;
+              }
+            }
+          }
+          if (!replaced) {
+            // inject under Colours
+            for (let i = 0; i < lines.length; i++) {
+              if (/^##\s+Colours/.test(lines[i])) {
+                lines.splice(i+1, 0, `- Primary: ${value} <!-- source: story-003 -->`);
+                replaced = true;
+                break;
+              }
+            }
+          }
+          fs.writeFileSync(dsPath, lines.join("\n"));
+          ctx.ui.notify(`Updated Primary colour to ${value} in ${path.relative(cwd, dsPath)}`, "info");
+          return;
+        }
+
+        // move component conventions to components.md
+        if (/move\s+component\s+conventions/i.test(inst) || (/move\s+components?/i.test(inst) && /components?\.md/i.test(inst))) {
+          const ds = readIfExists(dsPath);
+          const compSecMatch = ds.match(/## Component conventions[\s\S]*?(?=\n## |$)/i);
+          const compSec = compSecMatch ? compSecMatch[0] : "";
+          if (!compSec) {
+            ctx.ui.notify("No component conventions section found in design-system.md", "info");
+            return;
+          }
+          const comps = readIfExists(compsP).trim();
+          const appended = `${comps}\n\n${compSec}\n`;
+          fs.writeFileSync(compsP, appended.trim() + "\n");
+          // remove section from design-system
+          const newDs = ds.replace(/\n## Component conventions[\s\S]*?(?=\n## |$)/i, "\n## Component conventions\n- See components.md <!-- source: story-003 -->\n");
+          fs.writeFileSync(dsPath, newDs);
+          ctx.ui.notify(`Moved component conventions to ${path.relative(cwd, compsP)}`, "info");
+          return;
+        }
+
+        ctx.ui.notify("Instruction not understood. Try: 'switch primary colour to slate-900' or 'move component conventions to components.md'", "info");
+      };
+
+      const direct = args.trim();
+      if (!direct) {
+        const summary = buildDesignSummary(cwd);
+        const warn = warnIfDesignSystemOverCap(cwd);
+        let body = summary;
+        if (warn.overCap && warn.message) {
+          body = `${warn.message}\n\n${body}`;
+        }
+
+        if (ctx.hasUI) {
+          await showScrollableText(ctx, "Design summary", "Esc to return", body);
+          const instruction = (await ctx.ui.input("What would you like to update?", "e.g. switch primary colour to slate-900"))?.trim() ?? "";
+          if (!instruction) return;
+          await applyInstruction(instruction);
+          return;
+        }
+
+        // non-UI: send summary and await follow-up
+        await pi.sendUserMessage(body);
+        return;
+      }
+
+      // direct invocation
+      await applyInstruction(direct);
+
+    },
+  });
+
 }

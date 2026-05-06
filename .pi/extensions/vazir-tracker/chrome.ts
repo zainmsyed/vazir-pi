@@ -35,7 +35,6 @@ interface StoryProgressSummary {
   slug: string;
   checklistDone: number;
   checklistTotal: number;
-  openIssues: number;
 }
 
 export interface FooterSessionSnapshot {
@@ -66,6 +65,7 @@ const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/memory-review", description: "archive cold context, flag stale rules, and review delete candidates" },
   { command: "/unlearn", description: "remove a promoted rule from system memory" },
   { command: "/consolidate", description: "cluster complaints and promote repeated rule candidates" },
+  { command: "/design", description: "review and edit design system, brand, components" },
   { command: "/diff", description: "show the diff for one changed file" },
   { command: "/edits", description: "show the recent file edit stream" },
   { command: "/checkpoint", description: "pick a JJ checkpoint to restore" },
@@ -509,11 +509,6 @@ function checklistProgress(content: string): { done: number; total: number } {
   };
 }
 
-function countOpenIssues(content: string): number {
-  const issues = markdownSection(content, "## Issues");
-  return (issues.match(/^- \*\*Status:\*\*\s*(pending|reopened)\b/gim) || []).length;
-}
-
 function storyProgressSummary(cwd: string): StoryProgressSummary | null {
   if (storyProgressCacheCwd === cwd && storyProgressCache !== undefined) {
     return storyProgressCache;
@@ -534,7 +529,6 @@ function storyProgressSummary(cwd: string): StoryProgressSummary | null {
     slug: path.basename(story.file, ".md"),
     checklistDone: checklist.done,
     checklistTotal: checklist.total,
-    openIssues: countOpenIssues(content),
   };
 
   storyProgressCacheCwd = cwd;
@@ -548,10 +542,6 @@ function progressBar(done: number, total: number, width = 10): string {
 
   const filled = Math.max(0, Math.min(width, Math.round((done / total) * width)));
   return `▐${"█".repeat(filled)}${"░".repeat(width - filled)}▌`;
-}
-
-function issueCountLabel(count: number): string {
-  return `${count} issue${count === 1 ? "" : "s"}`;
 }
 
 function storyStatusTone(status: string): VazirTone {
@@ -778,14 +768,6 @@ function storySavedLabel(summary: StoryProgressSummary): string | null {
   return `last saved ${formatRelativeAge(modifiedAt)}`;
 }
 
-function footerIssueSegment(summary: StoryProgressSummary | null): string {
-  if (!summary) return "";
-  if (summary.openIssues > 0) {
-    return paint(issueCountLabel(summary.openIssues), "error");
-  }
-  return paint("clean", "success");
-}
-
 function footerGitStatusSegment(): string {
   const dirtyCount = changedFiles.size;
   if (dirtyCount <= 0) {
@@ -852,15 +834,11 @@ function storyStatusWidgetLines(
     ];
   }
 
-  const issueSegment = summary.openIssues > 0
-    ? paint(`⚠ ${issueCountLabel(summary.openIssues)}`, "error")
-    : paint("✓ no open issues", "success");
   const progressSegment = `${paint(progressBar(summary.checklistDone, summary.checklistTotal), storyProgressTone(summary))} ${paint(`${summary.checklistDone}/${summary.checklistTotal} ${summary.checklistTotal === 1 ? "task" : "tasks"}`, "dim")}`;
   const segments = [
     `${paint("▸", "accent", true)} ${paint(summary.slug, "text")}`,
     paint(summary.story.status, storyStatusTone(summary.story.status)),
     progressSegment,
-    issueSegment,
   ];
 
   const savedLabel = activeToolCalls > 0 ? null : storySavedLabel(summary);
@@ -934,7 +912,6 @@ function sessionFooterLine(
     ? [
         paint(repoLabel, "accent", true),
         paint(storyLabel, "text"),
-        footerIssueSegment(summary),
         branchLabelSegment,
         footerContextSegment(snapshot),
         footerSpendSegment(snapshot),
@@ -943,7 +920,6 @@ function sessionFooterLine(
     : [
         paint(repoLabel, "accent", true),
         paint(storyLabel, "text"),
-        footerIssueSegment(summary),
         branchWithStatus,
         `${paint(modelLabel, "dim")} ${paint(`(${thinkingLevel})`, "dim")}`,
         footerTokenOrWorkSegment(snapshot),

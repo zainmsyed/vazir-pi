@@ -1,8 +1,8 @@
 # Story 005: Story-close mini-consolidate and promotion UX
 
-**Status:** not-started  
+**Status:** in-progress  
 **Created:** 2026-05-05  
-**Last accessed:** 2026-05-05  
+**Last accessed:** 2026-05-06  
 **Completed:** —
 
 ---
