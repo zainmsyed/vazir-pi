@@ -320,6 +320,86 @@ export const DESIGN_SYSTEM_TEMPLATE = [
   "",
 ].join("\n");
 
+// ── Design helpers ─────────────────────────────────────────────────────
+
+function extractMarkdownSection(content: string, heading: string): string {
+  const lines = content.split("\n");
+  const headingIndex = lines.findIndex(line => line.trim() === heading);
+  if (headingIndex < 0) return "";
+  const section: string[] = [];
+  for (let i = headingIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^##\s+/.test(line)) break;
+    if (/^---\s*$/.test(line) && section.length > 0) break;
+    section.push(line);
+  }
+  return section.join("\n").trim();
+}
+
+export function buildDesignSummary(cwd: string): string {
+  const ds = readIfExists(designSystemPath(cwd)).trim();
+  const brand = readIfExists(brandPath(cwd)).trim();
+  const comps = readIfExists(componentsPath(cwd)).trim();
+
+  const parts: string[] = [];
+  if (ds) {
+    const colours = extractMarkdownSection(ds, "## Colours");
+    const typography = extractMarkdownSection(ds, "## Typography");
+    const spacing = extractMarkdownSection(ds, "## Spacing");
+    const components = extractMarkdownSection(ds, "## Component conventions");
+
+    if (colours) parts.push(`Colours:\n${colours.split("\n").map(l => `- ${l.replace(/^-\s+/, "").trim()}`).join("\n")}`);
+    if (typography) parts.push(`Typography:\n${typography.split("\n").map(l => `- ${l.replace(/^-\s+/, "").trim()}`).join("\n")}`);
+    if (spacing) parts.push(`Spacing:\n${spacing.split("\n").map(l => `- ${l.replace(/^-\s+/, "").trim()}`).join("\n")}`);
+    if (components) parts.push(`Component conventions (summary): ${components.split("\n").map(l => l.replace(/^-\s+/, "").trim()).filter(Boolean).slice(0,4).join('; ')}`);
+  } else {
+    parts.push("Design system: (empty)");
+  }
+
+  if (brand) {
+    const tone = extractMarkdownSection(brand, "## Tone") || "";
+    parts.push(`Brand tone: ${tone.split("\n").map(l => l.replace(/^-\s+/, "").trim()).filter(Boolean).slice(0,3).join('; ') || '(none)'}`);
+  } else {
+    parts.push("Brand: (empty)");
+  }
+
+  if (comps) {
+    const compLines = comps.split("\n").map(l => l.replace(/^-\s+/, "").trim()).filter(Boolean);
+    const useful = compLines.slice(0, 5).join('; ') || "(no entries)";
+    parts.push(`Components registry: ${useful}`);
+  } else {
+    parts.push("Components registry: (empty)");
+  }
+
+  return parts.join("\n\n");
+}
+
+export function warnIfDesignSystemOverCap(cwd: string): { overCap: boolean; tokenApprox: number; message?: string } {
+  const ds = readIfExists(designSystemPath(cwd)).trim();
+  if (!ds) return { overCap: false, tokenApprox: 0 };
+
+  const words = ds.replace(/\s+/g, " ").trim().split(" ").filter(Boolean).length;
+  const tokensApprox = Math.ceil(words / 0.75);
+  const cap = 300;
+  if (tokensApprox <= cap) return { overCap: false, tokenApprox: tokensApprox };
+
+  // Propose trim strategy: protect colours, then typography scale, then spacing descriptions, then component conventions
+  const components = extractMarkdownSection(ds, "## Component conventions");
+
+  const suggestionLines: string[] = [];
+  suggestionLines.push(`Design-system token estimate: ${tokensApprox} (cap ${cap}).`);
+  suggestionLines.push("Proposal to reduce size without losing priority information:");
+  suggestionLines.push("1. Preserve Colours section (protected).\n2. Move detailed component conventions into .context/design/components.md before trimming anything else.\n3. Trim verbose typography scale descriptions, keep the scale numbers only.\n4. Shorten spacing prose to base unit and terse scale notes.");
+
+  if (components) {
+    suggestionLines.push("Recommendation: Move component convention details to .context/design/components.md before trimming the design-system.md.");
+  } else {
+    suggestionLines.push("No components.md content found — consider creating .context/design/components.md and moving component conventions there.");
+  }
+
+  return { overCap: true, tokenApprox: tokensApprox, message: suggestionLines.join("\n") };
+}
+
 export const BRAND_TEMPLATE = [
   "# Brand",
   "",
@@ -1834,6 +1914,11 @@ export function buildRememberInstruction(cwd: string): string {
   ].join("\n");
 }
 
+function designSystemHasGaps(content: string): boolean {
+  const stripped = content.replace(/<!--[^>]*-->/g, "").trim();
+  return !stripped || stripped.includes("—");
+}
+
 export function createReviewDraft(
   cwd: string,
   options: { focus: string; scope?: ReviewScope; storyLabel?: string; trigger?: string; staticAnalysis?: string },
@@ -1857,7 +1942,12 @@ export function createReviewDraft(
   }
 
   const staticAnalysis = options.staticAnalysis ?? "not run (fallow unavailable)";
-  fs.writeFileSync(filePath, reviewFileTemplate(created, scope, storyLabel, options.focus, trigger, staticAnalysis));
+
+  const storyFile = storyLabel !== "—" ? path.join(storiesDir(cwd), `${storyLabel}.md`) : "";
+  const isUi = storyFile ? hasUiTypeOverride(storyFile) || isUiStory(storyFile) : false;
+  const dsEmpty = isUi ? designSystemHasGaps(readIfExists(designSystemPath(cwd))) : false;
+
+  fs.writeFileSync(filePath, reviewFileTemplate(created, scope, storyLabel, options.focus, trigger, staticAnalysis, isUi, dsEmpty));
 
   return {
     created,
@@ -1871,12 +1961,25 @@ export function createReviewDraft(
   };
 }
 
-export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt = ""): string {
+export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt = "", cwd = ""): string {
   const reviewScope = review.scope === "whole-codebase"
     ? "whole codebase"
     : review.storyLabel !== "—"
       ? `${review.storyLabel} and its direct integration points`
       : "recent changes";
+
+  const storyFile = review.storyLabel !== "—" && cwd ? path.join(storiesDir(cwd), `${review.storyLabel}.md`) : "";
+  const isUi = storyFile ? hasUiTypeOverride(storyFile) || isUiStory(storyFile) : false;
+
+  const designNotes: string[] = [];
+  if (isUi) {
+    designNotes.push(
+      "For UI stories, verify colors reference design-system.md tokens, spacing follows the declared scale, typography uses declared families, and components.md was checked before creating new components.",
+    );
+    if (designSystemHasGaps(readIfExists(designSystemPath(cwd)))) {
+      designNotes.push("If .context/design/design-system.md is empty or incomplete, skip design compliance checks and note this in the review file rather than flagging false violations.");
+    }
+  }
 
   return [
     ...(staticAnalysisPrompt ? [staticAnalysisPrompt, ""] : []),
@@ -1897,6 +2000,7 @@ export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt
     `12. Review focus: ${review.focus}.`,
     review.storyLabel !== "—" ? `13. Story: ${review.storyLabel}.` : "13. No story is attached; keep the review manual and comprehensive within the requested scope.",
     `14. Trigger: ${review.trigger}.`,
+    ...(designNotes.length > 0 ? ["", ...designNotes] : []),
   ].join("\n");
 }
 
@@ -1907,7 +2011,24 @@ export function reviewFileTemplate(
   focus: string,
   trigger: string,
   staticAnalysis: string,
+  isUiStory = false,
+  designSystemEmpty = false,
 ): string {
+  const designCompliance = isUiStory
+    ? [
+        "",
+        "## Design Compliance (UI stories only)",
+        ...(designSystemEmpty
+          ? ["> Note: `.context/design/design-system.md` is empty or incomplete — design compliance checks skipped."]
+          : []),
+        "- [ ] Colors reference design-system.md tokens",
+        "- [ ] Spacing follows the declared scale",
+        "- [ ] Typography uses declared families",
+        "- [ ] components.md was checked before creating new components",
+        "",
+      ]
+    : [];
+
   return [
     `# Code Review ${created}`,
     "",
@@ -1932,7 +2053,7 @@ export function reviewFileTemplate(
     "- [ ] Check for dead code, duplication, and simplification opportunities",
     "- [ ] Capture reusable rule candidates where warranted",
     "- [ ] Write the completion summary and mark the review complete",
-    "",
+    ...designCompliance,
     "---",
     "",
     "## Findings",

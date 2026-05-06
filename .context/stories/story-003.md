@@ -1,9 +1,9 @@
 # Story 003: `/design` command and chrome registration
 
-**Status:** in-progress  
+**Status:** complete  
 **Created:** 2026-05-05  
 **Last accessed:** 2026-05-05  
-**Completed:** —
+**Completed:** 2026-05-05
 
 ---
 
@@ -29,14 +29,14 @@ Run `/design` — agent presents a readable summary of `design-system.md`, `bran
 ---
 
 ## Checklist
-- [ ] Register `/design` command in vazir-context/index.ts with handler that reads all three design files
-- [ ] Build `buildDesignSummary(cwd)` in helpers.ts that returns a concise readable summary (not raw file dump)
-- [ ] Implement interactive flow: present summary → ask "What would you like to update?" → apply change to relevant file
-- [ ] Support direct invocation: `/design <instruction>` skips summary and applies directly
-- [ ] Implement token-count warning in helpers.ts: `warnIfDesignSystemOverCap(cwd)` uses approximate token count (word count / 0.75); if >300, warns and proposes trim based on priority order (colors protected, then typography scale, then spacing descriptions, then component conventions)
-- [ ] When trimming is needed, agent proposes moving component conventions to `components.md` before trimming anything else
-- [ ] Add `/design` entry to `VAZIR_COMMAND_HELP` in chrome.ts
-- [ ] Verify Ctrl+? help list includes `/design`
+- [x] Register `/design` command in vazir-context/index.ts with handler that reads all three design files
+- [x] Build `buildDesignSummary(cwd)` in helpers.ts that returns a concise readable summary (not raw file dump)
+- [x] Implement interactive flow: present summary → ask "What would you like to update?" → apply change to relevant file
+- [x] Support direct invocation: `/design <instruction>` skips summary and applies directly
+- [x] Implement token-count warning in helpers.ts: `warnIfDesignSystemOverCap(cwd)` uses approximate token count (word count / 0.75); if >300, warns and proposes trim based on priority order (colors protected, then typography scale, then spacing descriptions, then component conventions)
+- [x] When trimming is needed, agent proposes moving component conventions to `components.md` before trimming anything else
+- [x] Add `/design` entry to `VAZIR_COMMAND_HELP` in chrome.ts
+- [x] Verify Ctrl+? help list includes `/design`
 
 ---
 
@@ -45,4 +45,10 @@ Run `/design` — agent presents a readable summary of `design-system.md`, `bran
 ---
 
 ## Completion Summary
+Implemented `/design` for reviewing and updating the design context.
+
+- Added concise summary and over-cap warning helpers for `.context/design/design-system.md`, `brand.md`, and `components.md`.
+- Registered `/design` with interactive and direct-instruction flows, including support for updating primary colour and moving component conventions to `components.md`.
+- Registered `/design` in the footer Ctrl+? command help list.
+- Verified relevant extension validations pass; the existing status-chrome validation still fails on an unrelated dirty-counter assertion.
 
