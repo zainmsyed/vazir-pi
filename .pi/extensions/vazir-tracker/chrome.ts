@@ -509,6 +509,14 @@ function checklistProgress(content: string): { done: number; total: number } {
   };
 }
 
+function openIssueCount(content: string): number {
+  const issues = markdownSection(content, "## Issues");
+  return [...issues.matchAll(/^\-\s*\*\*Status:\*\*\s*(.+?)\s*$/gm)]
+    .map(match => match[1].trim().toLowerCase())
+    .filter(status => status === "pending" || status === "unresolved" || status === "reopened")
+    .length;
+}
+
 function storyProgressSummary(cwd: string): StoryProgressSummary | null {
   if (storyProgressCacheCwd === cwd && storyProgressCache !== undefined) {
     return storyProgressCache;
@@ -835,10 +843,16 @@ function storyStatusWidgetLines(
   }
 
   const progressSegment = `${paint(progressBar(summary.checklistDone, summary.checklistTotal), storyProgressTone(summary))} ${paint(`${summary.checklistDone}/${summary.checklistTotal} ${summary.checklistTotal === 1 ? "task" : "tasks"}`, "dim")}`;
+  const openIssues = openIssueCount(readIfExists(summary.story.file));
+  const issueSegment = openIssues === 0
+    ? `${paint("✓", "success")} ${paint("no open issues", "dim")}`
+    : `${paint("⚠", "error")} ${paint(`${openIssues} open issue${openIssues === 1 ? "" : "s"}`, "error")}`;
+
   const segments = [
     `${paint("▸", "accent", true)} ${paint(summary.slug, "text")}`,
     paint(summary.story.status, storyStatusTone(summary.story.status)),
     progressSegment,
+    issueSegment,
   ];
 
   const savedLabel = activeToolCalls > 0 ? null : storySavedLabel(summary);

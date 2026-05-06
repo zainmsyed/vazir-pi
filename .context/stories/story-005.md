@@ -40,6 +40,13 @@ Run `/complete-story` on an in-progress story that has `/fix` issues logged. Aft
 
 ## Issues
 
+### /fix — "can you add the color back to the issues tracker that was just added back"
+- **Reported:** 2026-05-06  
+- **Status:** resolved  
+- **Agent note:** Restored red `error` tone to the issue tracker segment in `storyStatusWidgetLines`. The `⚠` glyph now renders in the red `error` ANSI color instead of the yellow `warning` tone.  
+- **Solution:** Changed `paint("⚠", "warning")` + `paint(..., "warning")` back to `paint("⚠", "error")` + `paint(..., "error")` in `.pi/extensions/vazir-tracker/chrome.ts`.
+
+
 ---
 
 ## Completion Summary
