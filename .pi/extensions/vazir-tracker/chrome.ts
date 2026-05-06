@@ -794,7 +794,15 @@ function footerContextSegment(snapshot: FooterSessionSnapshot): string {
   const contextUsage = snapshot.getContextUsage();
   if (!contextUsage) return "";
   const percent = contextUsage.percent === null ? "?" : `${contextUsage.percent.toFixed(1)}%`;
-  return paint(`${percent}/${formatTokens(contextUsage.contextWindow)}`, "dim");
+  const tone: VazirTone =
+    contextUsage.percent === null
+      ? "dim"
+      : contextUsage.percent >= 75
+        ? "error"
+        : contextUsage.percent >= 50
+          ? "warning"
+          : "dim";
+  return paint(`${percent}/${formatTokens(contextUsage.contextWindow)}`, tone);
 }
 
 function footerTokenOrWorkSegment(snapshot: FooterSessionSnapshot): string {
