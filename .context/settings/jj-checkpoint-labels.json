@@ -50,6 +50,27 @@
     "529aa8ec": "Implement the in-progress story in .context/stories/story-004.md.\n\nYour job:\n1. ",
     "6050d6c3": "can we remove the issues counter in the bottom bar. again this was done you can ",
     "5d94563b": "did you find the commit it was in?",
-    "7ee84923": "can you check /home/zain/Documents/coding/vazir-pi/.context/intake/references/.p"
+    "7ee84923": "can you check /home/zain/Documents/coding/vazir-pi/.context/intake/references/.p",
+    "62828d2c": "8a4c3cd go back to this commit",
+    "c2e5855a": "where did our issue tracker go???? it was aftre the tasks you can see no issues ",
+    "8601f78e": "The user reported an issue via /fix: \"can you add the color back to the issues t",
+    "31dbd943": "before if had a triangle with an exclamaitojn point i think instead of red dot w",
+    "3ee39336": "please turn it back to red",
+    "3ee8f4e8": "you can close the issue now",
+    "16730e6f": "please commit and push this",
+    "c9c29a88": "can we make the context color coded where from 50-75% it tunrs yellow and above ",
+    "e4d06736": "please commit and push",
+    "c3ddaff3": "what else do you think we can do to the footer and header to make it better? don",
+    "edf42f0e": "can we make certain models favorites in pi? dont code change just seeing if its ",
+    "4eed45c2": "can we make certain models favorites in pi? dont code change just seeing if its ",
+    "02e26f92": "would we be able to add usage in the footer for the model selected. for example ",
+    "9dd29dde": "no im looking for specifically the cosing plan usage like ive use 10% of the mon",
+    "63a916a0": "how would you accuratly pull that info?",
+    "962f205d": "Run Vazir consolidation using the currently selected Pi model.\n\nTasks:\n1. Read .",
+    "6d62e435": "Run Vazir consolidation using the currently selected Pi model.\n\nTasks:\n1. Read .",
+    "085dc95b": "for /plan did we change anything with the questions asking from the llm?",
+    "f2f700aa": "can you check the diffs specifically for this branch and double check bc i just ",
+    "9756559c": "were still instructing it to ask one question at a time as well right. not dont ",
+    "749cceb1": "what were the last 10 commit and messages"
   }
 }
