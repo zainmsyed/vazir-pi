@@ -71,6 +71,8 @@
     "085dc95b": "for /plan did we change anything with the questions asking from the llm?",
     "f2f700aa": "can you check the diffs specifically for this branch and double check bc i just ",
     "9756559c": "were still instructing it to ask one question at a time as well right. not dont ",
-    "749cceb1": "what were the last 10 commit and messages"
+    "749cceb1": "what were the last 10 commit and messages",
+    "38f1dc98": "1",
+    "0c4d7ca0": "i would like to try out fossil vcm for this repo"
   }
 }
