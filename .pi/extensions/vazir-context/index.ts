@@ -1685,12 +1685,12 @@ export default function (pi: ExtensionAPI) {
         : "Step 7. Rewrite .context/stories/plan.md completely — replace all placeholder text with real content.";
       const storyWriteStep = existingStoryFiles.length > 0
         ? `Step 8. Preserve existing story files: ${existingStoryFiles.join(", ")}. Do NOT overwrite, repurpose, or renumber them. If follow-up work is needed, express it as new story-NNN.md files.`
-        : "Step 8. Create as many story-NNN.md files as needed for the scoped work. There is NO preset cap.";
+        : "Step 8. Create as many story-NNN.md files as needed for the scoped work. Prefer more smaller stories over fewer large stories.";
       const planModeNote = planExists
         ? existingStoryFiles.length > 0
-          ? "NOTE: This is a replan. Preserve every existing story file, keep existing story queue rows in plan.md, append only new stories needed for the added scope, and append a replanning log entry. If older work is invalidated, retire or supersede it without overwriting the original story file."
-          : "NOTE: This is a replan with no existing story files yet. Treat the plan update as an addendum and create as many new story files as needed."
-        : "NOTE: Create as many story files as needed for the scoped work. Do not stop at an arbitrary count.";
+          ? "NOTE: This is a replan. Preserve every existing story file, keep existing story queue rows in plan.md, append only new stories needed for the added scope, and append a replanning log entry. If older work is invalidated, retire or supersede it without overwriting the original story file. Keep new stories small: target 4–7 checklist tasks per story, with 7 as a hard cap."
+          : "NOTE: This is a replan with no existing story files yet. Treat the plan update as an addendum and create as many new story files as needed. Keep stories small: target 4–7 checklist tasks per story, with 7 as a hard cap."
+        : "NOTE: Create as many story files as needed for the scoped work. Prefer more smaller stories over fewer large stories. Target 4–7 checklist tasks per story, with 7 as a hard cap.";
       const planningSourcesList = planningSources.length > 0 ? planningSources.join(", ") : "none";
 
       // Instruct the agent to run the planning conversation
@@ -1753,6 +1753,7 @@ export default function (pi: ExtensionAPI) {
           : "Step 8. Every story must use the exact template: Status, Created, Last accessed, Completed, Goal, Verification,",
         "        Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary.",
         "        Checklist items must be concrete implementation tasks — not questions, not open issues.",
+        "        Story size rule: target 4–7 checklist tasks per story; 7 checklist tasks is a hard cap. If a story needs more than 7 tasks, split it into multiple smaller stories by workflow step or deliverable.",
         planningSources.length > 0
           ? `Step 12. Number any new stories from ${nextStoryNumber(cwd)}.`
           : `Step 9. Number any new stories from ${nextStoryNumber(cwd)}.`,
