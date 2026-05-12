@@ -122,12 +122,21 @@ let storyProgressCache: StoryProgressSummary | null | undefined = undefined;
 // Mirrors of VCS flags — synced from index.ts via setVcsFlags().
 let _hasGitRepo = false;
 let _useJJ = false;
+let _vcsKind: "none" | "git" | "jj" | "fossil" = "none";
+let _vcsDisplay = { refLabel: "workspace", workingLabel: "", syncLabel: "" };
 
 // ── Lifecycle setters (called from index.ts) ───────────────────────────
 
-export function setVcsFlags(hasGitRepo: boolean, useJJ: boolean): void {
+export function setVcsFlags(
+  hasGitRepo: boolean,
+  useJJ: boolean,
+  vcsKind: "none" | "git" | "jj" | "fossil" = useJJ ? "jj" : hasGitRepo ? "git" : "none",
+  display: { refLabel: string; workingLabel: string; syncLabel: string } = { refLabel: "workspace", workingLabel: "", syncLabel: "" },
+): void {
   _hasGitRepo = hasGitRepo;
   _useJJ = useJJ;
+  _vcsKind = vcsKind;
+  _vcsDisplay = display;
 }
 
 export function setChromeSession(
@@ -714,50 +723,11 @@ export function clipInline(text: string, max = 40): string {
 }
 
 function branchLabel(cwd: string): string {
-  if (!_hasGitRepo && !_useJJ) {
+  if (_vcsKind === "none") {
     return isVazirInitialized(cwd) ? "no-git" : "run /vazir-init";
   }
 
-  try {
-    try {
-      const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).toString().trim();
-      if (branch && branch !== "HEAD") return clipInline(branch, 24);
-
-      if (branch === "HEAD") {
-        try {
-          const sha = childProcess.execSync("git rev-parse --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-          if (sha) return clipInline(`detached@${sha}`, 24);
-        } catch {
-          // ignore
-        }
-        // Empty repo (no commits yet) — symbolic-ref gives the configured default branch name.
-        try {
-          const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-          if (symRef) return clipInline(symRef, 24);
-        } catch {
-          // ignore
-        }
-      }
-    } catch {
-      // git not available; fall through to JJ
-    }
-
-    if (_useJJ) {
-      try {
-        const label = childProcess.execSync("jj bookmark list --revision @ --no-graph", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-        if (label) return clipInline(label, 24);
-      } catch {
-        // ignore
-      }
-      return "jj";
-    }
-
-    return "workspace";
-  } catch {
-    /* ignore VCS label lookup */
-  }
-
-  return _useJJ ? "jj" : "workspace";
+  return clipInline(_vcsDisplay.refLabel || (_useJJ ? "jj" : _hasGitRepo ? "git" : _vcsKind), 24);
 }
 
 function repoNameLabel(cwd: string): string {
@@ -776,14 +746,17 @@ function storySavedLabel(summary: StoryProgressSummary): string | null {
   return `last saved ${formatRelativeAge(modifiedAt)}`;
 }
 
-function footerGitStatusSegment(): string {
+function footerVcsStatusSegment(): string {
+  const workingLabel = _vcsDisplay.workingLabel;
+  const syncLabel = _vcsDisplay.syncLabel;
   const dirtyCount = changedFiles.size;
-  if (dirtyCount <= 0) {
-    return paint("✓ clean", "success");
-  }
+  const workingTone: VazirTone = dirtyCount <= 0 ? "success" : dirtyCount <= 5 ? "warning" : "error";
+  const syncTone: VazirTone = syncLabel === "autosync off" ? "warning" : syncLabel === "not synced" ? "error" : "dim";
 
-  const tone: VazirTone = dirtyCount <= 5 ? "warning" : "error";
-  return paint(`${dirtyCount} uncommitted`, tone);
+  return [
+    workingLabel ? paint(workingLabel, workingTone) : "",
+    syncLabel ? paint(syncLabel, syncTone) : "",
+  ].filter(Boolean).join(separatorDot());
 }
 
 function footerSpendSegment(snapshot: FooterSessionSnapshot): string {
@@ -924,8 +897,9 @@ function sessionFooterLine(
 
   const summary = storyProgressSummary(cwd);
   const storyLabel = summary?.slug ?? "no active story";
-  const branch = clipInline(_hasGitRepo ? (footerData.getGitBranch() ?? branchLabel(cwd)) : branchLabel(cwd), 24);
-  const branchWithStatus = `${paint(branch, "branch")}${separatorDot()}${footerGitStatusSegment()}`;
+  const hostBranch = _vcsKind === "git" && _hasGitRepo ? footerData.getGitBranch() : null;
+  const branch = clipInline(hostBranch ?? branchLabel(cwd), 24);
+  const branchWithStatus = `${paint(branch, "branch")}${separatorDot()}${footerVcsStatusSegment()}`;
   const branchLabelSegment = paint(branch, "branch");
   const repoLabel = clipInline(repoNameLabel(cwd).replace(/-pi$/, ""), 12);
   const modelLabel = clipInline(shortModelLabel(snapshot), 30);
@@ -959,7 +933,7 @@ function createSessionFooterComponent(snapshot: FooterSessionSnapshot) {
     footerData: { getGitBranch(): string | null | undefined; onBranchChange?: (callback: () => void) => () => void },
   ) => {
     footerWidgetTui = tui;
-    const unsubscribe = _hasGitRepo
+    const unsubscribe = _vcsKind === "git" && _hasGitRepo
       ? footerData.onBranchChange?.(() => tui.requestRender()) ?? undefined
       : undefined;
 

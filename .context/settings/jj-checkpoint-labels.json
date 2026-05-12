@@ -108,6 +108,15 @@
     "2ddcce30": "yes i would like to do that. \n\none more this to add is we need the same function",
     "bf7bae40": "ok sounds good also maybe we can put sync status in the fossil bar, bc that is i",
     "4f38953d": "great lets go ahead!",
-    "3140a9f3": "before we do can we fossil commit this"
+    "3140a9f3": "before we do can we fossil commit this",
+    "bae78d66": "pre-fossil implementation",
+    "64f1b40e": "yes",
+    "b9606c89": "we can probably get rid of fossil:vazir and just have the story name",
+    "e80fec19": "that sounds good",
+    "60e32135": "great! so why is this \"not synced\" if auto sync is on?",
+    "be0ff9ed": "so can you explain to me how the autosync works in fossil",
+    "0e551e54": "can we do a code review of these changes?",
+    "0fbee6b7": "formal review",
+    "ba06cbb0": "lets fix issues"
   }
 }
