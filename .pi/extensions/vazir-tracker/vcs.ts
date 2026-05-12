@@ -3,7 +3,7 @@
 import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-export { detectGitRepo } from "../../lib/vazir-helpers.ts";
+export { detectGitRepo, detectFossil, type VcsPreference } from "../../lib/vazir-helpers.ts";
 import { changedFiles, invalidateStoryProgressCache } from "./chrome.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -13,6 +13,15 @@ export interface CheckpointMeta {
   prompt: string;
   files: string[];
   newFiles: string[];
+}
+
+export type VcsKind = "none" | "git" | "jj" | "fossil";
+
+export interface VcsDisplayInfo {
+  kind: VcsKind;
+  refLabel: string;
+  workingLabel: string;
+  syncLabel: string;
 }
 
 interface JjCheckpointLabelStore {
@@ -264,6 +273,14 @@ export function jjDiffFile(cwd: string, file: string): string {
   }
 }
 
+export function fossilDiffFile(cwd: string, file: string): string {
+  try {
+    return childProcess.execFileSync("fossil", ["diff", "--", file], { cwd, encoding: "utf-8", stdio: "pipe" });
+  } catch {
+    return "";
+  }
+}
+
 export function jjHasChanges(cwd: string): boolean {
   try {
     return childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8" }).trim() !== "";
@@ -362,12 +379,149 @@ function syncFromJJ(cwd: string): void {
   }
 }
 
-export function syncChanges(cwd: string, hasGitRepo: boolean, useJJ: boolean): void {
-  invalidateStoryProgressCache(cwd);
-  if (!hasGitRepo && !useJJ) {
-    changedFiles.clear();
-    return;
+function syncFromFossil(cwd: string): void {
+  changedFiles.clear();
+
+  try {
+    const changes = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    for (const line of changes.split("\n")) {
+      const match = line.match(/^\s*EDITED\s+(.+)$/) || line.match(/^\s*UPDATED_BY_MERGE\s+(.+)$/) || line.match(/^\s*MISSING\s+(.+)$/);
+      if (!match) continue;
+      const file = match[1].trim();
+      changedFiles.set(file, { file, status: "M", added: 0, removed: 0 });
+    }
+  } catch {
+    // Ignore if there are no modified tracked files.
   }
-  if (useJJ) syncFromJJ(cwd);
+
+  try {
+    const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    for (const line of extras.split("\n")) {
+      const file = line.trim();
+      if (!file) continue;
+      changedFiles.set(file, { file, status: "?", added: 0, removed: 0 });
+    }
+  } catch {
+    // Ignore if there are no extras.
+  }
+}
+
+function gitRefLabel(cwd: string): string {
+  try {
+    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    if (branch && branch !== "HEAD") return branch;
+    if (branch === "HEAD") {
+      try {
+        const sha = childProcess.execSync("git rev-parse --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        if (sha) return `detached@${sha}`;
+      } catch {
+        // ignore
+      }
+      try {
+        const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        if (symRef) return symRef;
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return "workspace";
+}
+
+function jjRefLabel(cwd: string): string {
+  try {
+    const label = childProcess.execSync("jj bookmark list --revision @ --no-graph", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    if (label) return label;
+  } catch {
+    // ignore
+  }
+
+  return "jj";
+}
+
+function fossilRefLabel(cwd: string): string {
+  try {
+    const branch = childProcess.execSync("fossil branch current", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    if (branch) return branch;
+  } catch {
+    // ignore
+  }
+
+  try {
+    const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe" });
+    const checkout = info.match(/^checkout:\s+([a-f0-9]+)/m)?.[1];
+    if (checkout) return `checkin@${checkout.slice(0, 8)}`;
+  } catch {
+    // ignore
+  }
+
+  return "fossil";
+}
+
+function fossilAutosyncEnabled(cwd: string): boolean | null {
+  try {
+    const value = childProcess.execSync("fossil setting autosync", { cwd, encoding: "utf-8", stdio: "pipe" }).trim().toLowerCase();
+    if (/(^|\s)on(\s|$)/.test(value) || /(^|\s)1(\s|$)/.test(value) || /(^|\s)true(\s|$)/.test(value)) return true;
+    if (/(^|\s)off(\s|$)/.test(value) || /(^|\s)0(\s|$)/.test(value) || /(^|\s)false(\s|$)/.test(value)) return false;
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+function buildVcsDisplayInfo(cwd: string, kind: VcsKind): VcsDisplayInfo {
+  const dirtyCount = changedFiles.size;
+
+  if (kind === "jj") {
+    return {
+      kind,
+      refLabel: jjRefLabel(cwd),
+      workingLabel: dirtyCount > 0 ? `${dirtyCount} uncommitted` : "✓ clean",
+      syncLabel: "",
+    };
+  }
+
+  if (kind === "git") {
+    return {
+      kind,
+      refLabel: gitRefLabel(cwd),
+      workingLabel: dirtyCount > 0 ? `${dirtyCount} uncommitted` : "✓ clean",
+      syncLabel: "",
+    };
+  }
+
+  if (kind === "fossil") {
+    const autosync = fossilAutosyncEnabled(cwd);
+    return {
+      kind,
+      refLabel: fossilRefLabel(cwd),
+      workingLabel: dirtyCount > 0 ? `${dirtyCount} uncommitted` : "✓ clean",
+      syncLabel: autosync === false ? "autosync off" : "autosync on",
+    };
+  }
+
+  return {
+    kind: "none",
+    refLabel: "workspace",
+    workingLabel: "",
+    syncLabel: "",
+  };
+}
+
+export function syncChanges(cwd: string, vcsKind: VcsKind): VcsDisplayInfo {
+  invalidateStoryProgressCache(cwd);
+  if (vcsKind === "none") {
+    changedFiles.clear();
+    return buildVcsDisplayInfo(cwd, vcsKind);
+  }
+
+  if (vcsKind === "jj") syncFromJJ(cwd);
+  else if (vcsKind === "fossil") syncFromFossil(cwd);
   else syncFromGit(cwd);
+
+  return buildVcsDisplayInfo(cwd, vcsKind);
 }
