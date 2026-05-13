@@ -36,6 +36,16 @@ export function isGitClean(cwd: string): boolean {
   }
 }
 
+export function isFossilClean(cwd: string): boolean {
+  try {
+    const changes = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    return changes === "" && extras === "";
+  } catch {
+    return true;
+  }
+}
+
 // ── Git fallback checkpoint helpers ───────────────────────────────────
 
 function checkpointsRoot(cwd: string): string {
@@ -379,19 +389,69 @@ function syncFromJJ(cwd: string): void {
   }
 }
 
+function fossilDiffLineCounts(diff: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (line.startsWith("+")) added += 1;
+    else if (line.startsWith("-")) removed += 1;
+  }
+
+  return { added, removed };
+}
+
 function syncFromFossil(cwd: string): void {
   changedFiles.clear();
+  const statusMap = new Map<string, string>();
 
   try {
     const changes = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
     for (const line of changes.split("\n")) {
-      const match = line.match(/^\s*EDITED\s+(.+)$/) || line.match(/^\s*UPDATED_BY_MERGE\s+(.+)$/) || line.match(/^\s*MISSING\s+(.+)$/);
-      if (!match) continue;
-      const file = match[1].trim();
-      changedFiles.set(file, { file, status: "M", added: 0, removed: 0 });
+      const editedMatch = line.match(/^\s*EDITED\s+(.+)$/);
+      const updatedMatch = line.match(/^\s*UPDATED_BY_MERGE\s+(.+)$/);
+      const missingMatch = line.match(/^\s*MISSING\s+(.+)$/);
+      const addedMatch = line.match(/^\s*ADDED\s+(.+)$/);
+      const deletedMatch = line.match(/^\s*DELETED\s+(.+)$/);
+
+      if (editedMatch) {
+        statusMap.set(editedMatch[1].trim(), "M");
+      } else if (updatedMatch) {
+        statusMap.set(updatedMatch[1].trim(), "M");
+      } else if (missingMatch) {
+        statusMap.set(missingMatch[1].trim(), "D");
+      } else if (addedMatch) {
+        statusMap.set(addedMatch[1].trim(), "A");
+      } else if (deletedMatch) {
+        statusMap.set(deletedMatch[1].trim(), "D");
+      }
     }
   } catch {
     // Ignore if there are no modified tracked files.
+  }
+
+  // Compute per-file line counts
+  for (const [file, status] of statusMap) {
+    let added = 0;
+    let removed = 0;
+    if (status === "A") {
+      try {
+        added = fs.readFileSync(path.join(cwd, file), "utf-8").split("\n").length;
+      } catch {
+        /* ignore */
+      }
+    } else if (status === "M") {
+      try {
+        const diff = childProcess.execFileSync("fossil", ["diff", "--", file], { cwd, encoding: "utf-8", stdio: "pipe" });
+        const counts = fossilDiffLineCounts(diff);
+        added = counts.added;
+        removed = counts.removed;
+      } catch {
+        /* ignore */
+      }
+    }
+    changedFiles.set(file, { file, status, added, removed });
   }
 
   try {
@@ -399,7 +459,13 @@ function syncFromFossil(cwd: string): void {
     for (const line of extras.split("\n")) {
       const file = line.trim();
       if (!file) continue;
-      changedFiles.set(file, { file, status: "?", added: 0, removed: 0 });
+      let added = 0;
+      try {
+        added = fs.readFileSync(path.join(cwd, file), "utf-8").split("\n").length;
+      } catch {
+        /* ignore */
+      }
+      changedFiles.set(file, { file, status: "?", added, removed: 0 });
     }
   } catch {
     // Ignore if there are no extras.

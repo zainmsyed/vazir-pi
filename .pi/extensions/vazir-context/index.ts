@@ -4,10 +4,12 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import * as childProcess from "child_process";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import {
   compareStoriesByRecencyDesc,
   complaintsLogPath,
+  detectFossil,
   detectJJ,
   findActiveStory,
   listStories,
@@ -30,6 +32,7 @@ import {
   buildContextMapDraftInstruction,
   buildInitSummary,
   buildIntakeBrief,
+  buildMiniConsolidateInstruction,
   buildRememberInstruction,
   buildReviewInstruction,
   clearLegacyPendingLearnings,
@@ -71,6 +74,7 @@ import {
   memoryDir,
   memoryReviewArchiveCandidates,
   memoryReviewDeleteCandidates,
+  miniConsolidateDraftPath,
   nextStoryNumber,
   normalizeProjectBrief,
   planTemplate,
@@ -80,6 +84,7 @@ import {
   restoreStoryFrontmatter,
   reviewsDir,
   reviewSummaryPath,
+  readMiniConsolidateDraft,
   REMEMBERED_RULES_TEMPLATE,
   REVIEW_SUMMARY_TEMPLATE,
   seedDesignFromIntake,
@@ -92,6 +97,7 @@ import {
   settingsDir,
   snapshotStoryFrontmatter,
   staleRuleCandidates,
+  promoteRulesToSystemMd,
   storyFileName,
   strip,
   syncReviewSummaryAndPromoteRules,
@@ -100,6 +106,7 @@ import {
   undescribedIndexFiles,
   userExplicitlyApprovedStatusChange,
   walkSourceFiles,
+  type MiniConsolidateDraft,
   type ReviewFindingSummary,
   type ReviewRecommendedFix,
   writeIndex,
@@ -157,6 +164,7 @@ const FALLOW_MAX_PROMPT_ISSUES = 12;
 type FallowAuditVerdict = "pass" | "warn" | "fail";
 type FallowAuditIssue = { rule: string; location: string; summary: string };
 type FallowAuditResult = { summaryLine: string; promptPrefix: string };
+type FallowBridgeResult = { ok: true; result: FallowAuditResult } | { ok: false; error: string };
 type GitAuditScope =
   | { mode: "base"; files: string[] }
   | { mode: "initial"; files: string[] }
@@ -166,7 +174,12 @@ let lastUserPrompt = "";
 let useJJ = false;
 let pendingInitSummary: string | null = null;
 const storyFrontmatterSnapshots = new Map<string, Map<string, { status: string; completed: string }>>();
-type PendingCompleteStoryRequest = { storyFile: string; reviewFile?: string; reviewCloseoutReady?: boolean };
+type PendingCompleteStoryRequest = {
+  storyFile: string;
+  reviewFile?: string;
+  reviewCloseoutReady?: boolean;
+  miniConsolidateFile?: string;
+};
 type PendingManualReviewRequest = { reviewFile: string; reviewCloseoutReady?: boolean };
 const pendingCompleteStoryRequests = new Map<string, PendingCompleteStoryRequest>();
 const pendingManualReviewRequests = new Map<string, PendingManualReviewRequest>();
@@ -303,6 +316,110 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  function getFossilParentHash(cwd: string): string | null {
+    try {
+      const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe" });
+      const match = info.match(/^parent:\s+([a-f0-9]+)/im);
+      return match?.[1] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  function runFallowFossilBridge(cwd: string, binaryPath: string): FallowBridgeResult {
+    try {
+      childProcess.execSync("git --version", { stdio: "pipe" });
+    } catch {
+      return { ok: false, error: "git not installed" };
+    }
+
+    const parentHash = getFossilParentHash(cwd);
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vazir-fallow-fossil-"));
+
+    try {
+      const repoDir = path.join(tmpDir, "repo");
+      fs.mkdirSync(repoDir, { recursive: true });
+
+      if (parentHash) {
+        const tarball = path.join(tmpDir, "parent.tar.gz");
+        childProcess.execFileSync("fossil", ["tarball", parentHash, tarball, "--name", "repo"], { cwd, encoding: "utf-8", stdio: "pipe" });
+        childProcess.execFileSync("tar", ["xzf", tarball, "-C", tmpDir], { encoding: "utf-8", stdio: "pipe" });
+      }
+
+      // Fossil empty-root parents produce an empty directory; git needs at least one file to commit.
+      if (fs.readdirSync(repoDir).length === 0) {
+        fs.writeFileSync(path.join(repoDir, ".vazir-fallow-base"), "");
+      }
+
+      childProcess.execSync("git init && git add -A && git commit -m base", {
+        cwd: repoDir,
+        encoding: "utf-8",
+        stdio: "pipe",
+        shell: process.platform === "win32",
+      });
+
+      const exclude = new Set([".git", "node_modules", ".jj", ".fslckout", "_FOSSIL_", "dist", "build", "out"]);
+      function copyContents(src: string, dest: string): void {
+        for (const entry of fs.readdirSync(src)) {
+          if (exclude.has(entry)) continue;
+          const srcPath = path.join(src, entry);
+          const destPath = path.join(dest, entry);
+          const stat = fs.statSync(srcPath);
+          if (stat.isDirectory()) {
+            if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+            copyContents(srcPath, destPath);
+          } else {
+            fs.copyFileSync(srcPath, destPath);
+          }
+        }
+      }
+
+      for (const entry of fs.readdirSync(repoDir)) {
+        if (entry === ".git") continue;
+        fs.rmSync(path.join(repoDir, entry), { recursive: true, force: true });
+      }
+      copyContents(cwd, repoDir);
+
+      childProcess.execSync("git add -A && git commit -m head", {
+        cwd: repoDir,
+        encoding: "utf-8",
+        stdio: "pipe",
+        shell: process.platform === "win32",
+      });
+
+      const args = parentHash
+        ? ["audit", "--base", "HEAD~1", "--format", "json"]
+        : ["audit", "--format", "json"];
+      const stdout = childProcess.execFileSync(binaryPath, args, {
+        cwd: repoDir,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: process.platform === "win32",
+      });
+
+      const parsed = parseFallowAuditOutput(stdout, null);
+      if (!parsed) {
+        return { ok: false, error: "fallow audit produced empty or unparseable output" };
+      }
+
+      if (!parentHash) {
+        return {
+          ok: true,
+          result: {
+            summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial fossil scan)",
+            promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
+          },
+        };
+      }
+      return { ok: true, result: parsed };
+    } catch (error: any) {
+      const message = error?.message || String(error);
+      return { ok: false, error: message };
+    } finally {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore cleanup errors */ }
+    }
+  }
+
   function normalizeFallowRule(sectionName: string, key: string): string {
     if (sectionName === "duplication") return "duplication";
     if (sectionName === "complexity") return "complexity";
@@ -420,18 +537,20 @@ export default function (pi: ExtensionAPI) {
         ? "warn"
         : "pass";
 
+    const changedFilesCount = fileCount ?? (typeof parsed.changed_files_count === "number" ? parsed.changed_files_count : null);
+
     const summaryLine = issues.length === 0
-      ? fileCount == null
+      ? changedFilesCount == null
         ? `fallow audit — ${verdict} (no issues found)`
-        : `fallow audit — ${verdict} (${fileCount} file${fileCount === 1 ? "" : "s"} scanned, no issues found)`
-      : fileCount == null
+        : `fallow audit — ${verdict} (${changedFilesCount} file${changedFilesCount === 1 ? "" : "s"} scanned, no issues found)`
+      : changedFilesCount == null
         ? `fallow audit — ${verdict}`
-        : `fallow audit — ${verdict} (${fileCount} file${fileCount === 1 ? "" : "s"} scanned)`;
+        : `fallow audit — ${verdict} (${changedFilesCount} file${changedFilesCount === 1 ? "" : "s"} scanned)`;
 
     if (issues.length === 0) return { summaryLine, promptPrefix: "" };
 
     const visibleIssues = issues.slice(0, FALLOW_MAX_PROMPT_ISSUES);
-    const scopeLine = fileCount == null ? "changed files" : `${fileCount} changed file${fileCount === 1 ? "" : "s"}`;
+    const scopeLine = changedFilesCount == null ? "changed files" : `${changedFilesCount} changed file${changedFilesCount === 1 ? "" : "s"}`;
     const extraIssues = issues.length - visibleIssues.length;
     return {
       summaryLine,
@@ -463,6 +582,14 @@ export default function (pi: ExtensionAPI) {
         ? collectJjAuditFiles(cwd)
         : null;
 
+    // Fossil: bridge to git so fallow audit can compute a base comparison
+    if (changedFiles == null && detectFossil(cwd)) {
+      const bridge = runFallowFossilBridge(cwd, binaryPath);
+      if (bridge.ok) return bridge.result;
+      ctx.ui.notify(`Fallow audit bridge failed: ${bridge.error} — running LLM-only review.`, "warning");
+      return fallowNotRun("audit scope unavailable");
+    }
+
     if (changedFiles == null) {
       ctx.ui.notify("Fallow audit scope could not be resolved — running LLM-only review.", "warning");
       return fallowNotRun("audit scope unavailable");
@@ -471,7 +598,7 @@ export default function (pi: ExtensionAPI) {
     if (changedFiles.length === 0) return fallowNotRun("no changed files");
 
     if (gitScope.mode === "unavailable") {
-      ctx.ui.notify("Fallow audit is unavailable for this JJ-only checkout — running LLM-only review.", "warning");
+      ctx.ui.notify("Fallow audit is unavailable for this checkout — running LLM-only review.", "warning");
       return fallowNotRun("audit scope unavailable");
     }
 
@@ -747,9 +874,8 @@ export default function (pi: ExtensionAPI) {
       return true;
     }
 
-    pendingCompleteStoryRequests.delete(cwd);
     if (decision === "close") {
-      completeStoryNow(ctx, storyPath);
+      startMiniConsolidateCloseout(ctx, storyPath, reviewFilePath);
     }
     return true;
   }
@@ -810,6 +936,136 @@ export default function (pi: ExtensionAPI) {
       blockers.push("missing completion summary");
     }
     return blockers;
+  }
+
+  function startMiniConsolidateCloseout(ctx: any, storyPath: string, reviewFilePath?: string): void {
+    const storyLabel = path.basename(storyPath, ".md");
+    const draftPath = miniConsolidateDraftPath(ctx.cwd, storyLabel);
+    try {
+      if (fs.existsSync(draftPath)) fs.rmSync(draftPath, { force: true });
+    } catch {
+      /* ignore stale draft cleanup failures */
+    }
+
+    pendingCompleteStoryRequests.set(ctx.cwd, {
+      storyFile: storyPath,
+      reviewFile: reviewFilePath,
+      reviewCloseoutReady: true,
+      miniConsolidateFile: draftPath,
+    });
+    sendInternalAgentMessage(ctx, buildMiniConsolidateInstruction(ctx.cwd, storyLabel, reviewFilePath), {
+      purpose: "mini-consolidate",
+      story: storyLabel,
+      reviewFile: reviewFilePath ? path.basename(reviewFilePath) : undefined,
+    });
+  }
+
+  async function promptMiniConsolidatePromotion(
+    ctx: any,
+    storyLabel: string,
+    draft: MiniConsolidateDraft,
+  ): Promise<number[] | "skip" | null> {
+    if (!ctx.hasUI) return "skip";
+
+    const lines = [
+      `Before closing ${storyLabel}, Vazir found these possible learned rules:`,
+      "Reply with `both` to save both rules, `skip` to save none, or enter numbers like `1` or `1,2`.",
+      ...draft.candidates.map((candidate, index) => {
+        const sourceLabel = candidate.sources.length > 0 ? ` [sources: ${candidate.sources.join(", ")}]` : "";
+        return `${index + 1}. (${candidate.confidence}) ${candidate.text}${sourceLabel}`;
+      }),
+      draft.note ? "" : "",
+      draft.note ? `Note: ${draft.note}` : "",
+    ].filter(Boolean);
+
+    if (typeof ctx.ui.input === "function") {
+      while (true) {
+        const response = (await ctx.ui.input(
+          lines.join("\n"),
+          draft.candidates.length > 1 ? "Type both, skip, or numbers like 1 or 1,2" : "Type 1 to save the rule, or skip",
+        ))?.trim().toLowerCase();
+        if (response == null || response === "") return null;
+        if (response === "skip" || response === "skip both") return "skip";
+        if (response === "both" || response === "promote both") {
+          return draft.candidates.map((_candidate, index) => index);
+        }
+
+        const picks = response
+          .split(/[\s,]+/)
+          .map(part => parseInt(part, 10))
+          .filter(n => Number.isInteger(n) && n >= 1 && n <= draft.candidates.length);
+        const uniquePicks = Array.from(new Set(picks.map(n => n - 1)));
+        if (uniquePicks.length > 0) return uniquePicks;
+
+        ctx.ui.notify("Enter `both`, `skip`, or candidate numbers like `1` or `1,2`.", "warning");
+      }
+    }
+
+    const options = [
+      ...(draft.candidates.length > 1 ? ["Promote both"] : []),
+      ...draft.candidates.map((candidate, index) => `Promote ${index + 1} — ${candidate.text}`),
+      "Skip both",
+    ];
+    const choice = await ctx.ui.select(lines.join("\n"), options);
+    if (choice == null) return null;
+    if (choice === "Promote both") return draft.candidates.map((_candidate, index) => index);
+    if (choice === "Skip both") return "skip";
+
+    const pickedIndex = options.indexOf(choice) - (draft.candidates.length > 1 ? 1 : 0);
+    return pickedIndex >= 0 ? [pickedIndex] : null;
+  }
+
+  async function finishMiniConsolidateCloseout(ctx: any, pendingCompleteStory: PendingCompleteStoryRequest): Promise<boolean> {
+    const storyPath = pendingCompleteStory.storyFile;
+    const storyLabel = path.basename(storyPath, ".md");
+    const draftPath = pendingCompleteStory.miniConsolidateFile ?? miniConsolidateDraftPath(ctx.cwd, storyLabel);
+    const draft = readMiniConsolidateDraft(draftPath);
+
+    if (!draft || draft.candidates.length === 0) {
+      pendingCompleteStoryRequests.delete(ctx.cwd);
+      try {
+        if (fs.existsSync(draftPath)) fs.rmSync(draftPath, { force: true });
+      } catch {
+        /* ignore cleanup errors */
+      }
+      ctx.ui.notify(draft?.note || `No rule suggestions were found for ${storyLabel}.`, "info");
+      completeStoryNow(ctx, storyPath);
+      return true;
+    }
+
+    const selection = await promptMiniConsolidatePromotion(ctx, storyLabel, draft);
+    if (selection == null) return true;
+
+    const selectedCandidates = selection === "skip" ? [] : selection.map(index => draft.candidates[index]).filter(Boolean);
+    const promotion = promoteRulesToSystemMd(
+      ctx.cwd,
+      selectedCandidates.map(candidate => ({ text: candidate.text, sourceStories: [storyLabel] })),
+    );
+    applyLocalRuleDedupe(ctx.cwd);
+
+    pendingCompleteStoryRequests.delete(ctx.cwd);
+    try {
+      if (fs.existsSync(draftPath)) fs.rmSync(draftPath, { force: true });
+    } catch {
+      /* ignore cleanup errors */
+    }
+
+    if (selection === "skip") {
+      ctx.ui.notify(`Skipped rule promotion for ${storyLabel}.`, "info");
+    } else {
+      if (promotion.promoted.length > 0) {
+        ctx.ui.notify(`Promoted rule${promotion.promoted.length === 1 ? "" : "s"}: ${promotion.promoted.join(", ")}`, "info");
+      }
+      if (promotion.skipped.length > 0) {
+        ctx.ui.notify(`Skipped overlapping rule${promotion.skipped.length === 1 ? "" : "s"}: ${promotion.skipped.map(entry => entry.text).join(", ")}`, "info");
+      }
+      if (promotion.promoted.length === 0 && promotion.skipped.length === 0) {
+        ctx.ui.notify(`No new rules were saved for ${storyLabel}.`, "info");
+      }
+    }
+
+    completeStoryNow(ctx, storyPath);
+    return true;
   }
 
   function completeStoryNow(ctx: any, storyPath: string): void {
@@ -1213,6 +1469,11 @@ export default function (pi: ExtensionAPI) {
       const readiness = assessStoryCompletionReadiness(completionStoryFile);
       const blockers = listCompletionBlockers(readiness);
 
+      if (pendingCompleteStory.miniConsolidateFile) {
+        const handledMiniConsolidate = await finishMiniConsolidateCloseout(ctx, pendingCompleteStory);
+        if (handledMiniConsolidate) return;
+      }
+
       const reviewFilePath = pendingCompleteStory.reviewFile;
       if (reviewFilePath) {
         const handledReview = await processCompleteStoryReviewCloseout(ctx, cwd, completionStoryFile, reviewFilePath);
@@ -1242,9 +1503,8 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      pendingCompleteStoryRequests.delete(cwd);
       if (decision === "close") {
-        completeStoryNow(ctx, pendingCompleteStory.storyFile);
+        startMiniConsolidateCloseout(ctx, pendingCompleteStory.storyFile);
       }
     }
 
@@ -1887,9 +2147,8 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      pendingCompleteStoryRequests.delete(cwd);
       if (choice === "close") {
-        completeStoryNow(ctx, storyPath);
+        startMiniConsolidateCloseout(ctx, storyPath);
       }
     },
   });

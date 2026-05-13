@@ -117,6 +117,18 @@
     "be0ff9ed": "so can you explain to me how the autosync works in fossil",
     "0e551e54": "can we do a code review of these changes?",
     "0fbee6b7": "formal review",
-    "ba06cbb0": "lets fix issues"
+    "ba06cbb0": "lets fix issues",
+    "2d90405c": "lets fossil commit this",
+    "6ee39951": "Warning: Fallow audit scope could not be resolved — running LLM-only review.\n\nim",
+    "0651679f": "no we need to fix this. fossil is going to be the main vcs",
+    "ef0f617d": "Run a code review and write the results to .context/reviews/review-20260512-2345",
+    "2b3e1174": "Run a code review and write the results to .context/reviews/review-20260512-2345",
+    "3d84eb71": "Run a code review and write the results to .context/reviews/review-20260512-2345",
+    "31df9b9c": "Run a code review and write the results to .context/reviews/review-20260512-2345",
+    "3344a3cb": "please fix remaing issues from /home/zain/Documents/coding/vazir-pi/.context/rev",
+    "f9118db7": "please fix remaing issues from /home/zain/Documents/coding/vazir-pi/.context/rev",
+    "3ed7af24": "please fix remaing issues from /home/zain/Documents/coding/vazir-pi/.context/rev",
+    "4c9364b5": "can we tell the user know what they should do on the mini-consolodate. also take",
+    "34410c18": "ok lets commit to fossil"
   }
 }
