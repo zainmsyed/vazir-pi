@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-13T12:47:29Z
+**Last updated:** 2026-05-13T16:20:59Z
 
 ## Findings
 - Add regression coverage for developer-tooling workflows that depend on filesystem events. | count: 1 | status: tracked | sources: review-20260511-130421.md
@@ -18,8 +18,10 @@
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - When a workflow adds a generated handoff artifact, test the happy path and the artifact-failure path before relying on it for closeout. | count: 1 | status: tracked | sources: review-20260513-023148.md | stories: story-005
 - When a workflow adds cross-story recurrence tracking, add an automated fixture that proves deduplication and threshold transitions. | count: 1 | status: tracked | sources: review-20260513-121107.md | stories: story-006
+- When a workflow adds generated handoff artifacts or scoring heuristics, add an automated fixture that proves the happy path and edge cases before relying on it for closeout. | count: 1 | status: tracked | sources: review-20260513-132156.md | stories: story-007
 - When adding a new VCS mode, update every command path that shells out to a VCS-specific tool, not just the status/footer layer. | count: 1 | status: tracked | sources: review-20260512-201502.md
 - When adding conditional template/instruction injection, add automated positive and negative harness tests for each branch. | count: 1 | status: tracked | sources: review-20260505-235339.md | stories: story-004
 - When adding story-dependent prompt/context injection, add automated positive and negative harness tests for each story type branch. | count: 1 | status: tracked | sources: review-20260505-224448.md | stories: story-002
+- When parsing structured comment annotations in free text, match each annotation independently so reordering does not corrupt the primary content. | count: 1 | status: tracked | sources: review-20260513-132156.md | stories: story-007
 - When prompt text is part of a validated workflow contract, update the prompt, tests, and spec in the same change. | count: 1 | status: tracked | sources: review-20260511-130421.md
 - When watching a source tree, cover the actual nested directories the feature uses, not just the top-level folder. | count: 1 | status: tracked | sources: review-20260511-130421.md
