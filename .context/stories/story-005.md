@@ -1,9 +1,9 @@
 # Story 005: Story-close mini-consolidate and promotion UX
 
-**Status:** in-progress  
+**Status:** complete  
 **Created:** 2026-05-05  
-**Last accessed:** 2026-05-06  
-**Completed:** —
+**Last accessed:** 2026-05-13  
+**Completed:** 2026-05-13
 
 ---
 
@@ -28,13 +28,13 @@ Run `/complete-story` on an in-progress story that has `/fix` issues logged. Aft
 ---
 
 ## Checklist
-- [ ] Build `buildMiniConsolidateInstruction(cwd, storyLabel, reviewFilePath?)` in helpers.ts that instructs the agent to read the story file Issues section, review findings (if review ran), and any Fallow output, then propose rule candidates
-- [ ] Insert mini-consolidate into `/complete-story` closeout flow in `agent_end`: after review remediation finishes and before `completeStoryNow()`, dispatch the mini-consolidate instruction via `sendInternalAgentMessage`
-- [ ] Implement promotion proposal UX: present candidates with confidence (high/medium/low) and source attribution; prompt user to "Promote both? Skip both? Or enter numbers to select"
-- [ ] Implement `promoteRulesToSystemMd(cwd, rules[])` in helpers.ts that appends approved rules to `system.md ## Learned Rules` with `<!-- source: story-NNN -->` provenance tags
-- [ ] Cross-reference existing `system.md` rules to avoid duplicates; if equivalent rule exists, note overlap and skip
-- [ ] If no candidates found, emit one-line note and proceed to close
-- [ ] Ensure the mini-consolidate runs even when the user skips the optional code review (reads story issues directly)
+- [x] Build `buildMiniConsolidateInstruction(cwd, storyLabel, reviewFilePath?)` in helpers.ts that instructs the agent to read the story file Issues section, review findings (if review ran), and any Fallow output, then propose rule candidates
+- [x] Insert mini-consolidate into `/complete-story` closeout flow in `agent_end`: after review remediation finishes and before `completeStoryNow()`, dispatch the mini-consolidate instruction via `sendInternalAgentMessage`
+- [x] Implement promotion proposal UX: present candidates with confidence (high/medium/low) and source attribution; prompt user to "Promote both? Skip both? Or enter numbers to select"
+- [x] Implement `promoteRulesToSystemMd(cwd, rules[])` in helpers.ts that appends approved rules to `system.md ## Learned Rules` with `<!-- source: story-NNN -->` provenance tags
+- [x] Cross-reference existing `system.md` rules to avoid duplicates; if equivalent rule exists, note overlap and skip
+- [x] If no candidates found, emit one-line note and proceed to close
+- [x] Ensure the mini-consolidate runs even when the user skips the optional code review (reads story issues directly)
 
 ---
 
@@ -50,4 +50,5 @@ Run `/complete-story` on an in-progress story that has `/fix` issues logged. Aft
 ---
 
 ## Completion Summary
+Implemented the story-close learned-rule closeout flow. `/complete-story` now pauses before final closure, asks the agent to review the story/review context for reusable rule candidates, lets the user save both, skip, or select numbered rules, and only then marks the story complete. Approved rules are appended to `system.md` with story provenance, duplicate/overlapping rules are skipped, and the flow also works when the user closes a story without running the optional review first.
 
