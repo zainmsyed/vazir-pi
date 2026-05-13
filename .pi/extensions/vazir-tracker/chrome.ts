@@ -748,6 +748,18 @@ function storySavedLabel(summary: StoryProgressSummary): string | null {
 
 function storyLastAccessedLabel(story: StoryFrontmatter): string {
   if (!story.lastAccessed) return "";
+
+  // Date-only values like "2026-05-13" are written by the context layer.
+  // Parsing them as UTC midnight makes them appear ~N hours old during the
+  // same calendar day, so treat them as calendar dates.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(story.lastAccessed)) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (story.lastAccessed === today) {
+      return "today";
+    }
+    return formatRelativeAge(new Date(`${story.lastAccessed}T00:00:00Z`).getTime());
+  }
+
   return formatRelativeAge(new Date(story.lastAccessed).getTime());
 }
 
