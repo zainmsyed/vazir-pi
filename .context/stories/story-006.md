@@ -1,8 +1,8 @@
 # Story 006: Fallow recurrence tracking in complaints-log
 
-**Status:** not-started  
+**Status:** in-progress  
 **Created:** 2026-05-05  
-**Last accessed:** 2026-05-05  
+**Last accessed:** 2026-05-13  
 **Completed:** —
 
 ---

@@ -32,7 +32,7 @@ import {
   buildContextMapDraftInstruction,
   buildInitSummary,
   buildIntakeBrief,
-  buildMiniConsolidateInstruction,
+  buildLearnedRuleCloseoutInstruction,
   buildRememberInstruction,
   buildReviewInstruction,
   clearLegacyPendingLearnings,
@@ -74,7 +74,7 @@ import {
   memoryDir,
   memoryReviewArchiveCandidates,
   memoryReviewDeleteCandidates,
-  miniConsolidateDraftPath,
+  learnedRuleCloseoutDraftPath,
   nextStoryNumber,
   normalizeProjectBrief,
   planTemplate,
@@ -84,7 +84,7 @@ import {
   restoreStoryFrontmatter,
   reviewsDir,
   reviewSummaryPath,
-  readMiniConsolidateDraft,
+  readLearnedRuleCloseoutDraft,
   REMEMBERED_RULES_TEMPLATE,
   REVIEW_SUMMARY_TEMPLATE,
   seedDesignFromIntake,
@@ -106,7 +106,8 @@ import {
   undescribedIndexFiles,
   userExplicitlyApprovedStatusChange,
   walkSourceFiles,
-  type MiniConsolidateDraft,
+  type LearnedRuleCloseoutDraft,
+  type LearnedRuleCloseoutDraftReadResult,
   type ReviewFindingSummary,
   type ReviewRecommendedFix,
   writeIndex,
@@ -178,7 +179,7 @@ type PendingCompleteStoryRequest = {
   storyFile: string;
   reviewFile?: string;
   reviewCloseoutReady?: boolean;
-  miniConsolidateFile?: string;
+  learnedRuleCloseoutFile?: string;
 };
 type PendingManualReviewRequest = { reviewFile: string; reviewCloseoutReady?: boolean };
 const pendingCompleteStoryRequests = new Map<string, PendingCompleteStoryRequest>();
@@ -875,7 +876,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (decision === "close") {
-      startMiniConsolidateCloseout(ctx, storyPath, reviewFilePath);
+      startLearnedRuleCloseout(ctx, storyPath, reviewFilePath);
     }
     return true;
   }
@@ -938,9 +939,9 @@ export default function (pi: ExtensionAPI) {
     return blockers;
   }
 
-  function startMiniConsolidateCloseout(ctx: any, storyPath: string, reviewFilePath?: string): void {
+  function startLearnedRuleCloseout(ctx: any, storyPath: string, reviewFilePath?: string): void {
     const storyLabel = path.basename(storyPath, ".md");
-    const draftPath = miniConsolidateDraftPath(ctx.cwd, storyLabel);
+    const draftPath = learnedRuleCloseoutDraftPath(ctx.cwd, storyLabel);
     try {
       if (fs.existsSync(draftPath)) fs.rmSync(draftPath, { force: true });
     } catch {
@@ -951,19 +952,19 @@ export default function (pi: ExtensionAPI) {
       storyFile: storyPath,
       reviewFile: reviewFilePath,
       reviewCloseoutReady: true,
-      miniConsolidateFile: draftPath,
+      learnedRuleCloseoutFile: draftPath,
     });
-    sendInternalAgentMessage(ctx, buildMiniConsolidateInstruction(ctx.cwd, storyLabel, reviewFilePath), {
-      purpose: "mini-consolidate",
+    sendInternalAgentMessage(ctx, buildLearnedRuleCloseoutInstruction(ctx.cwd, storyLabel, reviewFilePath), {
+      purpose: "learned-rule-closeout",
       story: storyLabel,
       reviewFile: reviewFilePath ? path.basename(reviewFilePath) : undefined,
     });
   }
 
-  async function promptMiniConsolidatePromotion(
+  async function promptLearnedRulePromotion(
     ctx: any,
     storyLabel: string,
-    draft: MiniConsolidateDraft,
+    draft: LearnedRuleCloseoutDraft,
   ): Promise<number[] | "skip" | null> {
     if (!ctx.hasUI) return "skip";
 
@@ -1015,25 +1016,39 @@ export default function (pi: ExtensionAPI) {
     return pickedIndex >= 0 ? [pickedIndex] : null;
   }
 
-  async function finishMiniConsolidateCloseout(ctx: any, pendingCompleteStory: PendingCompleteStoryRequest): Promise<boolean> {
+  async function finishLearnedRuleCloseout(ctx: any, pendingCompleteStory: PendingCompleteStoryRequest): Promise<boolean> {
     const storyPath = pendingCompleteStory.storyFile;
     const storyLabel = path.basename(storyPath, ".md");
-    const draftPath = pendingCompleteStory.miniConsolidateFile ?? miniConsolidateDraftPath(ctx.cwd, storyLabel);
-    const draft = readMiniConsolidateDraft(draftPath);
+    const draftPath = pendingCompleteStory.learnedRuleCloseoutFile ?? learnedRuleCloseoutDraftPath(ctx.cwd, storyLabel);
+    const draftResult: LearnedRuleCloseoutDraftReadResult = readLearnedRuleCloseoutDraft(draftPath);
 
-    if (!draft || draft.candidates.length === 0) {
+    if (draftResult.kind === "missing" || draftResult.kind === "invalid") {
+      const reason = draftResult.kind === "missing"
+        ? "no learned-rule draft was written"
+        : `the learned-rule draft was invalid (${draftResult.error})`;
+      ctx.ui.notify(`Could not finish learned-rule closeout for ${storyLabel}: ${reason}. The story is still open. Re-run /complete-story to try again.`, "warning");
+      try {
+        if (fs.existsSync(draftPath)) fs.rmSync(draftPath, { force: true });
+      } catch {
+        /* ignore cleanup errors */
+      }
+      return true;
+    }
+
+    const draft = draftResult.draft;
+    if (draft.candidates.length === 0) {
       pendingCompleteStoryRequests.delete(ctx.cwd);
       try {
         if (fs.existsSync(draftPath)) fs.rmSync(draftPath, { force: true });
       } catch {
         /* ignore cleanup errors */
       }
-      ctx.ui.notify(draft?.note || `No rule suggestions were found for ${storyLabel}.`, "info");
+      ctx.ui.notify(draft.note || `No rule suggestions were found for ${storyLabel}.`, "info");
       completeStoryNow(ctx, storyPath);
       return true;
     }
 
-    const selection = await promptMiniConsolidatePromotion(ctx, storyLabel, draft);
+    const selection = await promptLearnedRulePromotion(ctx, storyLabel, draft);
     if (selection == null) return true;
 
     const selectedCandidates = selection === "skip" ? [] : selection.map(index => draft.candidates[index]).filter(Boolean);
@@ -1469,9 +1484,9 @@ export default function (pi: ExtensionAPI) {
       const readiness = assessStoryCompletionReadiness(completionStoryFile);
       const blockers = listCompletionBlockers(readiness);
 
-      if (pendingCompleteStory.miniConsolidateFile) {
-        const handledMiniConsolidate = await finishMiniConsolidateCloseout(ctx, pendingCompleteStory);
-        if (handledMiniConsolidate) return;
+      if (pendingCompleteStory.learnedRuleCloseoutFile) {
+        const handledLearnedRuleCloseout = await finishLearnedRuleCloseout(ctx, pendingCompleteStory);
+        if (handledLearnedRuleCloseout) return;
       }
 
       const reviewFilePath = pendingCompleteStory.reviewFile;
@@ -1504,7 +1519,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (decision === "close") {
-        startMiniConsolidateCloseout(ctx, pendingCompleteStory.storyFile);
+        startLearnedRuleCloseout(ctx, pendingCompleteStory.storyFile);
       }
     }
 
@@ -2148,7 +2163,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (choice === "close") {
-        startMiniConsolidateCloseout(ctx, storyPath);
+        startLearnedRuleCloseout(ctx, storyPath);
       }
     },
   });

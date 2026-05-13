@@ -219,10 +219,14 @@ function markReviewFixResolved(reviewPath: string, fixLine: string): void {
   fs.writeFileSync(reviewPath, content.replace(`- [ ] ${fixLine}`, `- [x] ${fixLine}`));
 }
 
-function writeMiniConsolidateDraft(cwd: string, note = "Promote closeout rules.") {
+function learnedRuleCloseoutDraftPath(cwd: string): string {
+  return path.join(cwd, ".context", "reviews", "story-001-learned-rule-closeout.json");
+}
+
+function writeLearnedRuleCloseoutDraft(cwd: string, note = "Promote closeout rules.") {
   fs.mkdirSync(path.join(cwd, ".context", "reviews"), { recursive: true });
   fs.writeFileSync(
-    path.join(cwd, ".context", "reviews", "story-001-mini-consolidate.json"),
+    learnedRuleCloseoutDraftPath(cwd),
     JSON.stringify({
       note,
       candidates: [
@@ -235,6 +239,16 @@ function writeMiniConsolidateDraft(cwd: string, note = "Promote closeout rules."
       ],
     }, null, 2),
   );
+}
+
+function writeEmptyLearnedRuleCloseoutDraft(cwd: string, note = "No reusable rule emerged from this story.") {
+  fs.mkdirSync(path.join(cwd, ".context", "reviews"), { recursive: true });
+  fs.writeFileSync(learnedRuleCloseoutDraftPath(cwd), JSON.stringify({ note, candidates: [] }, null, 2));
+}
+
+function writeMalformedLearnedRuleCloseoutDraft(cwd: string) {
+  fs.mkdirSync(path.join(cwd, ".context", "reviews"), { recursive: true });
+  fs.writeFileSync(learnedRuleCloseoutDraftPath(cwd), "{not valid json");
 }
 
 function setReviewStatus(reviewPath: string, status: "in-progress" | "complete"): void {
@@ -303,15 +317,15 @@ async function runReviewGatedScenario() {
   markReviewFixResolved(reviewPath, "high — Add a local error boundary around the login form");
   setReviewStatus(reviewPath, "in-progress");
   await harness.emit("agent_end", {}, ctx);
-  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "review-gated closeout should stay open until mini-consolidate finishes");
-  assert(harness.sentInternalMessages.length === 3, "review-gated closeout should queue a mini-consolidate turn before closing");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "review-gated closeout should stay open until learned-rule closeout finishes");
+  assert(harness.sentInternalMessages.length === 3, "review-gated closeout should queue a learned-rule closeout turn before closing");
   assert(harness.sentInternalMessages[2].message.content.includes("Review story-001 before the story closes and propose possible learned rules."), "review-gated closeout should dispatch the learned-rules instruction");
 
-  writeMiniConsolidateDraft(cwd);
+  writeLearnedRuleCloseoutDraft(cwd);
   await harness.emit("agent_end", {}, ctx);
 
   const story = fs.readFileSync(storyPath, "utf-8");
-  assert(story.includes("**Status:** complete"), "review-gated complete-story should close the story after mini-consolidate finishes");
+  assert(story.includes("**Status:** complete"), "review-gated complete-story should close the story after learned-rule closeout finishes");
   assert(selectCalls.some(call => call.options.includes("Open review document")), "review-gated complete-story should let the user open the review document from the closeout prompt");
   assert(selectCalls.some(call => call.options.includes("Keep story open and fix high-priority recommended items")), "review-gated complete-story should offer high-priority remediation from the closeout prompt");
   assert(selectCalls.some(call => call.prompt.includes("Pending recommended fixes: 1 high-priority, 1 other.")), "review-gated complete-story should summarize tracked review remediation items");
@@ -320,7 +334,7 @@ async function runReviewGatedScenario() {
   assert(selectCalls.some(call => call.options.includes("Close story now (remaining items noted)")), "review-gated complete-story should offer a remaining-items-noted close option");
   assert(selectCalls.some(call => call.options.includes("Not yet, keep working")), "review-gated complete-story should let the user keep working after remediation");
   assert(inputCalls.some(call => call.prompt.includes("Before closing story-001, Vazir found these possible learned rules:")), "review-gated closeout should prompt for learned-rule selection");
-  assert(fs.readFileSync(path.join(cwd, ".context", "memory", "system.md"), "utf-8").includes("When story closeout finds a reviewed bug pattern"), "review-gated closeout should promote the selected mini-consolidate rule");
+  assert(fs.readFileSync(path.join(cwd, ".context", "memory", "system.md"), "utf-8").includes("When story closeout finds a reviewed bug pattern"), "review-gated closeout should promote the selected learned rule");
 
   return { cwd, notifications, selectCalls, inputCalls, customCalls, reviewFiles, story };
 }
@@ -411,15 +425,115 @@ async function runReadyCloseScenario() {
 
   assert(selectCalls.some(call => call.prompt.includes("What would you like to do?")), "ready closeout should prompt for the final action");
   assert(harness.sentUserMessages.length === 0, "ready closeout without review should not send a visible follow-up user message");
-  assert(harness.sentInternalMessages.length === 1, "ready closeout should queue the mini-consolidate follow-up turn");
-  assert(fs.readFileSync(path.join(cwd, ".context", "stories", "story-001.md"), "utf-8").includes("**Status:** in-progress"), "ready closeout should wait for mini-consolidate before completing the story");
+  assert(harness.sentInternalMessages.length === 1, "ready closeout should queue the learned-rule closeout follow-up turn");
+  assert(fs.readFileSync(path.join(cwd, ".context", "stories", "story-001.md"), "utf-8").includes("**Status:** in-progress"), "ready closeout should wait for learned-rule closeout before completing the story");
 
-  writeMiniConsolidateDraft(cwd);
+  writeLearnedRuleCloseoutDraft(cwd);
   await harness.emit("agent_end", {}, ctx);
 
   assert(inputCalls.some(call => call.prompt.includes("Before closing story-001, Vazir found these possible learned rules:")), "ready closeout should prompt for learned-rule selection");
-  assert(fs.readFileSync(path.join(cwd, ".context", "stories", "story-001.md"), "utf-8").includes("**Status:** complete"), "ready closeout should complete the story after mini-consolidate" );
+  assert(fs.readFileSync(path.join(cwd, ".context", "stories", "story-001.md"), "utf-8").includes("**Status:** complete"), "ready closeout should complete the story after learned-rule closeout" );
 
+  return { cwd, notifications, selectCalls, inputCalls };
+}
+
+async function runEmptyDraftScenario() {
+  const cwd = createProject("vazir-complete-story-empty-draft-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story now"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [
+      "### /fix — \"signup button broken\"",
+      "- **Reported:** 2026-03-25  ",
+      "- **Status:** confirmed  ",
+      "- **Agent note:** —  ",
+      "- **Solution:** Added missing submit handler",
+    ],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+  writeEmptyLearnedRuleCloseoutDraft(cwd);
+  await harness.emit("agent_end", {}, ctx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "empty draft scenario should still complete the story");
+  assert(notifications.some(note => note.message.includes("No reusable rule emerged from this story.")), "empty draft scenario should surface the no-suggestions note");
+  return { cwd, notifications, selectCalls };
+}
+
+async function runMalformedDraftScenario() {
+  const cwd = createProject("vazir-complete-story-malformed-draft-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story now"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [
+      "### /fix — \"signup button broken\"",
+      "- **Reported:** 2026-03-25  ",
+      "- **Status:** confirmed  ",
+      "- **Agent note:** —  ",
+      "- **Solution:** Added missing submit handler",
+    ],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+  writeMalformedLearnedRuleCloseoutDraft(cwd);
+  await harness.emit("agent_end", {}, ctx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "malformed draft scenario should keep the story open");
+  assert(notifications.some(note => note.level === "warning" && note.message.includes("Could not finish learned-rule closeout")), "malformed draft scenario should warn instead of closing the story");
+  return { cwd, notifications, selectCalls };
+}
+
+async function runOverlapOnlyScenario() {
+  const cwd = createProject("vazir-complete-story-overlap-only-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const inputCalls: InputCall[] = [];
+  const harness = makePi();
+  fs.appendFileSync(
+    path.join(cwd, ".context", "memory", "system.md"),
+    "- When story closeout finds a reviewed bug pattern, offer to promote the reusable rule before marking the story complete. <!-- source: story-999 -->\n",
+  );
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story now"],
+    inputResponses: ["1"],
+    selectCalls,
+    inputCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [
+      "### /fix — \"signup button broken\"",
+      "- **Reported:** 2026-03-25  ",
+      "- **Status:** confirmed  ",
+      "- **Agent note:** —  ",
+      "- **Solution:** Added missing submit handler",
+    ],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+  writeLearnedRuleCloseoutDraft(cwd);
+  await harness.emit("agent_end", {}, ctx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "overlap-only scenario should still complete the story");
+  assert(notifications.some(note => note.message.includes("Skipped overlapping rule")), "overlap-only scenario should tell the user the proposed rule already existed");
   return { cwd, notifications, selectCalls, inputCalls };
 }
 
@@ -471,6 +585,9 @@ try {
   const reviewGated = await runReviewGatedScenario();
   const restartedReviewCloseout = await runRestartedReviewCloseoutScenario();
   const readyClose = await runReadyCloseScenario();
+  const emptyDraft = await runEmptyDraftScenario();
+  const malformedDraft = await runMalformedDraftScenario();
+  const overlapOnly = await runOverlapOnlyScenario();
   const keepWorking = await runKeepWorkingScenario();
 
   console.log("Review Gated Closeout");
@@ -495,6 +612,27 @@ try {
   console.log(`cwd: ${readyClose.cwd}`);
   console.log("notifications:");
   for (const note of readyClose.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Empty Draft Closeout");
+  console.log(`cwd: ${emptyDraft.cwd}`);
+  console.log("notifications:");
+  for (const note of emptyDraft.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Malformed Draft Closeout");
+  console.log(`cwd: ${malformedDraft.cwd}`);
+  console.log("notifications:");
+  for (const note of malformedDraft.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Overlap-only Closeout");
+  console.log(`cwd: ${overlapOnly.cwd}`);
+  console.log("notifications:");
+  for (const note of overlapOnly.notifications) {
     console.log(`  - [${note.level}] ${note.message}`);
   }
 

@@ -160,17 +160,22 @@ export interface RuleCandidateEntry {
   sourceStories: string[];
 }
 
-export interface MiniConsolidateCandidate {
+export interface LearnedRuleCloseoutCandidate {
   text: string;
   confidence: "high" | "medium" | "low";
   sources: string[];
   rationale: string;
 }
 
-export interface MiniConsolidateDraft {
+export interface LearnedRuleCloseoutDraft {
   note: string;
-  candidates: MiniConsolidateCandidate[];
+  candidates: LearnedRuleCloseoutCandidate[];
 }
+
+export type LearnedRuleCloseoutDraftReadResult =
+  | { kind: "missing" }
+  | { kind: "invalid"; error: string }
+  | { kind: "valid"; draft: LearnedRuleCloseoutDraft };
 
 export interface RulePromotionOutcome {
   promoted: string[];
@@ -235,8 +240,8 @@ export function reviewSummaryPath(cwd: string) {
   return path.join(reviewsDir(cwd), "summary.md");
 }
 
-export function miniConsolidateDraftPath(cwd: string, storyLabel: string) {
-  return path.join(reviewsDir(cwd), `${storyLabel}-mini-consolidate.json`);
+export function learnedRuleCloseoutDraftPath(cwd: string, storyLabel: string) {
+  return path.join(reviewsDir(cwd), `${storyLabel}-learned-rule-closeout.json`);
 }
 
 export function rememberedRulesPath(cwd: string) {
@@ -2134,12 +2139,14 @@ export function buildContextMapDraftInstruction(cwd: string): string {
   ].join("\n");
 }
 
-export function readMiniConsolidateDraft(filePath: string): MiniConsolidateDraft | null {
+export function readLearnedRuleCloseoutDraft(filePath: string): LearnedRuleCloseoutDraftReadResult {
+  if (!fs.existsSync(filePath)) return { kind: "missing" };
+
   const content = readIfExists(filePath).trim();
-  if (!content) return null;
+  if (!content) return { kind: "valid", draft: { note: "", candidates: [] } };
 
   try {
-    const parsed = JSON.parse(content) as Partial<MiniConsolidateDraft>;
+    const parsed = JSON.parse(content) as Partial<LearnedRuleCloseoutDraft>;
     const note = typeof parsed.note === "string" ? parsed.note.trim() : "";
     const candidates = Array.isArray(parsed.candidates)
       ? parsed.candidates
@@ -2160,20 +2167,20 @@ export function readMiniConsolidateDraft(filePath: string): MiniConsolidateDraft
               ? ((entry as { sources: unknown[] }).sources.map(source => String(source).trim()).filter(Boolean))
               : [],
             rationale: entry && typeof entry === "object" ? String((entry as { rationale?: unknown }).rationale ?? "").trim() : "",
-          } as MiniConsolidateCandidate;
+          } as LearnedRuleCloseoutCandidate;
         })
-        .filter((entry): entry is MiniConsolidateCandidate => entry !== null)
+        .filter((entry): entry is LearnedRuleCloseoutCandidate => entry !== null)
       : [];
 
-    return { note, candidates: candidates.slice(0, 2) };
-  } catch {
-    return null;
+    return { kind: "valid", draft: { note, candidates: candidates.slice(0, 2) } };
+  } catch (error: any) {
+    return { kind: "invalid", error: error?.message || String(error) };
   }
 }
 
-export function buildMiniConsolidateInstruction(cwd: string, storyLabel: string, reviewFilePath?: string): string {
+export function buildLearnedRuleCloseoutInstruction(cwd: string, storyLabel: string, reviewFilePath?: string): string {
   const storyPath = path.join(storiesDir(cwd), `${storyLabel}.md`);
-  const outputPath = miniConsolidateDraftPath(cwd, storyLabel);
+  const outputPath = learnedRuleCloseoutDraftPath(cwd, storyLabel);
   const reviewLabel = reviewFilePath ? path.relative(cwd, reviewFilePath).replace(/\\/g, "/") : "(no review file)";
   const systemLabel = path.relative(cwd, systemPath(cwd)).replace(/\\/g, "/");
   const outputLabel = path.relative(cwd, outputPath).replace(/\\/g, "/");

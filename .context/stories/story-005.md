@@ -1,9 +1,9 @@
 # Story 005: Story-close mini-consolidate and promotion UX
 
-**Status:** in-progress  
+**Status:** complete  
 **Created:** 2026-05-05  
-**Last accessed:** 2026-05-12  
-**Completed:** —
+**Last accessed:** 2026-05-13  
+**Completed:** 2026-05-13
 
 ---
 
@@ -50,4 +50,5 @@ Run `/complete-story` on an in-progress story that has `/fix` issues logged. Aft
 ---
 
 ## Completion Summary
+Implemented the story-close learned-rule closeout flow. `/complete-story` now pauses before final closure, asks the agent to review the story/review context for reusable rule candidates, lets the user save both, skip, or select numbered rules, and only then marks the story complete. Approved rules are appended to `system.md` with story provenance, duplicate/overlapping rules are skipped, and the flow also works when the user closes a story without running the optional review first.
 
