@@ -1,8 +1,8 @@
 # Story 007: Enhanced manual `/consolidate` with positive patterns and confidence scoring
 
-**Status:** not-started  
+**Status:** in-progress  
 **Created:** 2026-05-05  
-**Last accessed:** 2026-05-05  
+**Last accessed:** 2026-05-13  
 **Completed:** 2026-05-05
 
 ---

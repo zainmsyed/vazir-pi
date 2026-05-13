@@ -49,6 +49,7 @@ import {
   designSystemPath,
   hasUiTypeOverride,
   isUiStory,
+  sanitizeComplaintsLogText,
 } from "../vazir-context/helpers.ts";
 import {
   autoDescribeCurrentJjChange,
@@ -112,10 +113,7 @@ function appendToStoryIssues(storyPath: string, description: string): void {
 }
 
 function sanitizeComplaintDescription(description: string): string {
-  return description
-    .replace(/\|/g, "/")
-    .replace(/\s+/g, " ")
-    .trim();
+  return sanitizeComplaintsLogText(description);
 }
 
 function appendToComplaintsLog(cwd: string, storyName: string, description: string): void {
