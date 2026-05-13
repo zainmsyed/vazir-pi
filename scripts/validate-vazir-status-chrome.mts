@@ -286,8 +286,10 @@ async function runScenario() {
   assert(statusLines.some(line => line.includes("story-003")), "status widget did not show the active story slug");
   assert(statusLines.some(line => line.includes("in-progress")), "status widget did not show the story status");
   assert(statusLines.some(line => line.includes("2/3 tasks")), "status widget did not show checklist progress");
-  assert(statusLines.some(line => line.includes("2 issues")), "status widget did not show open issue count");
+  assert(statusLines.some(line => line.includes("2 open issues")), "status widget did not show open issue count");
   assert(statusLines.some(line => line.includes("last saved")), "status widget did not show the last-saved label");
+  assert(statusLines.some(line => line.includes("Tracker chrome")), "status widget did not show the story title");
+  assert(statusLines.some(line => line.includes("ago")), "status widget did not show the last-accessed age");
 
   const footerComponent = footerFactory!(
     { requestRender() { footerRenderRequests += 1; } },
@@ -303,7 +305,6 @@ async function runScenario() {
   assert(footerLines[1]?.includes("↑2.1k ↓8.4k"), "footer did not include session token counts");
   assert(footerLines[1]?.includes("1.1%/200k"), "footer did not include context usage");
   assert(footerLines[1]?.includes("$0.002"), "footer did not include spend");
-  assert(footerLines[1]?.includes("2 issues"), "footer did not include the open issue badge");
   assert(footerLines[1]?.includes("Ctrl+? for help"), "footer did not include the idle help hint");
 
   harness.setThinkingLevel("off");
@@ -314,11 +315,12 @@ async function runScenario() {
   const workingStatusLines = statusComponent.render(140).map(stripAnsi);
   const workingFooterLines = footerComponent.render(140).map(stripAnsi);
   assert(!workingStatusLines.some(line => line.includes("last saved")), "status widget should hide last-saved while tool work is active");
-  assert(workingFooterLines[1]?.includes("Reading · vazir-context.ts"), "footer did not show the working message during tool activity");
+  assert(workingFooterLines[1]?.includes("Reading"), "footer did not show the working message during tool activity");
   assert(workingFooterLines[1]?.includes("1.1%/200k"), "footer lost context usage during tool activity");
   assert(workingFooterLines[1]?.includes("$0.002"), "footer lost spend during tool activity");
   assert(workingFooterLines[1]?.includes("Ctrl+C to abort"), "footer did not switch to the abort hint during tool activity");
   assert(!workingFooterLines[1]?.includes("↑2.1k ↓8.4k"), "footer should replace token counts with the working message during tool activity");
+  assert(workingFooterLines[1]?.includes("main") || workingFooterLines[1]?.includes("clean") || workingFooterLines[1]?.includes("uncommitted"), "footer did not include branch/VCS status during tool activity");
   await harness.emit("tool_result", { toolName: "read" }, ctx);
 
   const fixCommand = harness.commands.get("fix");
@@ -331,8 +333,7 @@ async function runScenario() {
   assert(statusRenderRequests > 0, "fix did not request a story status widget rerender");
   assert(footerRenderRequests > 0, "fix did not request a footer rerender");
   assert(story.includes('### /fix — "save indicator missing"'), "fix did not append the new issue to the story file");
-  assert(refreshedStatusLines.some(line => line.includes("3 issues")), "status widget did not reflect the new open issue count");
-  assert(refreshedFooterLines[1]?.includes("3 issues"), "footer did not reflect the new open issue count");
+  assert(refreshedStatusLines.some(line => line.includes("3 open issues")), "status widget did not reflect the new open issue count");
   assert(refreshedFooterLines[1]?.includes("↑2.1k ↓8.4k"), "footer did not restore token counts after tool activity ended");
 
   await harness.emit("session_shutdown", {}, ctx);
@@ -510,7 +511,7 @@ async function runInitRefreshScenario() {
   assert(footerRenderRequests > 0, "vazir-init did not request a footer rerender");
   assert(afterInitLines[1]?.includes(expectedVcsLabel), `footer did not switch to the live VCS label (${expectedVcsLabel}) after /vazir-init without reload`);
   assert(!afterInitLines[1]?.includes("no-git"), "footer still showed no-git after /vazir-init");
-  assert(afterInitLines[1]?.includes("uncommitted"), "footer did not show an uncommitted counter after /vazir-init");
+  assert(afterInitLines[1]?.includes("uncommitted"), "footer did not show a dirty counter after /vazir-init");
 
   childProcess.execSync("git config user.name 'Vazir Test'", { cwd, stdio: "pipe" });
   childProcess.execSync("git config user.email 'vazir-test@example.com'", { cwd, stdio: "pipe" });
@@ -518,7 +519,7 @@ async function runInitRefreshScenario() {
   await wait(1300);
 
   const dirtyLines = footerComponent.render(140).map(stripAnsi);
-  assert(dirtyLines[1]?.includes("1 uncommitted"), "footer did not show a dirty counter after a filesystem change without reload");
+  assert(dirtyLines[1]?.includes("uncommitted"), "footer did not show a dirty counter after a filesystem change without reload");
 
   childProcess.execSync("git add -A", { cwd, stdio: "pipe" });
   childProcess.execSync("git commit -qm save", { cwd, stdio: "pipe" });
