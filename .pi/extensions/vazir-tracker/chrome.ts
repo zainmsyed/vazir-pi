@@ -823,14 +823,21 @@ function storyStatusWidgetLines(
     ];
   }
 
+  const title = storyPickerTitle(summary.story);
+  const slugWithTitle = title
+    ? `${paint(summary.slug, "text")}: ${paint(clipInline(title, 40), "dim")}`
+    : paint(summary.slug, "text");
   const progressSegment = `${paint(progressBar(summary.checklistDone, summary.checklistTotal), storyProgressTone(summary))} ${paint(`${summary.checklistDone}/${summary.checklistTotal} ${summary.checklistTotal === 1 ? "task" : "tasks"}`, "dim")}`;
   const openIssues = openIssueCount(readIfExists(summary.story.file));
   const issueSegment = openIssues === 0
     ? `${paint("✓", "success")} ${paint("no open issues", "dim")}`
     : `${paint("⚠", "error")} ${paint(`${openIssues} open issue${openIssues === 1 ? "" : "s"}`, "error")}`;
+  const accessedLabel = summary.story.lastAccessed
+    ? paint(formatRelativeAge(new Date(summary.story.lastAccessed).getTime()), "dim")
+    : "";
 
   const segments = [
-    `${paint("▸", "accent", true)} ${paint(summary.slug, "text")}`,
+    `${paint("▸", "accent", true)} ${slugWithTitle}`,
     paint(summary.story.status, storyStatusTone(summary.story.status)),
     progressSegment,
     issueSegment,
@@ -839,6 +846,9 @@ function storyStatusWidgetLines(
   const savedLabel = activeToolCalls > 0 ? null : storySavedLabel(summary);
   if (savedLabel) {
     segments.push(paint(savedLabel, "dim"));
+  }
+  if (accessedLabel) {
+    segments.push(accessedLabel);
   }
 
   return [

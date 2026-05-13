@@ -31,6 +31,7 @@ Story-close mini-consolidate runs automatically at `/complete-story`. Fallow rec
 | story-005 | Story-close mini-consolidate and promotion UX | not-started | — |
 | story-006 | Fallow recurrence tracking in complaints-log | not-started | story-005 |
 | story-007 | Enhanced manual `/consolidate` with positive patterns and confidence scoring | not-started | story-005 |
+| story-008 | Refactor tracker chrome footer and status widget | not-started | — |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
