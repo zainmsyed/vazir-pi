@@ -2320,19 +2320,31 @@ export default function (pi: ExtensionAPI) {
         .length;
 
       const preview = [
+        "Vazir consolidation will do the following:",
+        "- review complaints and cluster repeat problems",
+        "- review learned-rule candidates from reviews",
+        "- dedupe/update .context/memory/system.md learned rules",
+        undescribed.length > 0
+          ? `- fill ${undescribed.length} undescribed index entr${undescribed.length === 1 ? "y" : "ies"}`
+          : "- leave index descriptions alone unless something is clearly wrong",
+        malformed.length > 0
+          ? `- repair ${malformed.length} malformed story file${malformed.length === 1 ? "" : "s"}`
+          : "- leave story files alone unless a malformed one is found",
+        "",
         `Complaints entries: ${complaints}`,
         `Undescribed index entries: ${undescribed.length}`,
         `Malformed story files: ${malformed.length}`,
-        "Local learned-rule dedupe applied after confirmation only",
+        "",
+        "Start consolidation now?",
       ].join("\n");
 
-      ctx.ui.notify(preview, "info");
-      const apply = await ctx.ui.select("Apply these consolidation changes?", ["Apply", "Discard"]);
-      if (apply !== "Apply") {
-        ctx.ui.notify("Consolidation discarded", "info");
+      const apply = await ctx.ui.select(preview, ["Start consolidation", "Cancel"]);
+      if (apply !== "Start consolidation") {
+        ctx.ui.notify("Consolidation cancelled", "info");
         return;
       }
 
+      ctx.ui.notify("Starting consolidation with the current Pi model…", "info");
       applyLocalRuleDedupe(ctx.cwd);
       await pi.sendUserMessage(buildConsolidationInstruction(ctx.cwd), { deliverAs: "followUp" });
       ctx.ui.notify("Consolidation handed to the current Pi model", "info");

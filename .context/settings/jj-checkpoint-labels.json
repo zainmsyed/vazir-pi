@@ -1,5 +1,6 @@
 {
   "labels": {
+    "29558263": "so they were archived...what should we do witht that? they were moved to the arc",
     "44165894": "please commit and push the gitignore file? also check it to see if there is anyt",
     "63415714": "No — based on the /plan instructions I found, I was not explicitly required to c",
     "d2371bae": "please remove .context from the commit history and repo. this is a repo only i u",
@@ -129,6 +130,11 @@
     "f9118db7": "please fix remaing issues from /home/zain/Documents/coding/vazir-pi/.context/rev",
     "3ed7af24": "please fix remaing issues from /home/zain/Documents/coding/vazir-pi/.context/rev",
     "4c9364b5": "can we tell the user know what they should do on the mini-consolodate. also take",
-    "34410c18": "ok lets commit to fossil"
+    "34410c18": "ok lets commit to fossil",
+    "d5a17c86": "all",
+    "29eed79c": "one more thing when the user uses the /consolidate command they get this message",
+    "5c2b1569": "one more thing when the user uses the /consolidate command they get this message",
+    "08c435a3": "yes please",
+    "bbd449fc": "yes all"
   }
 }
