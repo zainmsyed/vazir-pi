@@ -79,6 +79,7 @@ import {
   learnedRuleCloseoutDraftPath,
   nextStoryNumber,
   normalizeProjectBrief,
+  organizeLearnedRules,
   planTemplate,
   replaceLearnedRules,
   rememberEntry,
@@ -87,6 +88,7 @@ import {
   reviewsDir,
   reviewSummaryPath,
   readLearnedRuleCloseoutDraft,
+  readStorySection,
   REMEMBERED_RULES_TEMPLATE,
   REVIEW_SUMMARY_TEMPLATE,
   seedDesignFromIntake,
@@ -106,6 +108,7 @@ import {
   systemPath,
   type ArchiveCandidate,
   undescribedIndexFiles,
+  updateRuleConfidence,
   userExplicitlyApprovedStatusChange,
   walkSourceFiles,
   type LearnedRuleCloseoutDraft,
@@ -1067,11 +1070,24 @@ export default function (pi: ExtensionAPI) {
     if (selection == null) return true;
 
     const selectedCandidates = selection === "skip" ? [] : selection.map(index => draft.candidates[index]).filter(Boolean);
+
+    const storyContent = readIfExists(storyPath);
+    const issuesSection = readStorySection(storyContent, "Issues");
+    const storyKind: "failure" | "success" | undefined = issuesSection.trim().length > 0 ? "failure" : "success";
+
+    // Tag newly promoted rules with the closing story's kind so they land in the
+    // correct subsection immediately. organizeLearnedRules() is also called below
+    // to catch any older uncategorized rules and keep the entire section consistent.
     const promotion = promoteRulesToSystemMd(
       ctx.cwd,
-      selectedCandidates.map(candidate => ({ text: candidate.text, sourceStories: [storyLabel] })),
+      selectedCandidates.map(candidate => ({
+        text: candidate.text,
+        sourceStories: [storyLabel],
+        kind: storyKind,
+      })),
     );
     applyLocalRuleDedupe(ctx.cwd);
+    organizeLearnedRules(ctx.cwd);
 
     pendingCompleteStoryRequests.delete(ctx.cwd);
     try {
@@ -2377,6 +2393,8 @@ export default function (pi: ExtensionAPI) {
 
       ctx.ui.notify("Starting consolidation with the current Pi model…", "info");
       applyLocalRuleDedupe(ctx.cwd);
+      updateRuleConfidence(ctx.cwd);
+      organizeLearnedRules(ctx.cwd);
       await pi.sendUserMessage(buildConsolidationInstruction(ctx.cwd), { deliverAs: "followUp" });
       ctx.ui.notify("Consolidation handed to the current Pi model", "info");
     },
