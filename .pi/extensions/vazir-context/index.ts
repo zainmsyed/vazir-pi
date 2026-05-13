@@ -22,6 +22,7 @@ import {
 import { showScrollableText } from "../vazir-tracker/chrome.ts";
 import { refreshVcsState } from "../vazir-tracker/index.ts";
 import {
+  appendFallowToComplaintsLog,
   archiveDir,
   archiveMemoryReviewCandidates,
   appendLearnedRules,
@@ -46,6 +47,7 @@ import {
   hasUiTypeOverride,
   isUiStory,
   parseReviewFrontmatter,
+  reviewFallowFindingsFromFile,
   reviewFindingsFromFile,
   reviewRecommendedFixesFromFile,
   reviewOtherFixesFromFile,
@@ -823,6 +825,18 @@ export default function (pi: ExtensionAPI) {
     return null;
   }
 
+  function recordCompletedReviewFallowFindings(cwd: string, reviewFilePath: string, fallbackStoryLabel = ""): void {
+    const reviewFrontmatter = parseReviewFrontmatter(reviewFilePath);
+    if (reviewFrontmatter?.status !== "complete") return;
+
+    const storyLabel = reviewFrontmatter.story !== "—" ? reviewFrontmatter.story : fallbackStoryLabel;
+    if (!storyLabel || storyLabel === "—") return;
+
+    const fallowFindings = reviewFallowFindingsFromFile(reviewFilePath);
+    if (fallowFindings.length === 0) return;
+    appendFallowToComplaintsLog(cwd, storyLabel, fallowFindings);
+  }
+
   async function processCompleteStoryReviewCloseout(
     ctx: any,
     cwd: string,
@@ -843,6 +857,7 @@ export default function (pi: ExtensionAPI) {
       reviewCloseoutReady: true,
     });
 
+    recordCompletedReviewFallowFindings(cwd, reviewFilePath, storyLabel);
     const findings = reviewFindingsFromFile(reviewFilePath);
     const recommendedFixes = reviewRecommendedFixesFromFile(reviewFilePath);
     const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
@@ -1536,6 +1551,7 @@ export default function (pi: ExtensionAPI) {
         reviewCloseoutReady: true,
       });
 
+      recordCompletedReviewFallowFindings(cwd, pendingManualReview.reviewFile);
       const findings = reviewFindingsFromFile(pendingManualReview.reviewFile);
       const recommendedFixes = reviewRecommendedFixesFromFile(pendingManualReview.reviewFile);
       const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
