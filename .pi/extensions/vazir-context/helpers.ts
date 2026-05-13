@@ -160,6 +160,23 @@ export interface RuleCandidateEntry {
   sourceStories: string[];
 }
 
+export interface MiniConsolidateCandidate {
+  text: string;
+  confidence: "high" | "medium" | "low";
+  sources: string[];
+  rationale: string;
+}
+
+export interface MiniConsolidateDraft {
+  note: string;
+  candidates: MiniConsolidateCandidate[];
+}
+
+export interface RulePromotionOutcome {
+  promoted: string[];
+  skipped: Array<{ text: string; reason: string }>;
+}
+
 export interface ArchiveCandidate {
   filePath: string;
   label: string;
@@ -216,6 +233,10 @@ export function archiveReviewsDir(cwd: string) {
 
 export function reviewSummaryPath(cwd: string) {
   return path.join(reviewsDir(cwd), "summary.md");
+}
+
+export function miniConsolidateDraftPath(cwd: string, storyLabel: string) {
+  return path.join(reviewsDir(cwd), `${storyLabel}-mini-consolidate.json`);
 }
 
 export function rememberedRulesPath(cwd: string) {
@@ -2111,6 +2132,113 @@ export function buildContextMapDraftInstruction(cwd: string): string {
     "",
     `Project settings:\n${projectSettings || "{}"}`,
   ].join("\n");
+}
+
+export function readMiniConsolidateDraft(filePath: string): MiniConsolidateDraft | null {
+  const content = readIfExists(filePath).trim();
+  if (!content) return null;
+
+  try {
+    const parsed = JSON.parse(content) as Partial<MiniConsolidateDraft>;
+    const note = typeof parsed.note === "string" ? parsed.note.trim() : "";
+    const candidates = Array.isArray(parsed.candidates)
+      ? parsed.candidates
+        .map(entry => {
+          const confidence = entry && typeof entry === "object" && (entry as { confidence?: unknown }).confidence === "high"
+            ? "high"
+            : entry && typeof entry === "object" && (entry as { confidence?: unknown }).confidence === "medium"
+              ? "medium"
+              : entry && typeof entry === "object" && (entry as { confidence?: unknown }).confidence === "low"
+                ? "low"
+                : null;
+          const text = entry && typeof entry === "object" ? String((entry as { text?: unknown }).text ?? "").trim() : "";
+          if (!text || !confidence) return null;
+          return {
+            text,
+            confidence,
+            sources: entry && typeof entry === "object" && Array.isArray((entry as { sources?: unknown }).sources)
+              ? ((entry as { sources: unknown[] }).sources.map(source => String(source).trim()).filter(Boolean))
+              : [],
+            rationale: entry && typeof entry === "object" ? String((entry as { rationale?: unknown }).rationale ?? "").trim() : "",
+          } as MiniConsolidateCandidate;
+        })
+        .filter((entry): entry is MiniConsolidateCandidate => entry !== null)
+      : [];
+
+    return { note, candidates: candidates.slice(0, 2) };
+  } catch {
+    return null;
+  }
+}
+
+export function buildMiniConsolidateInstruction(cwd: string, storyLabel: string, reviewFilePath?: string): string {
+  const storyPath = path.join(storiesDir(cwd), `${storyLabel}.md`);
+  const outputPath = miniConsolidateDraftPath(cwd, storyLabel);
+  const reviewLabel = reviewFilePath ? path.relative(cwd, reviewFilePath).replace(/\\/g, "/") : "(no review file)";
+  const systemLabel = path.relative(cwd, systemPath(cwd)).replace(/\\/g, "/");
+  const outputLabel = path.relative(cwd, outputPath).replace(/\\/g, "/");
+
+  return [
+    `Review ${storyLabel} before the story closes and propose possible learned rules.`,
+    "",
+    "Read these sources:",
+    `- .context/stories/${storyLabel}.md (especially ## Issues, ## Checklist, and ## Completion Summary)`,
+    reviewFilePath ? `- ${reviewLabel} (review findings, recommended fixes, and static analysis notes)` : "- No review file exists for this closeout; rely on the story issues and completion summary.",
+    `- ${systemLabel} (avoid duplicate or overlapping learned rules)`,
+    "",
+    "Your job:",
+    "1. Distill at most 2 reusable rule candidates from the story's issues, review findings, and any Fallow/static-analysis findings mentioned in the review.",
+    "2. Each candidate must be a concise reusable rule, not a story-specific bug report.",
+    "3. Assign each candidate a confidence of `high`, `medium`, or `low`.",
+    "4. Add short source labels such as `story issue`, `review finding`, or `fallow` so Vazir can show attribution.",
+    "5. If system.md already contains an equivalent learned rule, do not propose it again.",
+    "6. If there are no good candidates, leave `candidates` empty and set `note` to one short sentence explaining why.",
+    "7. Write the result to the JSON file below. Do not modify system.md directly.",
+    "8. Output valid JSON only in that file using this exact shape:",
+    "",
+    "{",
+    '  "note": "one short sentence",',
+    '  "candidates": [',
+    '    { "text": "...", "confidence": "high", "sources": ["story issue", "review finding"], "rationale": "..." }',
+    "  ]",
+    "}",
+    "",
+    `Write the JSON to: ${outputLabel}`,
+    `Story file: ${path.relative(cwd, storyPath).replace(/\\/g, "/")}`,
+  ].join("\n");
+}
+
+export function promoteRulesToSystemMd(cwd: string, rules: LearnedRuleEntry[]): RulePromotionOutcome {
+  const systemMdPath = systemPath(cwd);
+  if (!fs.existsSync(systemMdPath) || rules.length === 0) return { promoted: [], skipped: [] };
+
+  const systemMd = readIfExists(systemMdPath);
+  const existing = learnedRulesFromMd(systemMd);
+  const existingByKey = new Map(existing.map(rule => [normalizeRuleCandidate(rule.text), rule]));
+  const additions: LearnedRuleEntry[] = [];
+  const promoted: string[] = [];
+  const skipped: Array<{ text: string; reason: string }> = [];
+
+  for (const rule of rules) {
+    const entry = toLearnedRuleEntry(rule);
+    if (!entry.text) continue;
+
+    const key = normalizeRuleCandidate(entry.text);
+    const overlap = existingByKey.get(key);
+    if (overlap) {
+      skipped.push({ text: entry.text, reason: `already covered by learned rule: ${overlap.text}` });
+      continue;
+    }
+
+    additions.push(entry);
+    promoted.push(entry.text);
+    existingByKey.set(key, entry);
+  }
+
+  if (additions.length === 0) return { promoted, skipped };
+
+  fs.writeFileSync(systemMdPath, replaceLearnedRules(systemMd, [...existing, ...additions]));
+  return { promoted, skipped };
 }
 
 export function buildConsolidationInstruction(cwd: string): string {

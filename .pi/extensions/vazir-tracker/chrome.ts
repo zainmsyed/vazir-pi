@@ -727,7 +727,7 @@ function branchLabel(cwd: string): string {
     return isVazirInitialized(cwd) ? "no-git" : "run /vazir-init";
   }
 
-  return clipInline(_vcsDisplay.refLabel || (_useJJ ? "jj" : _hasGitRepo ? "git" : _vcsKind), 24);
+  return clipInline(_vcsDisplay.refLabel || _vcsKind, 24);
 }
 
 function repoNameLabel(cwd: string): string {

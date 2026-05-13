@@ -59,6 +59,7 @@ import {
   fossilDiffFile,
   gitRestoreCheckpoint,
   gitSnapshotFile,
+  isFossilClean,
   isGitClean,
   jjCheckpointChoices,
   jjDiffFile,
@@ -449,6 +450,13 @@ export default function (pi: ExtensionAPI) {
               if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
             }
           }
+        }
+      } else if (vcsKind === "fossil") {
+        if (!isFossilClean(cwd)) {
+          ctx.ui.notify(
+            "Work in progress from previous session detected. Commit or stash changes before starting a new session.",
+            "warning",
+          );
         }
       }
 

@@ -28,13 +28,13 @@ Run `/complete-story` on an in-progress story that has `/fix` issues logged. Aft
 ---
 
 ## Checklist
-- [ ] Build `buildMiniConsolidateInstruction(cwd, storyLabel, reviewFilePath?)` in helpers.ts that instructs the agent to read the story file Issues section, review findings (if review ran), and any Fallow output, then propose rule candidates
-- [ ] Insert mini-consolidate into `/complete-story` closeout flow in `agent_end`: after review remediation finishes and before `completeStoryNow()`, dispatch the mini-consolidate instruction via `sendInternalAgentMessage`
-- [ ] Implement promotion proposal UX: present candidates with confidence (high/medium/low) and source attribution; prompt user to "Promote both? Skip both? Or enter numbers to select"
-- [ ] Implement `promoteRulesToSystemMd(cwd, rules[])` in helpers.ts that appends approved rules to `system.md ## Learned Rules` with `<!-- source: story-NNN -->` provenance tags
-- [ ] Cross-reference existing `system.md` rules to avoid duplicates; if equivalent rule exists, note overlap and skip
-- [ ] If no candidates found, emit one-line note and proceed to close
-- [ ] Ensure the mini-consolidate runs even when the user skips the optional code review (reads story issues directly)
+- [x] Build `buildMiniConsolidateInstruction(cwd, storyLabel, reviewFilePath?)` in helpers.ts that instructs the agent to read the story file Issues section, review findings (if review ran), and any Fallow output, then propose rule candidates
+- [x] Insert mini-consolidate into `/complete-story` closeout flow in `agent_end`: after review remediation finishes and before `completeStoryNow()`, dispatch the mini-consolidate instruction via `sendInternalAgentMessage`
+- [x] Implement promotion proposal UX: present candidates with confidence (high/medium/low) and source attribution; prompt user to "Promote both? Skip both? Or enter numbers to select"
+- [x] Implement `promoteRulesToSystemMd(cwd, rules[])` in helpers.ts that appends approved rules to `system.md ## Learned Rules` with `<!-- source: story-NNN -->` provenance tags
+- [x] Cross-reference existing `system.md` rules to avoid duplicates; if equivalent rule exists, note overlap and skip
+- [x] If no candidates found, emit one-line note and proceed to close
+- [x] Ensure the mini-consolidate runs even when the user skips the optional code review (reads story issues directly)
 
 ---
 
