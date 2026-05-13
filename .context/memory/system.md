@@ -6,12 +6,14 @@
 - Ask before changing ambiguous areas.
 
 ## Learned Rules
+### From failures
 - When parsing structured comment annotations in free text, match each annotation independently so reordering does not corrupt the primary content. <!-- source: story-007 -->
 - When a workflow adds generated handoff artifacts or scoring heuristics, add an automated fixture that proves the happy path and edge cases before relying on it for closeout. <!-- source: story-007 -->
 - When extending a structured data format with new optional fields, update the parser, formatter, and deduplicator together in one change to preserve backwards compatibility and ensure round-trip integrity. <!-- source: story-007 -->
 - When a batch command and a per-item closeout both write to the same artifact, apply identical formatting and categorization in both paths so the output is always consistent. <!-- source: story-007 -->
-### From failures
 - Use draft-based handoff files for multi-step agent workflows, and distinguish missing or invalid drafts from empty-success cases with clear user warnings. <!-- source: story-005 -->
+- When a pre-existing bug outside the current story scope blocks verification, file a separate `/fix` issue rather than modifying out-of-scope files inline. <!-- source: story-008 -->
+- When refactoring divergent conditional code paths into a unified layout, build a single segment array, `filter(Boolean)` to drop empties, then `join(separator)` instead of using inline ternary spaghetti. <!-- source: story-008 -->
 ### From successes
 - When injecting context or templates based on story type, detect the type from both explicit frontmatter overrides and inferred scope-path extensions. <!-- source: story-002 -->
 - When a project-wide reference file is empty or contains placeholder markers, pause implementation to ask concise gap questions, then fill the file with source-story provenance tags before proceeding. <!-- source: story-002 -->
