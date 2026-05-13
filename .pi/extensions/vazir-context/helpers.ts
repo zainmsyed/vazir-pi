@@ -138,6 +138,11 @@ export interface ReviewFindingSummary {
   summary: string;
 }
 
+export interface ReviewFallowFinding {
+  key: string;
+  text: string;
+}
+
 export interface ReviewRecommendedFix {
   checked: boolean;
   severity: string;
@@ -153,11 +158,35 @@ export interface StoryCompletionReadiness {
 export interface LearnedRuleEntry {
   text: string;
   sourceStories: string[];
+  confidence?: string;
+  kind?: "failure" | "success";
 }
 
 export interface RuleCandidateEntry {
   text: string;
   sourceStories: string[];
+}
+
+export interface LearnedRuleCloseoutCandidate {
+  text: string;
+  confidence: "high" | "medium" | "low";
+  sources: string[];
+  rationale: string;
+}
+
+export interface LearnedRuleCloseoutDraft {
+  note: string;
+  candidates: LearnedRuleCloseoutCandidate[];
+}
+
+export type LearnedRuleCloseoutDraftReadResult =
+  | { kind: "missing" }
+  | { kind: "invalid"; error: string }
+  | { kind: "valid"; draft: LearnedRuleCloseoutDraft };
+
+export interface RulePromotionOutcome {
+  promoted: string[];
+  skipped: Array<{ text: string; reason: string }>;
 }
 
 export interface ArchiveCandidate {
@@ -216,6 +245,10 @@ export function archiveReviewsDir(cwd: string) {
 
 export function reviewSummaryPath(cwd: string) {
   return path.join(reviewsDir(cwd), "summary.md");
+}
+
+export function learnedRuleCloseoutDraftPath(cwd: string, storyLabel: string) {
+  return path.join(reviewsDir(cwd), `${storyLabel}-learned-rule-closeout.json`);
 }
 
 export function rememberedRulesPath(cwd: string) {
@@ -1164,23 +1197,43 @@ function toLearnedRuleEntry(rule: string | LearnedRuleEntry): LearnedRuleEntry {
   return {
     text: rule.text.trim(),
     sourceStories: uniqueStoryLabels(rule.sourceStories ?? []),
+    confidence: rule.confidence,
+    kind: rule.kind,
   };
 }
 
 export function parseLearnedRuleEntry(rawRule: string): LearnedRuleEntry {
-  const trimmed = rawRule.trim();
-  const match = trimmed.match(/^(.*?)(?:\s*<!--\s*source:\s*([^>]+?)\s*-->)?\s*$/i);
-  const text = (match?.[1] ?? trimmed).trim();
-  const sourceStories = uniqueStoryLabels((match?.[2] ?? "").split(","));
-  return { text, sourceStories };
+  let remaining = rawRule.trim();
+
+  // Extract source comment (order-agnostic)
+  const sourceMatch = remaining.match(/<!--\s*source:\s*([^>]+?)\s*-->/i);
+  const sourceStories = sourceMatch ? uniqueStoryLabels(sourceMatch[1].split(",")) : [];
+  if (sourceMatch) {
+    remaining = remaining.replace(sourceMatch[0], "").trim();
+  }
+
+  // Extract confidence comment (order-agnostic)
+  const confidenceMatch = remaining.match(/<!--\s*confidence:\s*([^>]+?)\s*-->/i);
+  const confidence = confidenceMatch ? confidenceMatch[1].trim() : undefined;
+  if (confidenceMatch) {
+    remaining = remaining.replace(confidenceMatch[0], "").trim();
+  }
+
+  return { text: remaining, sourceStories, confidence };
 }
 
 export function formatLearnedRuleEntry(rule: LearnedRuleEntry): string {
   const text = rule.text.trim();
   const sourceStories = uniqueStoryLabels(rule.sourceStories);
   if (!text) return "";
-  if (sourceStories.length === 0) return text;
-  return `${text} <!-- source: ${sourceStories.join(", ")} -->`;
+  const parts: string[] = [text];
+  if (sourceStories.length > 0) {
+    parts.push(`<!-- source: ${sourceStories.join(", ")} -->`);
+  }
+  if (rule.confidence) {
+    parts.push(`<!-- confidence: ${rule.confidence} -->`);
+  }
+  return parts.join(" ");
 }
 
 function mergeLearnedRuleEntries(rules: LearnedRuleEntry[]): LearnedRuleEntry[] {
@@ -1194,13 +1247,24 @@ function mergeLearnedRuleEntries(rules: LearnedRuleEntry[]): LearnedRuleEntry[] 
     const key = normalizeRuleCandidate(text);
     const existing = byKey.get(key);
     if (!existing) {
-      const next = { text, sourceStories: uniqueStoryLabels(rule.sourceStories) };
+      const next = {
+        text,
+        sourceStories: uniqueStoryLabels(rule.sourceStories),
+        confidence: rule.confidence,
+        kind: rule.kind,
+      };
       byKey.set(key, next);
       merged.push(next);
       continue;
     }
 
     existing.sourceStories = uniqueStoryLabels([...existing.sourceStories, ...rule.sourceStories]);
+    if (rule.confidence && !existing.confidence) {
+      existing.confidence = rule.confidence;
+    }
+    if (rule.kind && !existing.kind) {
+      existing.kind = rule.kind;
+    }
   }
 
   return merged;
@@ -1217,17 +1281,32 @@ export function learnedRulesFromMd(md: string): LearnedRuleEntry[] {
 
   let sectionEnd = lines.length;
   for (let index = headingIndex + 1; index < lines.length; index += 1) {
-    if (/^#{1,6}\s/.test(lines[index].trim())) {
+    if (/^##\s/.test(lines[index].trim())) {
       sectionEnd = index;
       break;
     }
   }
 
-  const entries = lines
-    .slice(headingIndex + 1, sectionEnd)
-    .map(line => line.trim())
-    .filter(line => line.startsWith("- "))
-    .map(line => parseLearnedRuleEntry(line.slice(2)));
+  const entries: LearnedRuleEntry[] = [];
+  let currentKind: "failure" | "success" | undefined;
+
+  for (const line of lines.slice(headingIndex + 1, sectionEnd)) {
+    const trimmed = line.trim();
+    if (/^###\s+From failures/i.test(trimmed)) {
+      currentKind = "failure";
+      continue;
+    }
+    if (/^###\s+From successes/i.test(trimmed)) {
+      currentKind = "success";
+      continue;
+    }
+    if (!trimmed.startsWith("- ")) continue;
+    const entry = parseLearnedRuleEntry(trimmed.slice(2));
+    if (entry.text) {
+      entry.kind = currentKind;
+      entries.push(entry);
+    }
+  }
 
   return mergeLearnedRuleEntries(entries);
 }
@@ -1240,7 +1319,28 @@ export function dedupeLearnedRules(systemMd: string): string {
 
 export function replaceLearnedRules(systemMd: string, rules: Array<string | LearnedRuleEntry>): string {
   const uniqueRules = mergeLearnedRuleEntries(rules.map(toLearnedRuleEntry));
-  const replacement = ["## Learned Rules", ...uniqueRules.map(rule => `- ${formatLearnedRuleEntry(rule)}`)];
+  const hasKinds = uniqueRules.some(rule => rule.kind);
+
+  let replacement: string[];
+  if (hasKinds) {
+    const failures = uniqueRules.filter(rule => rule.kind === "failure");
+    const successes = uniqueRules.filter(rule => rule.kind === "success");
+    const ungrouped = uniqueRules.filter(rule => !rule.kind);
+    replacement = ["## Learned Rules"];
+    if (ungrouped.length > 0) {
+      replacement.push(...ungrouped.map(rule => `- ${formatLearnedRuleEntry(rule)}`));
+    }
+    if (failures.length > 0) {
+      replacement.push("### From failures");
+      replacement.push(...failures.map(rule => `- ${formatLearnedRuleEntry(rule)}`));
+    }
+    if (successes.length > 0) {
+      replacement.push("### From successes");
+      replacement.push(...successes.map(rule => `- ${formatLearnedRuleEntry(rule)}`));
+    }
+  } else {
+    replacement = ["## Learned Rules", ...uniqueRules.map(rule => `- ${formatLearnedRuleEntry(rule)}`)];
+  }
 
   const lines = systemMd.split("\n");
   const headingIndex = lines.findIndex(line => line.trim() === "## Learned Rules");
@@ -1248,7 +1348,7 @@ export function replaceLearnedRules(systemMd: string, rules: Array<string | Lear
 
   let sectionEnd = lines.length;
   for (let index = headingIndex + 1; index < lines.length; index += 1) {
-    if (/^#{1,6}\s/.test(lines[index].trim())) {
+    if (/^##\s/.test(lines[index].trim())) {
       sectionEnd = index;
       break;
     }
@@ -1285,7 +1385,12 @@ export function appendLearnedRules(cwd: string, rules: Array<string | LearnedRul
     const key = normalizeRuleCandidate(entry.text);
     const existingEntry = existingByKey.get(key);
     if (!existingEntry) {
-      const next = { text: entry.text, sourceStories: uniqueStoryLabels(entry.sourceStories) };
+      const next: LearnedRuleEntry = {
+        text: entry.text,
+        sourceStories: uniqueStoryLabels(entry.sourceStories),
+        confidence: entry.confidence,
+        kind: entry.kind,
+      };
       existing.push(next);
       existingByKey.set(key, next);
       additions.push(entry.text);
@@ -1426,6 +1531,131 @@ export function formatReviewFindingSummary(finding: ReviewFindingSummary): strin
   const summary = finding.summary.trim();
   if (category) return `- ${severity}: ${summary} (${category})`;
   return `- ${severity}: ${summary}`;
+}
+
+export function sanitizeComplaintsLogText(raw: string): string {
+  return raw
+    .replace(/\|/g, "/")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function normalizeFallowFindingKey(raw: string): string {
+  return sanitizeComplaintsLogText(raw)
+    .replace(/^\[fallow\]\s*/i, "")
+    .toLowerCase();
+}
+
+export function reviewFallowFindingsFromFile(filePath: string): ReviewFallowFinding[] {
+  const content = readIfExists(filePath);
+  if (!content) return [];
+
+  const lines = content.split("\n");
+  const findings: ReviewFallowFinding[] = [];
+  const seen = new Set<string>();
+  let inSection = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!inSection) {
+      if (trimmed === "## Fallow Findings") inSection = true;
+      continue;
+    }
+
+    if (trimmed.startsWith("## ") && trimmed !== "## Fallow Findings") break;
+    if (!trimmed.startsWith("- ")) continue;
+
+    const text = trimmed.slice(2).trim();
+    if (!text || /^none\.?$/i.test(text) || /^no fallow findings\.?$/i.test(text)) continue;
+    const key = normalizeFallowFindingKey(text);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    findings.push({ key, text });
+  }
+
+  return findings;
+}
+
+interface ComplaintsLogFallowEntry {
+  index: number;
+  line: string;
+  storyLabel: string;
+  key: string;
+  status: string;
+}
+
+function parseComplaintsLogFallowEntry(line: string, index: number): ComplaintsLogFallowEntry | null {
+  const match = line.match(/^([^|]+)\|\s*([^|]+)\|\s*\[fallow\]\s*(.+?)\s*\|\s*status:\s*([^|]+?)\s*$/i);
+  if (!match) return null;
+  return {
+    index,
+    line,
+    storyLabel: match[2].trim().toLowerCase(),
+    key: normalizeFallowFindingKey(match[3]),
+    status: match[4].trim().toLowerCase(),
+  };
+}
+
+export function countFallowOccurrences(cwd: string, findingKey: string): number {
+  const normalizedKey = normalizeFallowFindingKey(findingKey);
+  if (!normalizedKey) return 0;
+
+  const stories = new Set(
+    readIfExists(complaintsLogPath(cwd))
+      .split("\n")
+      .map((line, index) => parseComplaintsLogFallowEntry(line, index))
+      .filter((entry): entry is ComplaintsLogFallowEntry => entry !== null)
+      .filter(entry => entry.key === normalizedKey)
+      .map(entry => entry.storyLabel),
+  );
+  return stories.size;
+}
+
+export function appendFallowToComplaintsLog(cwd: string, storyLabel: string, fallowFindings: ReviewFallowFinding[]): boolean {
+  const normalizedStoryLabel = storyLabel.trim().toLowerCase();
+  if (!normalizedStoryLabel || normalizedStoryLabel === "—" || fallowFindings.length === 0) return false;
+
+  const logPath = complaintsLogPath(cwd);
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+
+  const lines = readIfExists(logPath).split("\n");
+  const existingEntries = lines
+    .map((line, index) => parseComplaintsLogFallowEntry(line, index))
+    .filter((entry): entry is ComplaintsLogFallowEntry => entry !== null);
+  const uniqueFindings = new Map(fallowFindings.map(finding => [finding.key, finding]));
+  let changed = false;
+
+  for (const finding of uniqueFindings.values()) {
+    const alreadyTrackedForStory = existingEntries.some(entry => entry.storyLabel === normalizedStoryLabel && entry.key === finding.key);
+    if (!alreadyTrackedForStory) {
+      const nextCount = countFallowOccurrences(cwd, finding.key) + 1;
+      const nextStatus = nextCount >= 3 ? "promoted" : "noted";
+      const safeText = sanitizeComplaintsLogText(finding.text);
+      lines.push(`${nowISO()} | ${storyLabel} | [fallow] ${safeText} | status: ${nextStatus}`);
+      changed = true;
+    }
+  }
+
+  const refreshedEntries = lines
+    .map((line, index) => parseComplaintsLogFallowEntry(line, index))
+    .filter((entry): entry is ComplaintsLogFallowEntry => entry !== null);
+  for (const finding of uniqueFindings.values()) {
+    const occurrenceCount = new Set(
+      refreshedEntries.filter(entry => entry.key === finding.key).map(entry => entry.storyLabel),
+    ).size;
+    if (occurrenceCount < 3) continue;
+    for (const entry of refreshedEntries.filter(entry => entry.key === finding.key && entry.status !== "promoted")) {
+      lines[entry.index] = entry.line.replace(/status:\s*[^|]+$/i, "status: promoted");
+      changed = true;
+    }
+  }
+
+  if (!changed) return false;
+
+  const content = lines.filter((line, index, array) => !(index === array.length - 1 && line === "")).join("\n");
+  fs.writeFileSync(logPath, `${content}\n`);
+  return true;
 }
 
 export function reviewRecommendedFixesFromFile(filePath: string): ReviewRecommendedFix[] {
@@ -1693,7 +1923,7 @@ export function manualReviewStoryChoiceLabel(story: StoryFrontmatter): string {
   return `${story.status} — ${storyLabel}`;
 }
 
-function readStorySection(content: string, heading: string): string {
+export function readStorySection(content: string, heading: string): string {
   const lines = content.split("\n");
   const headingIndex = lines.findIndex(line => line.trim() === `## ${heading}`);
   if (headingIndex < 0) return "";
@@ -1990,16 +2220,17 @@ export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt
     "2. Focus on bugs, regressions, missing tests, dead code, simplification opportunities, scope drift, and workflow violations.",
     "3. Keep findings primary. If there are no findings, replace the placeholder finding with a short 'No findings' note.",
     "4. For every finding, fill in Severity, Category, Summary, Evidence, Recommendation, and Rule candidate. Categories may include bug, regression, test-gap, dead-code, simplification, or workflow.",
-    "5. Add or update one checklist item per finding in `## Recommended Fixes` using the format `- [ ] severity — action`. Mark items `[x]` only when the recommended follow-up has actually been completed.",
-    "6. If there are no findings, replace the placeholder item in `## Recommended Fixes` with `- [x] No follow-up fixes required.`.",
-    "7. Use `- Rule candidate: —` when a finding should not become a reusable rule.",
-    "8. Do not change story status as part of the review. A story only becomes complete when the user explicitly says so.",
-    "9. Finish by writing the Completion Summary, setting `**Status:** complete`, and setting `**Completed:**` to today's date.",
-    "10. Do not update .context/reviews/summary.md or .context/reviews/remembered.md manually; Vazir syncs them automatically.",
-    `11. Review scope: ${reviewScope}.`,
-    `12. Review focus: ${review.focus}.`,
-    review.storyLabel !== "—" ? `13. Story: ${review.storyLabel}.` : "13. No story is attached; keep the review manual and comprehensive within the requested scope.",
-    `14. Trigger: ${review.trigger}.`,
+    "5. If the static analysis block includes Fallow issues, also maintain a `## Fallow Findings` section using one bullet per distinct finding in the format `- rule: location — summary`.",
+    "6. Add or update one checklist item per finding in `## Recommended Fixes` using the format `- [ ] severity — action`. Mark items `[x]` only when the recommended follow-up has actually been completed.",
+    "7. If there are no findings, replace the placeholder item in `## Recommended Fixes` with `- [x] No follow-up fixes required.`.",
+    "8. Use `- Rule candidate: —` when a finding should not become a reusable rule.",
+    "9. Do not change story status as part of the review. A story only becomes complete when the user explicitly says so.",
+    "10. Finish by writing the Completion Summary, setting `**Status:** complete`, and setting `**Completed:**` to today's date.",
+    "11. Do not update .context/reviews/summary.md or .context/reviews/remembered.md manually; Vazir syncs them automatically.",
+    `12. Review scope: ${reviewScope}.`,
+    `13. Review focus: ${review.focus}.`,
+    review.storyLabel !== "—" ? `14. Story: ${review.storyLabel}.` : "14. No story is attached; keep the review manual and comprehensive within the requested scope.",
+    `15. Trigger: ${review.trigger}.`,
     ...(designNotes.length > 0 ? ["", ...designNotes] : []),
   ].join("\n");
 }
@@ -2067,6 +2298,11 @@ export function reviewFileTemplate(
     "",
     "---",
     "",
+    "## Fallow Findings",
+    "[If Fallow/static analysis reported issues, list them here one per line using `- rule: location — summary`. Otherwise replace this note with `- None`.]",
+    "",
+    "---",
+    "",
     "## Recommended Fixes",
     "[Add one checklist item per finding using `- [ ] severity — action`. Mark items [x] only after the follow-up work is complete. If there are no findings, replace this note with `- [x] No follow-up fixes required.`]",
     "",
@@ -2096,6 +2332,96 @@ export function applyLocalRuleDedupe(cwd: string): boolean {
   return true;
 }
 
+const CONFIDENCE_SCAN_STORY_COUNT = 5;
+
+export function updateRuleConfidence(cwd: string): boolean {
+  const systemMdPath = systemPath(cwd);
+  if (!fs.existsSync(systemMdPath)) return false;
+
+  const systemMd = readIfExists(systemMdPath);
+  const rules = learnedRulesFromMd(systemMd);
+  if (rules.length === 0) return false;
+
+  const recentStories = listStories(cwd)
+    .filter(story => story.status === "complete" || story.status === "in-progress")
+    .sort(compareStoriesByRecencyDesc)
+    .slice(0, CONFIDENCE_SCAN_STORY_COUNT);
+
+  const recentReviews = reviewDetailFiles(cwd)
+    .map(filePath => ({ filePath, frontmatter: parseReviewFrontmatter(filePath) }))
+    .filter(item => item.frontmatter != null && item.frontmatter.status === "complete")
+    .sort((a, b) => b.frontmatter.created.localeCompare(a.frontmatter.created))
+    .slice(0, CONFIDENCE_SCAN_STORY_COUNT);
+
+  const storyLabels = new Set(recentStories.map(story => path.basename(story.file, ".md").toLowerCase()));
+  const reviewFiles = recentReviews.map(item => item.filePath);
+
+  const signalTexts: string[] = [];
+  for (const story of recentStories) {
+    signalTexts.push(readIfExists(story.file));
+  }
+  for (const reviewFile of reviewFiles) {
+    signalTexts.push(readIfExists(reviewFile));
+  }
+  signalTexts.push(readIfExists(complaintsLogPath(cwd)));
+
+  const combinedSignal = signalTexts.join("\n").toLowerCase();
+
+  let changed = false;
+  for (const rule of rules) {
+    const ruleTextLower = normalizeRuleCandidate(rule.text);
+    const isReferenced = combinedSignal.includes(ruleTextLower) ||
+      rule.sourceStories.some(source => storyLabels.has(source.toLowerCase()));
+
+    if (isReferenced) {
+      if (rule.confidence !== "high") {
+        rule.confidence = "high";
+        changed = true;
+      }
+    } else {
+      const lowComment = `low — no signal in last ${CONFIDENCE_SCAN_STORY_COUNT} stories`;
+      if (!rule.confidence || rule.confidence === "high") {
+        rule.confidence = lowComment;
+        changed = true;
+      }
+    }
+  }
+
+  if (!changed) return false;
+
+  fs.writeFileSync(systemMdPath, replaceLearnedRules(systemMd, rules));
+  return true;
+}
+
+export function organizeLearnedRules(cwd: string): boolean {
+  const systemMdPath = systemPath(cwd);
+  if (!fs.existsSync(systemMdPath)) return false;
+
+  const systemMd = readIfExists(systemMdPath);
+  const rules = learnedRulesFromMd(systemMd);
+  if (rules.length === 0) return false;
+
+  let changed = false;
+  for (const rule of rules) {
+    if (rule.kind) continue;
+
+    const hasIssues = rule.sourceStories.some(label => {
+      const storyPath = path.join(storiesDir(cwd), `${label.toLowerCase()}.md`);
+      if (!fs.existsSync(storyPath)) return false;
+      const issuesSection = readStorySection(readIfExists(storyPath), "Issues");
+      return issuesSection.trim().length > 0;
+    });
+
+    rule.kind = hasIssues ? "failure" : "success";
+    changed = true;
+  }
+
+  if (!changed) return false;
+
+  fs.writeFileSync(systemMdPath, replaceLearnedRules(systemMd, rules));
+  return true;
+}
+
 export function buildContextMapDraftInstruction(cwd: string): string {
   const projectSettingsPath = path.join(settingsDir(cwd), "project.json");
   const projectSettings = readIfExists(projectSettingsPath);
@@ -2113,21 +2439,136 @@ export function buildContextMapDraftInstruction(cwd: string): string {
   ].join("\n");
 }
 
+export function readLearnedRuleCloseoutDraft(filePath: string): LearnedRuleCloseoutDraftReadResult {
+  if (!fs.existsSync(filePath)) return { kind: "missing" };
+
+  const content = readIfExists(filePath).trim();
+  if (!content) return { kind: "valid", draft: { note: "", candidates: [] } };
+
+  try {
+    const parsed = JSON.parse(content) as Partial<LearnedRuleCloseoutDraft>;
+    const note = typeof parsed.note === "string" ? parsed.note.trim() : "";
+    const candidates = Array.isArray(parsed.candidates)
+      ? parsed.candidates
+        .map(entry => {
+          const confidence = entry && typeof entry === "object" && (entry as { confidence?: unknown }).confidence === "high"
+            ? "high"
+            : entry && typeof entry === "object" && (entry as { confidence?: unknown }).confidence === "medium"
+              ? "medium"
+              : entry && typeof entry === "object" && (entry as { confidence?: unknown }).confidence === "low"
+                ? "low"
+                : null;
+          const text = entry && typeof entry === "object" ? String((entry as { text?: unknown }).text ?? "").trim() : "";
+          if (!text || !confidence) return null;
+          return {
+            text,
+            confidence,
+            sources: entry && typeof entry === "object" && Array.isArray((entry as { sources?: unknown }).sources)
+              ? ((entry as { sources: unknown[] }).sources.map(source => String(source).trim()).filter(Boolean))
+              : [],
+            rationale: entry && typeof entry === "object" ? String((entry as { rationale?: unknown }).rationale ?? "").trim() : "",
+          } as LearnedRuleCloseoutCandidate;
+        })
+        .filter((entry): entry is LearnedRuleCloseoutCandidate => entry !== null)
+      : [];
+
+    return { kind: "valid", draft: { note, candidates: candidates.slice(0, 2) } };
+  } catch (error: any) {
+    return { kind: "invalid", error: error?.message || String(error) };
+  }
+}
+
+export function buildLearnedRuleCloseoutInstruction(cwd: string, storyLabel: string, reviewFilePath?: string): string {
+  const storyPath = path.join(storiesDir(cwd), `${storyLabel}.md`);
+  const outputPath = learnedRuleCloseoutDraftPath(cwd, storyLabel);
+  const reviewLabel = reviewFilePath ? path.relative(cwd, reviewFilePath).replace(/\\/g, "/") : "(no review file)";
+  const systemLabel = path.relative(cwd, systemPath(cwd)).replace(/\\/g, "/");
+  const outputLabel = path.relative(cwd, outputPath).replace(/\\/g, "/");
+
+  return [
+    `Review ${storyLabel} before the story closes and propose possible learned rules.`,
+    "",
+    "Read these sources:",
+    `- .context/stories/${storyLabel}.md (especially ## Issues, ## Checklist, and ## Completion Summary)`,
+    reviewFilePath ? `- ${reviewLabel} (review findings, recommended fixes, and static analysis notes)` : "- No review file exists for this closeout; rely on the story issues and completion summary.",
+    `- ${systemLabel} (avoid duplicate or overlapping learned rules)`,
+    "",
+    "Your job:",
+    "1. Distill at most 2 reusable rule candidates from the story's issues, review findings, and any Fallow/static-analysis findings mentioned in the review.",
+    "2. Each candidate must be a concise reusable rule, not a story-specific bug report.",
+    "3. Assign each candidate a confidence of `high`, `medium`, or `low`.",
+    "4. Add short source labels such as `story issue`, `review finding`, or `fallow` so Vazir can show attribution.",
+    "5. If system.md already contains an equivalent learned rule, do not propose it again.",
+    "6. If there are no good candidates, leave `candidates` empty and set `note` to one short sentence explaining why.",
+    "7. Write the result to the JSON file below. Do not modify system.md directly.",
+    "8. Output valid JSON only in that file using this exact shape:",
+    "",
+    "{",
+    '  "note": "one short sentence",',
+    '  "candidates": [',
+    '    { "text": "...", "confidence": "high", "sources": ["story issue", "review finding"], "rationale": "..." }',
+    "  ]",
+    "}",
+    "",
+    `Write the JSON to: ${outputLabel}`,
+    `Story file: ${path.relative(cwd, storyPath).replace(/\\/g, "/")}`,
+  ].join("\n");
+}
+
+export function promoteRulesToSystemMd(cwd: string, rules: LearnedRuleEntry[]): RulePromotionOutcome {
+  const systemMdPath = systemPath(cwd);
+  if (!fs.existsSync(systemMdPath) || rules.length === 0) return { promoted: [], skipped: [] };
+
+  const systemMd = readIfExists(systemMdPath);
+  const existing = learnedRulesFromMd(systemMd);
+  const existingByKey = new Map(existing.map(rule => [normalizeRuleCandidate(rule.text), rule]));
+  const additions: LearnedRuleEntry[] = [];
+  const promoted: string[] = [];
+  const skipped: Array<{ text: string; reason: string }> = [];
+
+  for (const rule of rules) {
+    const entry = toLearnedRuleEntry(rule);
+    if (!entry.text) continue;
+
+    const key = normalizeRuleCandidate(entry.text);
+    const overlap = existingByKey.get(key);
+    if (overlap) {
+      skipped.push({ text: entry.text, reason: `already covered by learned rule: ${overlap.text}` });
+      continue;
+    }
+
+    additions.push(entry);
+    promoted.push(entry.text);
+    existingByKey.set(key, entry);
+  }
+
+  if (additions.length === 0) return { promoted, skipped };
+
+  fs.writeFileSync(systemMdPath, replaceLearnedRules(systemMd, [...existing, ...additions]));
+  return { promoted, skipped };
+}
+
 export function buildConsolidationInstruction(cwd: string): string {
   const malformed = malformedStoryFiles(cwd);
   const undescribed = undescribedIndexFiles(cwd);
+  const decisionsPath = path.join(cwd, ".context", "decisions.md");
+  const hasDecisions = fs.existsSync(decisionsPath);
   return [
     "Run Vazir consolidation using the currently selected Pi model.",
     "",
     "Tasks:",
-    "1. Read .context/complaints-log.md and cluster similar complaints.",
+    "1. Read .context/complaints-log.md and cluster similar complaints, including `[fallow] ... | status: noted/promoted` entries and `/fix` entries as valid recurring signals.",
     "2. Read .context/reviews/summary.md and any detailed code review files only if the summary needs clarification.",
-    "3. Update .context/memory/system.md ## Learned Rules with concise promoted rules for complaint clusters that hit threshold, and promote any reopened issue directly.",
-    "4. When you add a learned rule and the source story is knowable, append a best-effort provenance tag like `<!-- source: story-002 -->`. If the origin is unclear, do not invent one.",
-    "5. Merge duplicate or overlapping learned rules. Keep the ## Rules section intact.",
-    undescribed.length > 0 ? "6. Replace every `(undescribed)` entry in .context/memory/index.md with a concise useful description." : "6. Leave .context/memory/index.md unchanged unless a description is clearly wrong.",
-    malformed.length > 0 ? "7. Repair malformed story files so they include the required frontmatter lines and all required template sections." : "7. Leave story files unchanged unless you discover a malformed one while consolidating.",
-    "8. Preserve existing user-authored content unless it is clearly placeholder text or malformed structure.",
+    "3. Read story completion summaries in .context/stories/story-*.md for positive patterns (clean closes, repeated approaches, successful techniques).",
+    hasDecisions ? "4. Read .context/decisions.md for recurring decision types and positive patterns." : "4. If .context/decisions.md exists, read it for recurring decision types and positive patterns.",
+    "5. Update .context/memory/system.md ## Learned Rules with concise promoted rules for complaint clusters that hit threshold, and promote any reopened issue directly.",
+    "6. Organize all learned rules under `### From failures` and `### From successes` subsections within `## Learned Rules`. Place complaint-derived and fix-derived rules under `### From failures`. Place clean-completion and decision-derived patterns under `### From successes`.",
+    "7. When you add a learned rule and the source story is knowable, append a best-effort provenance tag like `<!-- source: story-002 -->`. If the origin is unclear, do not invent one.",
+    "8. Preserve existing `<!-- confidence: ... -->` annotations. Do not remove or alter them during consolidation.",
+    "9. Merge duplicate or overlapping learned rules. Keep the ## Rules section intact.",
+    undescribed.length > 0 ? "10. Replace every `(undescribed)` entry in .context/memory/index.md with a concise useful description." : "10. Leave .context/memory/index.md unchanged unless a description is clearly wrong.",
+    malformed.length > 0 ? "11. Repair malformed story files so they include the required frontmatter lines and all required template sections." : "11. Leave story files unchanged unless you discover a malformed one while consolidating.",
+    "12. Preserve existing user-authored content unless it is clearly placeholder text or malformed structure.",
     "",
     malformed.length > 0 ? `Malformed stories detected: ${malformed.map(filePath => path.basename(filePath)).join(", ")}` : "Malformed stories detected: none",
     undescribed.length > 0 ? `Undescribed index entries: ${undescribed.join(", ")}` : "Undescribed index entries: none",

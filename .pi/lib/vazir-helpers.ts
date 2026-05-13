@@ -12,6 +12,8 @@ export interface StoryFrontmatter {
   number: number;
 }
 
+export type VcsPreference = "auto" | "git" | "jj" | "fossil";
+
 export function readIfExists(filePath: string): string {
   return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : "";
 }
@@ -40,6 +42,30 @@ export function detectJJ(cwd: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function detectFossil(cwd: string): boolean {
+  try {
+    childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readProjectVcsPreference(cwd: string): VcsPreference {
+  const projectPath = path.join(cwd, ".context", "settings", "project.json");
+  if (!fs.existsSync(projectPath)) return "auto";
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(projectPath, "utf-8")) as { vcs_preference?: unknown };
+    const preference = typeof parsed.vcs_preference === "string" ? parsed.vcs_preference.trim().toLowerCase() : "";
+    if (preference === "git" || preference === "jj" || preference === "fossil") return preference;
+  } catch {
+    // Ignore invalid project settings and fall back to auto.
+  }
+
+  return "auto";
 }
 
 export function storiesDir(cwd: string): string {

@@ -11,7 +11,7 @@ const POLL_INTERVAL_MS = 750;
 const WATCHABLE_FILE_PATTERN = /\.(ts|js|mts|cts)$/i;
 const IGNORE_FILE_PATTERN = /(^\.|~$|\.swp$|\.tmp$|\.temp$|\.bak$)/i;
 
-let watcher: fs.FSWatcher | null = null;
+let watchers: fs.FSWatcher[] = [];
 let pendingReloadTimer: ReturnType<typeof setTimeout> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let reloadInFlight = false;
@@ -20,6 +20,7 @@ let ignoreEventsUntil = 0;
 let latestUi: any = null;
 let latestCwd = "";
 let lastSnapshot = "";
+let lastWatchedDirsSignature = "";
 
 const LIVE_RELOAD_COMMAND = "/vazir-live-reload-apply";
 
@@ -35,12 +36,21 @@ function clearPollTimer(): void {
   pollTimer = null;
 }
 
+function closeWatcherHandles(): void {
+  for (const currentWatcher of watchers) {
+    try {
+      currentWatcher.close();
+    } catch {
+      // Ignore watcher shutdown failures during reload churn.
+    }
+  }
+  watchers = [];
+}
+
 function closeWatcher(): void {
   clearPendingReloadTimer();
   clearPollTimer();
-  if (!watcher) return;
-  watcher.close();
-  watcher = null;
+  closeWatcherHandles();
 }
 
 function shouldHandleFile(filename: string | null): boolean {
@@ -48,6 +58,12 @@ function shouldHandleFile(filename: string | null): boolean {
   const baseName = path.basename(filename);
   if (IGNORE_FILE_PATTERN.test(baseName)) return false;
   return WATCHABLE_FILE_PATTERN.test(baseName);
+}
+
+function shouldHandleDirectory(dirname: string | null): boolean {
+  if (!dirname) return false;
+  const baseName = path.basename(dirname);
+  return !IGNORE_FILE_PATTERN.test(baseName);
 }
 
 function notify(type: "info" | "warning" | "error", message: string): void {
@@ -66,23 +82,71 @@ function setStatus(text: string | undefined): void {
   }
 }
 
-function directorySnapshot(extDir: string): string {
-  const entries = fs.existsSync(extDir)
-    ? fs.readdirSync(extDir)
-        .filter((name: string) => shouldHandleFile(name))
-        .sort()
-        .map((name: string) => {
-          const filePath = path.join(extDir, name);
-          try {
-            const stats = fs.statSync(filePath);
-            return `${name}:${stats.mtimeMs}:${stats.size}`;
-          } catch {
-            return `${name}:missing`;
-          }
-        })
-    : [];
+function walkExtensionTree(extDir: string, visit: (filePath: string) => void): void {
+  if (!fs.existsSync(extDir)) return;
 
+  for (const name of fs.readdirSync(extDir)) {
+    const entryPath = path.join(extDir, name);
+    try {
+      const stats = fs.statSync(entryPath);
+      if (stats.isDirectory()) {
+        if (!shouldHandleDirectory(name)) continue;
+        walkExtensionTree(entryPath, visit);
+        continue;
+      }
+      if (shouldHandleFile(name)) {
+        visit(entryPath);
+      }
+    } catch {
+      // Ignore transient file-system churn while scanning.
+    }
+  }
+}
+
+function directorySnapshot(extDir: string): string {
+  const entries: string[] = [];
+
+  walkExtensionTree(extDir, (filePath: string) => {
+    try {
+      const stats = fs.statSync(filePath);
+      const displayPath = filePath.startsWith(`${extDir}${path.sep}`) ? filePath.slice(extDir.length + 1) : filePath;
+      entries.push(`${displayPath}:${stats.mtimeMs}:${stats.size}`);
+    } catch {
+      entries.push(`${filePath}:missing`);
+    }
+  });
+
+  entries.sort();
   return entries.join("|");
+}
+
+function collectWatchDirectories(extDir: string): string[] {
+  const directories: string[] = [];
+
+  function visit(dirPath: string): void {
+    if (!fs.existsSync(dirPath)) return;
+    directories.push(dirPath);
+
+    for (const name of fs.readdirSync(dirPath)) {
+      const entryPath = path.join(dirPath, name);
+      try {
+        const stats = fs.statSync(entryPath);
+        if (!stats.isDirectory()) continue;
+        if (!shouldHandleDirectory(name)) continue;
+        visit(entryPath);
+      } catch {
+        // Ignore transient file-system churn while scanning.
+      }
+    }
+  }
+
+  visit(extDir);
+  directories.sort();
+  return directories;
+}
+
+function watchDirectoriesSignature(extDir: string): string {
+  return collectWatchDirectories(extDir).join("|");
 }
 
 async function triggerReload(reason: string): Promise<void> {
@@ -114,20 +178,42 @@ function queueReload(reason: string): void {
   (pendingReloadTimer as unknown as { unref?: () => void }).unref?.();
 }
 
+function startDirectoryWatchers(extDir: string): void {
+  closeWatcherHandles();
+  const watchDirs = collectWatchDirectories(extDir);
+  lastWatchedDirsSignature = watchDirs.join("|");
+
+  for (const watchDir of watchDirs) {
+    try {
+      const watcher = fs.watch(watchDir, (eventType: string, filename: unknown) => {
+        const resolvedFilename = typeof filename === "string" ? filename : filename == null ? null : String(filename);
+        if (!shouldHandleFile(resolvedFilename)) return;
+        const reason = resolvedFilename ? `${watchDir}${path.sep}${resolvedFilename} (${eventType})` : `${watchDir} (${eventType})`;
+        queueReload(reason);
+      });
+      watchers.push(watcher);
+    } catch {
+      // Fall back to polling if an individual directory watcher cannot be attached.
+    }
+  }
+}
+
 function startWatcher(extDir: string): void {
   closeWatcher();
   ignoreEventsUntil = Date.now() + STARTUP_GRACE_MS;
   lastSnapshot = directorySnapshot(extDir);
+  startDirectoryWatchers(extDir);
   setStatus("live reload: armed");
-
-  watcher = fs.watch(extDir, (eventType: string, filename: unknown) => {
-    const resolvedFilename = typeof filename === "string" ? filename : filename == null ? null : String(filename);
-    if (!shouldHandleFile(resolvedFilename)) return;
-    queueReload(`${resolvedFilename} (${eventType})`);
-  });
 
   pollTimer = setInterval(() => {
     if (!extDir || Date.now() < ignoreEventsUntil) return;
+
+    const nextWatchedDirsSignature = watchDirectoriesSignature(extDir);
+    if (nextWatchedDirsSignature !== lastWatchedDirsSignature) {
+      startDirectoryWatchers(extDir);
+      lastWatchedDirsSignature = nextWatchedDirsSignature;
+    }
+
     const nextSnapshot = directorySnapshot(extDir);
     if (nextSnapshot === lastSnapshot) return;
     lastSnapshot = nextSnapshot;
