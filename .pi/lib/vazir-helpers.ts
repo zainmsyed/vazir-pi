@@ -46,7 +46,9 @@ export function detectJJ(cwd: string): boolean {
 
 export function detectFossil(cwd: string): boolean {
   try {
-    childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe" });
+    // `fossil status` fails outside a checkout, unlike `fossil info` which
+    // succeeds anywhere when a global config-db exists.
+    childProcess.execSync("fossil status", { cwd, encoding: "utf-8", stdio: "pipe" });
     return true;
   } catch {
     return false;

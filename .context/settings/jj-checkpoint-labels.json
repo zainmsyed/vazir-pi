@@ -173,6 +173,12 @@
     "42e88ca2": "can we create a story based on the vazir template to update the infor bars that ",
     "36e1d2dd": "can we add the story title to the story slug only in the status bar not the foot",
     "9aaa6f17": "im not seeing it. i just /reload",
-    "7a5234ae": "can you explain to me all the items in this story bc im a little confused"
+    "7a5234ae": "can you explain to me all the items in this story bc im a little confused",
+    "5b832bfd": "ok lets commit all this first to a new fossil branch",
+    "8e7ecf7e": "Implement the in-progress story in .context/stories/story-008.md.\n\nYour job:\n1. ",
+    "a2b46ea3": "pleasae fix these",
+    "4fa472d0": "pleasae fix these",
+    "ef6d7a52": "pleasae fix these",
+    "53971d16": "ok fossil commit all and merge with trunk"
   }
 }

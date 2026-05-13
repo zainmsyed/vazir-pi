@@ -746,6 +746,11 @@ function storySavedLabel(summary: StoryProgressSummary): string | null {
   return `last saved ${formatRelativeAge(modifiedAt)}`;
 }
 
+function storyLastAccessedLabel(story: StoryFrontmatter): string {
+  if (!story.lastAccessed) return "";
+  return formatRelativeAge(new Date(story.lastAccessed).getTime());
+}
+
 function footerVcsStatusSegment(): string {
   const workingLabel = _vcsDisplay.workingLabel;
   const syncLabel = _vcsDisplay.syncLabel;
@@ -757,6 +762,17 @@ function footerVcsStatusSegment(): string {
     workingLabel ? paint(workingLabel, workingTone) : "",
     syncLabel ? paint(syncLabel, syncTone) : "",
   ].filter(Boolean).join(separatorDot());
+}
+
+function footerBranchSegment(
+  cwd: string,
+  footerData: { getGitBranch(): string | null | undefined },
+): string {
+  const hostBranch = _vcsKind === "git" && _hasGitRepo ? footerData.getGitBranch() : null;
+  const branch = clipInline(hostBranch || branchLabel(cwd), 24);
+  const branchPart = paint(branch, "branch");
+  const vcsPart = footerVcsStatusSegment();
+  return vcsPart ? `${branchPart}${separatorDot()}${vcsPart}` : branchPart;
 }
 
 function footerSpendSegment(snapshot: FooterSessionSnapshot): string {
@@ -776,6 +792,12 @@ function footerContextSegment(snapshot: FooterSessionSnapshot): string {
           ? "warning"
           : "dim";
   return paint(`${percent}/${formatTokens(contextUsage.contextWindow)}`, tone);
+}
+
+function footerModelSegment(snapshot: FooterSessionSnapshot): string {
+  const modelLabel = clipInline(shortModelLabel(snapshot), 30);
+  const thinkingLevel = latestThinkingLevel(snapshot);
+  return `${paint(modelLabel, "dim")} ${paint(`(${thinkingLevel})`, "dim")}`;
 }
 
 function footerTokenOrWorkSegment(snapshot: FooterSessionSnapshot): string {
@@ -832,9 +854,7 @@ function storyStatusWidgetLines(
   const issueSegment = openIssues === 0
     ? `${paint("✓", "success")} ${paint("no open issues", "dim")}`
     : `${paint("⚠", "error")} ${paint(`${openIssues} open issue${openIssues === 1 ? "" : "s"}`, "error")}`;
-  const accessedLabel = summary.story.lastAccessed
-    ? paint(formatRelativeAge(new Date(summary.story.lastAccessed).getTime()), "dim")
-    : "";
+  const accessedLabel = storyLastAccessedLabel(summary.story);
 
   const segments = [
     `${paint("▸", "accent", true)} ${slugWithTitle}`,
@@ -907,32 +927,19 @@ function sessionFooterLine(
 
   const summary = storyProgressSummary(cwd);
   const storyLabel = summary?.slug ?? "no active story";
-  const hostBranch = _vcsKind === "git" && _hasGitRepo ? footerData.getGitBranch() : null;
-  const branch = clipInline(hostBranch ?? branchLabel(cwd), 24);
-  const branchWithStatus = `${paint(branch, "branch")}${separatorDot()}${footerVcsStatusSegment()}`;
-  const branchLabelSegment = paint(branch, "branch");
   const repoLabel = clipInline(repoNameLabel(cwd).replace(/-pi$/, ""), 12);
-  const modelLabel = clipInline(shortModelLabel(snapshot), 30);
-  const thinkingLevel = latestThinkingLevel(snapshot);
-  const leftSegments = activeToolCalls > 0 && currentWorkingMessage
-    ? [
-        paint(repoLabel, "accent", true),
-        paint(storyLabel, "text"),
-        branchLabelSegment,
-        footerContextSegment(snapshot),
-        footerSpendSegment(snapshot),
-        footerTokenOrWorkSegment(snapshot),
-      ].filter(Boolean)
-    : [
-        paint(repoLabel, "accent", true),
-        paint(storyLabel, "text"),
-        branchWithStatus,
-        `${paint(modelLabel, "dim")} ${paint(`(${thinkingLevel})`, "dim")}`,
-        footerTokenOrWorkSegment(snapshot),
-        footerContextSegment(snapshot),
-        footerSpendSegment(snapshot),
-      ].filter(Boolean);
-  const left = leftSegments.join(separatorDot());
+
+  const segments = [
+    paint(repoLabel, "accent", true),
+    paint(storyLabel, "text"),
+    footerBranchSegment(cwd, footerData),
+    footerModelSegment(snapshot),
+    footerContextSegment(snapshot),
+    footerSpendSegment(snapshot),
+    footerTokenOrWorkSegment(snapshot),
+  ].filter(Boolean);
+
+  const left = segments.join(separatorDot());
   return alignFooterLine(left, footerHint(), width);
 }
 
