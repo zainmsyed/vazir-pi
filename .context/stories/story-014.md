@@ -1,8 +1,8 @@
 # Story 014: `/vazir-init` Fossil bootstrap parity
 
-**Status:** not-started  
+**Status:** in-progress  
 **Created:** 2026-05-14
-**Last accessed:** —  
+**Last accessed:** 2026-05-14  
 **Completed:** —
 
 ---
@@ -29,13 +29,13 @@ Run `/vazir-init` in a fresh project with `fossil` installed and no existing VCS
 ---
 
 ## Checklist
-- [ ] Detect `fossil` binary presence at `/vazir-init` time (probe `fossil --version`)
-- [ ] Redesign VCS prompt as a multi-option select: Git + JJ / Fossil / Skip VCS
-- [ ] If Fossil chosen: run `fossil init` for new repo, or prompt for remote URL then `fossil clone` + `fossil open`
-- [ ] Write `"vcs_preference": "fossil"` into `.context/settings/project.json` during init
-- [ ] Ensure `.fossil-settings/ignore-glob` is created with sensible defaults (`.context/`, `node_modules/`, `.git/`, `.jj/`)
-- [ ] Update init summary checklist to mention Fossil when selected
-- [ ] Add validation scenario in `scripts/validate-vazir-init.mts` for Fossil bootstrap path
+- [x] Detect `fossil` binary presence at `/vazir-init` time (probe `fossil version`)
+- [x] Redesign VCS prompt as a multi-option select: Git + JJ / Fossil / Skip VCS
+- [x] If Fossil chosen: run `fossil init` for new repo, or prompt for remote URL then `fossil clone` + `fossil open -f`
+- [x] Write `"vcs_preference": "fossil"` into `.context/settings/project.json` during init
+- [x] Ensure `.fossil-settings/ignore-glob` is created with sensible defaults (`.context/`, `node_modules/`, `.git/`, `.jj/`)
+- [x] Update init summary checklist to mention Fossil when selected
+- [x] Add validation scenario in `scripts/validate-vazir-init.mts` for Fossil bootstrap path
 
 ---
 
@@ -44,4 +44,27 @@ Run `/vazir-init` in a fresh project with `fossil` installed and no existing VCS
 ---
 
 ## Completion Summary
+
+Implemented Fossil bootstrap parity in `/vazir-init`.
+
+**index.ts changes:**
+- Replaced the binary Git-only VCS prompt with a multi-option select that detects all available VCS binaries (git, jj, fossil) and offers relevant choices.
+- If no VCS exists and fossil is available, the prompt includes "Fossil — initialise a fossil repo" alongside "Git + JJ" and "Skip VCS".
+- Fossil path: prompts for local vs remote, runs `fossil init` or `fossil clone`, then `fossil open -f` to handle non-empty project directories. Writes `vcs_preference: "fossil"` to `project.json`.
+- Git path: runs `git init` as before, then JJ setup. Does not write a hard `vcs_preference` so auto-detection can still prefer JJ when colocated.
+- Skip path: writes `vcs_preference: "none"` to record the explicit choice.
+- When an existing VCS is detected at init time (git or fossil already present), the preference is written to match the detected system without prompting.
+- Added `.fossil-settings/ignore-glob` creation with sensible defaults covering node_modules, .git, .jj, .context, .fslckout, _FOSSIL_, and *.fossil.
+- Added `.fslckout`, `_FOSSIL_`, and `*.fossil` to `.gitignore` when fossil is selected.
+- Updated `buildInitSummary` call to use generic `vcsLine`/`vcsDetailLine` variables so the summary correctly shows Fossil, Git, JJ, or skipped status.
+
+**helpers.ts changes:**
+- Renamed `buildInitSummary` parameters from `jjLine`/`jjDetailLine` to `vcsLine`/`vcsDetailLine` for semantic accuracy; no functional change.
+
+**Validation updates:**
+- Updated `scripts/validate-vazir-init.mts` test choices to match the new prompt strings.
+- Added `runFossilBootstrapScenario` that asserts `.fslckout` creation, `.fossil-settings/ignore-glob` content, `vcs_preference: "fossil"` in `project.json`, fossil artifacts in `.gitignore`, and Fossil mention in the init summary.
+- Updated `scripts/validate-vazir-status-chrome.mts` init-refresh scenario choices to match the new VCS prompt.
+
+All automated validations pass.
 

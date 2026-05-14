@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-13T18:17:14Z
+**Last updated:** 2026-05-14T03:32:44Z
 
 ## Findings
 - Add regression coverage for developer-tooling workflows that depend on filesystem events. | count: 1 | status: tracked | sources: review-20260511-130421.md
@@ -22,6 +22,9 @@
 - When adding a new VCS mode, update every command path that shells out to a VCS-specific tool, not just the status/footer layer. | count: 1 | status: tracked | sources: review-20260512-201502.md
 - When adding conditional template/instruction injection, add automated positive and negative harness tests for each branch. | count: 1 | status: tracked | sources: review-20260505-235339.md | stories: story-004
 - When adding story-dependent prompt/context injection, add automated positive and negative harness tests for each story type branch. | count: 1 | status: tracked | sources: review-20260505-224448.md | stories: story-002
+- When bootstrapping security tools via binary download, verify checksums or signatures before execution. | count: 1 | status: tracked | sources: review-20260514-021809.md | stories: story-009
+- When downloading GitHub release assets, verify the actual asset naming scheme and archive format for each supported platform. | count: 1 | status: tracked | sources: review-20260514-021809.md | stories: story-009
 - When parsing structured comment annotations in free text, match each annotation independently so reordering does not corrupt the primary content. | count: 1 | status: tracked | sources: review-20260513-132156.md | stories: story-007
 - When prompt text is part of a validated workflow contract, update the prompt, tests, and spec in the same change. | count: 1 | status: tracked | sources: review-20260511-130421.md
 - When watching a source tree, cover the actual nested directories the feature uses, not just the top-level folder. | count: 1 | status: tracked | sources: review-20260511-130421.md
+- When writing git hooks, always check for existing content and append/wrap rather than overwrite. | count: 1 | status: tracked | sources: review-20260514-021809.md | stories: story-009

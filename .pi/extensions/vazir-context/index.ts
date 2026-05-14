@@ -1797,35 +1797,152 @@ export default function (pi: ExtensionAPI) {
         "info",
       );
 
-      let jjLine = "☒ JJ (Jujutsu): Not started";
-      let jjDetailLine = `  ↳ Go here to install directions ${JJ_DOCS_URL}`;
+      let vcsLine = "☒ VCS: Not started";
+      let vcsDetailLine = "  ↳ No version control initialised";
       let gitReady = detectGitRepo(cwd);
+      let fossilReady = detectFossil(cwd);
+      let jjAvailable = false;
 
-      if (!gitReady) {
+      // Detect which VCS binaries are installed
+      let fossilAvailable = false;
+      try {
+        childProcess.execSync("fossil version", { cwd, stdio: "pipe" });
+        fossilAvailable = true;
+      } catch {
+        // fossil not installed
+      }
+
+      // If no VCS is present yet, ask the user
+      if (!gitReady && !fossilReady) {
+        const vcsOptions: string[] = [];
+        if (fossilAvailable) {
+          vcsOptions.push("Fossil — initialise a fossil repo");
+        }
+        vcsOptions.push("Git + JJ — initialise git (JJ optional)");
+        vcsOptions.push("Skip VCS — no version control");
+
         const choice = await ctx.ui.select(
-          "This folder has no git repo. Git is required for version control and JJ checkpoint support. Initialise git here?",
-          [
-            "Yes — initialise git",
-            "No — I understand, skip git and JJ",
-          ],
+          "Choose a version control system for this project:",
+          vcsOptions,
         );
 
-        if (choice === "Yes — initialise git") {
+        if (choice?.startsWith("Fossil")) {
+          const fossilSource = await ctx.ui.select(
+            "Create a new local fossil repo or clone from a remote URL?",
+            [
+              "Create a new local repo",
+              "Clone from a remote URL",
+            ],
+          );
+
+          const repoName = path.basename(cwd);
+          const repoFile = `${repoName}.fossil`;
+
+          try {
+            if (fossilSource === "Clone from a remote URL") {
+              let remoteUrl = "";
+              if (typeof ctx.ui.input === "function") {
+                remoteUrl = (await ctx.ui.input("Remote fossil repository URL", "https://example.com/repo.fossil"))?.trim() ?? "";
+              }
+              if (remoteUrl) {
+                childProcess.execSync(`fossil clone "${remoteUrl}" "${repoFile}"`, { cwd, stdio: "pipe" });
+                ctx.ui.notify(`✓ fossil cloned from ${remoteUrl}`, "info");
+              } else {
+                ctx.ui.notify("No remote URL provided — falling back to local fossil repo", "warning");
+              }
+            }
+
+            if (!fs.existsSync(path.join(cwd, repoFile))) {
+              childProcess.execSync(`fossil init "${repoFile}"`, { cwd, stdio: "pipe" });
+              ctx.ui.notify("✓ fossil repo initialised", "info");
+            }
+
+            childProcess.execSync(`fossil open -f "${repoFile}"`, { cwd, stdio: "pipe" });
+            fossilReady = true;
+            ctx.ui.notify("✓ fossil checkout opened", "info");
+          } catch (error: any) {
+            ctx.ui.notify(`Fossil setup failed: ${error?.message || String(error)}`, "warning");
+            vcsDetailLine = "  ↳ Fossil initialisation failed";
+          }
+
+          if (fossilReady) {
+            try {
+              const settings = JSON.parse(fs.readFileSync(projectSettingsPath, "utf-8"));
+              settings.vcs_preference = "fossil";
+              fs.writeFileSync(projectSettingsPath, JSON.stringify(settings, null, 2));
+            } catch {
+              /* ignore settings write failures */
+            }
+
+            const fossilIgnorePath = path.join(cwd, ".fossil-settings", "ignore-glob");
+            if (!fs.existsSync(fossilIgnorePath)) {
+              fs.mkdirSync(path.dirname(fossilIgnorePath), { recursive: true });
+              fs.writeFileSync(
+                fossilIgnorePath,
+                [
+                  "node_modules",
+                  "node_modules/*",
+                  ".git",
+                  ".git/*",
+                  ".jj",
+                  ".jj/*",
+                  ".context",
+                  ".context/*",
+                  ".fslckout",
+                  "_FOSSIL_",
+                  "*.fossil",
+                  "",
+                ].join("\n"),
+              );
+              ctx.ui.notify("Added common ignore patterns to .fossil-settings/ignore-glob", "info");
+            }
+
+            ensureGitignoreEntries([".fslckout", "_FOSSIL_", "*.fossil"], "Added fossil artifacts to .gitignore");
+
+            vcsLine = "☑ Fossil: active";
+            vcsDetailLine = "  ↳ Branch: trunk";
+          }
+        } else if (choice?.startsWith("Git")) {
           try {
             childProcess.execSync("git init", { cwd, stdio: "pipe" });
             gitReady = true;
             ctx.ui.notify("✓ git initialised\nRemember to add a remote:\ngit remote add origin <url>", "info");
           } catch (error: any) {
             ctx.ui.notify(`Git init failed: ${error?.message || String(error)} — JJ skipped`, "warning");
-            jjDetailLine = "  ↳ Git initialisation failed, so JJ was skipped";
+            vcsDetailLine = "  ↳ Git initialisation failed, so JJ was skipped";
+          }
+
+          if (gitReady) {
+            vcsLine = "☑ Git: active";
+            vcsDetailLine = "  ↳ Learn more about git";
           }
         } else {
-          ctx.ui.notify("No git — JJ skipped, checkpoints unavailable", "warning");
-          jjDetailLine = "  ↳ Git is not initialised here, so JJ was skipped";
+          ctx.ui.notify("No VCS selected — version control skipped", "warning");
+          vcsDetailLine = "  ↳ Version control was skipped";
+          try {
+            const settings = JSON.parse(fs.readFileSync(projectSettingsPath, "utf-8"));
+            settings.vcs_preference = "none";
+            fs.writeFileSync(projectSettingsPath, JSON.stringify(settings, null, 2));
+          } catch {
+            /* ignore settings write failures */
+          }
+        }
+      } else if (gitReady) {
+        vcsLine = "☑ Git: active";
+        vcsDetailLine = "  ↳ Learn more about git";
+      } else if (fossilReady) {
+        vcsLine = "☑ Fossil: active";
+        vcsDetailLine = "  ↳ Branch detected at session start";
+        try {
+          const settings = JSON.parse(fs.readFileSync(projectSettingsPath, "utf-8"));
+          settings.vcs_preference = "fossil";
+          fs.writeFileSync(projectSettingsPath, JSON.stringify(settings, null, 2));
+        } catch {
+          /* ignore settings write failures */
         }
       }
 
-      let jjAvailable = false;
+      // JJ setup (only for git repos)
       if (gitReady) {
         try {
           childProcess.execFileSync("jj", ["--version"], { cwd, stdio: "pipe" });
@@ -1843,8 +1960,8 @@ export default function (pi: ExtensionAPI) {
           try {
             childProcess.execFileSync("jj", ["root"], { cwd, stdio: "pipe" });
             ctx.ui.notify("JJ already initialised", "info");
-            jjLine = "☑ JJ (Jujutsu): active";
-            jjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
+            vcsLine = "☑ JJ (Jujutsu): active";
+            vcsDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
           } catch {
             childProcess.execFileSync("jj", ["git", "init", "--colocate"], { cwd, stdio: "pipe" });
             for (const branch of ["main", "master"]) {
@@ -1856,8 +1973,8 @@ export default function (pi: ExtensionAPI) {
               }
             }
             ctx.ui.notify("JJ initialised", "info");
-            jjLine = "☑ JJ (Jujutsu): active";
-            jjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
+            vcsLine = "☑ JJ (Jujutsu): active";
+            vcsDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
           }
 
           ensureGitignoreEntries([".jj/"], "Added .jj/ to .gitignore");
@@ -1878,7 +1995,7 @@ export default function (pi: ExtensionAPI) {
         { label: ".context/complaints-log.md", present: fs.existsSync(complaintsLogPath(cwd)) },
         { label: "AGENTS.md", present: fs.existsSync(agentsPath) },
         { label: ".context/settings/project.json", present: fs.existsSync(projectSettingsPath) },
-      ], useJJ ? "☑ JJ (Jujutsu): active" : jjLine, useJJ ? `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}` : jjDetailLine);
+      ], useJJ ? "☑ JJ (Jujutsu): active" : vcsLine, useJJ ? `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}` : vcsDetailLine);
       pendingInitSummary = initSummary;
       ctx.ui.notify(initSummary, "info");
 
