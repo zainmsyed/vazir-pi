@@ -35,6 +35,7 @@ import {
   buildConsolidationInstruction,
   buildContextMapDraftInstruction,
   buildInitSummary,
+  buildMiniConsolidateInstruction,
   buildIntakeBrief,
   buildRememberInstruction,
   buildReviewInstruction,
@@ -51,6 +52,7 @@ import {
   hasUiTypeOverride,
   isUiStory,
   parseReviewFrontmatter,
+  parseMiniConsolidateCandidates,
   reviewFindingsFromFile,
   reviewRecommendedFixesFromFile,
   reviewOtherFixesFromFile,
@@ -79,9 +81,11 @@ import {
   memoryDir,
   memoryReviewArchiveCandidates,
   memoryReviewDeleteCandidates,
+  miniConsolidateCandidatesPath,
   nextStoryNumber,
   normalizeProjectBrief,
   planTemplate,
+  promoteRulesToSystemMd,
   replaceLearnedRules,
   rememberEntry,
   rememberedRulesPath,
@@ -184,7 +188,7 @@ let lastUserPrompt = "";
 let useJJ = false;
 let pendingInitSummary: string | null = null;
 const storyFrontmatterSnapshots = new Map<string, Map<string, { status: string; completed: string }>>();
-type PendingCompleteStoryRequest = { storyFile: string; reviewFile?: string; reviewCloseoutReady?: boolean };
+type PendingCompleteStoryRequest = { storyFile: string; reviewFile?: string; reviewCloseoutReady?: boolean; closeIntent?: "close" | "close-commit"; miniConsolidatePhase?: "sent"; };
 type PendingManualReviewRequest = { reviewFile: string; reviewCloseoutReady?: boolean };
 const pendingCompleteStoryRequests = new Map<string, PendingCompleteStoryRequest>();
 const pendingManualReviewRequests = new Map<string, PendingManualReviewRequest>();
@@ -833,12 +837,12 @@ export default function (pi: ExtensionAPI) {
     const closeChoice = await resolveContextPersistenceChoice(ctx, storyPath, decision);
     if (closeChoice == null) return true;
 
-    pendingCompleteStoryRequests.delete(cwd);
-    if (closeChoice === "close-commit") {
-      completeStoryAndCommitNow(ctx, storyPath);
-    } else if (closeChoice === "close") {
-      completeStoryNow(ctx, storyPath);
-    }
+    pendingCompleteStoryRequests.set(cwd, {
+      storyFile: storyPath,
+      reviewFile: reviewFilePath,
+      reviewCloseoutReady: true,
+      closeIntent: closeChoice,
+    });
     return true;
   }
 
@@ -972,6 +976,101 @@ export default function (pi: ExtensionAPI) {
     if (choice === "Close story now") return "close";
     if (choice === "Close story and commit all") return "close-commit";
     return "not-yet";
+  }
+
+  function finalizeStoryCloseout(ctx: any, storyPath: string, closeIntent: "close" | "close-commit"): void {
+    pendingCompleteStoryRequests.delete(ctx.cwd);
+    if (closeIntent === "close-commit") {
+      completeStoryAndCommitNow(ctx, storyPath);
+    } else {
+      completeStoryNow(ctx, storyPath);
+    }
+  }
+
+  async function runMiniConsolidateCloseout(
+    ctx: any,
+    cwd: string,
+    storyPath: string,
+    closeIntent: "close" | "close-commit",
+  ): Promise<void> {
+    const storyLabel = path.basename(storyPath, ".md");
+    const candidatesPath = miniConsolidateCandidatesPath(cwd, storyLabel);
+    const candidates = parseMiniConsolidateCandidates(candidatesPath);
+
+    if (fs.existsSync(candidatesPath)) {
+      fs.rmSync(candidatesPath, { force: true });
+    }
+
+    if (candidates.length === 0) {
+      ctx.ui.notify(`Mini-consolidate: no rule candidates found for ${storyLabel}.`, "info");
+      finalizeStoryCloseout(ctx, storyPath, closeIntent);
+      return;
+    }
+
+    if (!ctx.hasUI) {
+      ctx.ui.notify(
+        `Mini-consolidate found ${candidates.length} rule candidate(s) for ${storyLabel}. Re-run /complete-story interactively to review them, or the story will close without promotion.`,
+        "info",
+      );
+      finalizeStoryCloseout(ctx, storyPath, closeIntent);
+      return;
+    }
+
+    const candidateLines = candidates.map((c, i) => `${i + 1}. [${c.confidence}] ${c.text}`);
+    const promoteLabel = candidates.length > 1 ? "Promote all? Skip all?" : "Promote? Skip?";
+    const promptText = [
+      `Mini-consolidate for ${storyLabel}: ${candidates.length} rule candidate(s) found`,
+      "",
+      ...candidateLines,
+      "",
+      `${promoteLabel} Or enter numbers to select:`,
+    ].join("\n");
+
+    const options: string[] = [];
+    if (candidates.length > 1) {
+      options.push("Promote all");
+    } else {
+      options.push("Promote");
+    }
+    options.push("Skip all");
+    for (let i = 0; i < candidates.length; i++) {
+      options.push(`Promote ${i + 1}`);
+    }
+
+    const choice = await ctx.ui.select(promptText, options);
+    if (choice == null || choice === "Skip all") {
+      ctx.ui.notify(`Mini-consolidate skipped for ${storyLabel}.`, "info");
+      finalizeStoryCloseout(ctx, storyPath, closeIntent);
+      return;
+    }
+
+    let selectedIndexes: number[] = [];
+    if (choice === "Promote all" || choice === "Promote") {
+      selectedIndexes = candidates.map((_, i) => i);
+    } else if (choice.startsWith("Promote ")) {
+      const num = parseInt(choice.replace("Promote ", ""), 10);
+      if (!Number.isNaN(num) && num >= 1 && num <= candidates.length) {
+        selectedIndexes = [num - 1];
+      }
+    }
+
+    const rulesToPromote = selectedIndexes.map(i => ({
+      text: candidates[i].text,
+      sourceStories: [storyLabel],
+    }));
+
+    const result = promoteRulesToSystemMd(cwd, rulesToPromote);
+
+    const notes: string[] = [];
+    if (result.promoted.length > 0) {
+      notes.push(`Promoted ${result.promoted.length} rule(s) to system.md.`);
+    }
+    if (result.skipped.length > 0) {
+      notes.push(`Skipped ${result.skipped.length} duplicate rule(s).`);
+    }
+
+    ctx.ui.notify(`Mini-consolidate for ${storyLabel}: ${notes.join(" ")}`, "info");
+    finalizeStoryCloseout(ctx, storyPath, closeIntent);
   }
 
   async function promptReviewFindingsCloseout(
@@ -1350,15 +1449,53 @@ export default function (pi: ExtensionAPI) {
     if (pendingCompleteStory) {
       const completionStoryFile = pendingCompleteStory.storyFile;
       const storyLabel = path.basename(completionStoryFile, ".md");
-      const readiness = assessStoryCompletionReadiness(completionStoryFile);
-      const blockers = listCompletionBlockers(readiness);
 
       const reviewFilePath = pendingCompleteStory.reviewFile;
-      if (reviewFilePath) {
+      if (reviewFilePath && !pendingCompleteStory.closeIntent) {
         const handledReview = await processCompleteStoryReviewCloseout(ctx, cwd, completionStoryFile, reviewFilePath);
-        if (handledReview) return;
+        if (!handledReview) return;
+
+        const updatedRequest = pendingCompleteStoryRequests.get(cwd);
+        if (updatedRequest?.closeIntent) {
+          const candidatesPath = miniConsolidateCandidatesPath(cwd, storyLabel);
+          if (fs.existsSync(candidatesPath)) {
+            await runMiniConsolidateCloseout(ctx, cwd, completionStoryFile, updatedRequest.closeIntent);
+          } else if (!updatedRequest.miniConsolidatePhase) {
+            sendInternalAgentMessage(
+              ctx,
+              buildMiniConsolidateInstruction(cwd, storyLabel, reviewFilePath),
+              { purpose: "mini-consolidate", story: storyLabel },
+            );
+            pendingCompleteStoryRequests.set(cwd, { ...updatedRequest, miniConsolidatePhase: "sent" });
+          } else {
+            ctx.ui.notify(`Mini-consolidate candidates file not written after instruction was sent. Closing ${storyLabel} without promotion.`, "warning");
+            finalizeStoryCloseout(ctx, completionStoryFile, updatedRequest.closeIntent);
+          }
+          return;
+        }
         return;
       }
+
+      if (pendingCompleteStory.closeIntent) {
+        const candidatesPath = miniConsolidateCandidatesPath(cwd, storyLabel);
+        if (fs.existsSync(candidatesPath)) {
+          await runMiniConsolidateCloseout(ctx, cwd, completionStoryFile, pendingCompleteStory.closeIntent);
+        } else if (!pendingCompleteStory.miniConsolidatePhase) {
+          sendInternalAgentMessage(
+            ctx,
+            buildMiniConsolidateInstruction(cwd, storyLabel),
+            { purpose: "mini-consolidate", story: storyLabel },
+          );
+          pendingCompleteStoryRequests.set(cwd, { ...pendingCompleteStory, miniConsolidatePhase: "sent" });
+        } else {
+          ctx.ui.notify(`Mini-consolidate candidates file not written after instruction was sent. Closing ${storyLabel} without promotion.`, "warning");
+          finalizeStoryCloseout(ctx, completionStoryFile, pendingCompleteStory.closeIntent);
+        }
+        return;
+      }
+
+      const readiness = assessStoryCompletionReadiness(completionStoryFile);
+      const blockers = listCompletionBlockers(readiness);
 
       if (blockers.length > 0) {
         return;
@@ -1384,14 +1521,14 @@ export default function (pi: ExtensionAPI) {
 
       if (decision === "not-yet") return;
 
-      const closeChoice = await resolveContextPersistenceChoice(ctx, pendingCompleteStory.storyFile, decision);
+      const closeChoice = await resolveContextPersistenceChoice(ctx, completionStoryFile, decision);
       if (closeChoice == null) return;
 
       pendingCompleteStoryRequests.delete(cwd);
       if (closeChoice === "close-commit") {
-        completeStoryAndCommitNow(ctx, pendingCompleteStory.storyFile);
+        completeStoryAndCommitNow(ctx, completionStoryFile);
       } else if (closeChoice === "close") {
-        completeStoryNow(ctx, pendingCompleteStory.storyFile);
+        completeStoryNow(ctx, completionStoryFile);
       }
     }
 
@@ -2182,12 +2319,19 @@ export default function (pi: ExtensionAPI) {
       const closeChoice = await resolveContextPersistenceChoice(ctx, storyPath, choice);
       if (closeChoice == null) return;
 
-      pendingCompleteStoryRequests.delete(cwd);
-      if (closeChoice === "close-commit") {
-        completeStoryAndCommitNow(ctx, storyPath);
-      } else if (closeChoice === "close") {
-        completeStoryNow(ctx, storyPath);
-      }
+      pendingCompleteStoryRequests.set(cwd, {
+        storyFile: storyPath,
+        closeIntent: closeChoice,
+        miniConsolidatePhase: "sent",
+      });
+      sendInternalAgentMessage(
+        ctx,
+        buildMiniConsolidateInstruction(cwd, storyLabel),
+        {
+          purpose: "mini-consolidate",
+          story: storyLabel,
+        },
+      );
     },
   });
 

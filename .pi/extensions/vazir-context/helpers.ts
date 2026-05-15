@@ -2296,6 +2296,82 @@ export function buildConsolidationInstruction(cwd: string): string {
   ].join("\n");
 }
 
+// ── Mini-consolidate helpers ───────────────────────────────────────────
+
+export function miniConsolidateCandidatesPath(cwd: string, storyLabel: string): string {
+  return path.join(storiesDir(cwd), `${storyLabel}-candidates.md`);
+}
+
+export function buildMiniConsolidateInstruction(cwd: string, storyLabel: string, reviewFilePath?: string): string {
+  const reviewLines = reviewFilePath
+    ? [
+        "- Read the review file at .context/reviews/${path.basename(reviewFilePath)}.",
+        "- Read the Findings, Recommended Fixes, and Other Fixes sections.",
+        "- If the review has a Fallow Findings section, read that too.",
+      ]
+    : ["- No review file was created for this closeout."];
+
+  return [
+    `Run a mini-consolidate for ${storyLabel} before it is closed.`,
+    "",
+    "Your job:",
+    `- Read the story file at .context/stories/${storyLabel}.md.`,
+    "- Read the Issues section and extract any patterns or lessons from resolved or open issues.",
+    ...reviewLines,
+    "- Propose 0–2 concise learned-rule candidates based on the patterns you found.",
+    "- Assign each candidate a confidence level: high, medium, or low.",
+    "- Write the candidates to a temporary file so Vazir can present them to the user.",
+    "",
+    `Write exactly one candidate per line to .context/stories/${storyLabel}-candidates.md using this format:`,
+    "- {confidence}: {rule text}",
+    "  Examples:",
+    "  - high: Always test destructors in C++ when adding new fields",
+    "  - medium: Use null-coalescing instead of ternary for defaults",
+    "",
+    "Rules for writing candidates:",
+    "- Distill each candidate into one concise, reusable rule.",
+    "- Base confidence on how often the pattern appeared and how severe the issue was.",
+    "- If no patterns are worth promoting, write exactly one line:",
+    "  No candidates found.",
+    "- Do not write more than 2 candidates.",
+    "- Do not change the story file status or the review file status.",
+    "",
+    `After writing the candidates file, stop. Vazir will read it and present the candidates to the user for approval.`,
+  ].join("\n");
+}
+
+export function parseMiniConsolidateCandidates(filePath: string): Array<{ confidence: "high" | "medium" | "low"; text: string }> {
+  const content = readIfExists(filePath);
+  if (!content.trim()) return [];
+
+  const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
+  if (lines.length === 1 && /^no candidates found\.?$/i.test(lines[0])) {
+    return [];
+  }
+
+  const candidates: Array<{ confidence: "high" | "medium" | "low"; text: string }> = [];
+  for (const line of lines) {
+    const match = line.match(/^-\s*(high|medium|low)\s*:\s*(.+)$/i);
+    if (match) {
+      candidates.push({
+        confidence: match[1].toLowerCase() as "high" | "medium" | "low",
+        text: match[2].trim(),
+      });
+    }
+  }
+  return candidates;
+}
+
+export function promoteRulesToSystemMd(cwd: string, rules: LearnedRuleEntry[]): { promoted: string[]; skipped: string[] } {
+  const allTexts = rules.map(r => r.text.trim()).filter(Boolean);
+  if (allTexts.length === 0) return { promoted: [], skipped: [] };
+
+  const promoted = appendLearnedRules(cwd, rules);
+  const promotedSet = new Set(promoted);
+  const skipped = allTexts.filter(text => !promotedSet.has(text));
+  return { promoted, skipped };
+}
+
 export function buildInitSummary(fileStatuses: InitFileStatus[], vcsLine: string, vcsDetailLine: string): string {
   return [
     "Vazir init summary",
