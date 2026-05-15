@@ -68,6 +68,7 @@ import {
   jjRestoreCheckpoint,
   listGitCheckpoints,
   loadJjCheckpointLabels,
+  noteUserVcsApproval,
   persistCurrentJjCheckpointLabel,
   sessionCheckpointDir,
   syncChanges,
@@ -382,13 +383,14 @@ export function getResolvedVcsKind(): "none" | "git" | "jj" | "fossil" {
 // ── Extension ──────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-  pi.on("input", async (event: { text?: string }) => {
+  pi.on("input", async (event: { text?: string }, ctx: { cwd: string }) => {
     if (event.text?.trim() === "/impliment") {
       event.text = normalizeTrackerInputText(event.text);
     }
 
     if (event.text?.trim() && !event.text.startsWith("/")) {
       lastUserPrompt = event.text.trim();
+      noteUserVcsApproval(ctx.cwd, event.text);
     }
     return { action: "continue" as const };
   });

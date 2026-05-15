@@ -29,6 +29,7 @@ interface JjCheckpointLabelStore {
 }
 
 const pendingVcsApprovals = new Map<string, PendingVcsApproval>();
+const acknowledgedVcsApprovals = new Map<string, Set<string>>();
 
 export type VcsKind = "none" | "git" | "jj" | "fossil";
 
@@ -41,6 +42,17 @@ export interface VcsDisplayInfo {
 
 export function clearPendingVcsApproval(cwd: string): void {
   pendingVcsApprovals.delete(cwd);
+  acknowledgedVcsApprovals.delete(cwd);
+}
+
+export function noteUserVcsApproval(cwd: string, text: string): boolean {
+  const pending = pendingVcsApprovals.get(cwd);
+  if (!pending || !userInputHasVcsApproval(text, pending.token)) return false;
+
+  const approved = acknowledgedVcsApprovals.get(cwd) ?? new Set<string>();
+  approved.add(pending.fingerprint);
+  acknowledgedVcsApprovals.set(cwd, approved);
+  return true;
 }
 
 function directToolApprovalRequirement(toolName: string, input: unknown): PendingVcsApproval | null {
@@ -80,7 +92,7 @@ export function inspectVcsToolGuard(
   cwd: string,
   toolName: string | undefined,
   input: unknown,
-  lastUserPrompt: string,
+  _lastUserPrompt: string,
 ): { block: false } | { block: true; reason: string } {
   const pending = toolName === "bash"
     ? bashApprovalRequirement(cwd, input)
@@ -88,12 +100,10 @@ export function inspectVcsToolGuard(
 
   if (!pending) return { block: false };
 
-  const existing = pendingVcsApprovals.get(cwd);
-  if (
-    existing
-    && existing.fingerprint === pending.fingerprint
-    && userInputHasVcsApproval(lastUserPrompt, existing.token)
-  ) {
+  const approved = acknowledgedVcsApprovals.get(cwd);
+  if (approved?.has(pending.fingerprint)) {
+    approved.delete(pending.fingerprint);
+    if (approved.size === 0) acknowledgedVcsApprovals.delete(cwd);
     pendingVcsApprovals.delete(cwd);
     return { block: false };
   }
