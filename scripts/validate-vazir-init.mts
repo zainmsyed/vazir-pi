@@ -11,6 +11,12 @@ const stubModuleDirs = installCommonPiStubs();
 const extensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context");
 const register = extensionModule.default;
 
+const trackerModule = await loadExtensionModule<{
+  default: (pi: any) => void;
+  refreshVcsState: (cwd: string) => void;
+  getResolvedVcsKind: () => "none" | "git" | "jj" | "fossil";
+}>("vazir-tracker");
+
 type Notification = { message: string; level: string };
 type SelectCall = { prompt: string; options: string[] };
 
@@ -163,6 +169,17 @@ function getSummary(notifications: Notification[]): string {
 
 function readProjectSettings(cwd: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(path.join(cwd, ".context", "settings", "project.json"), "utf-8")) as Record<string, unknown>;
+}
+
+function writeProjectSettings(cwd: string, updates: Record<string, unknown>): void {
+  const filePath = path.join(cwd, ".context", "settings", "project.json");
+  let current: Record<string, unknown> = {};
+  if (fs.existsSync(filePath)) {
+    current = JSON.parse(fs.readFileSync(filePath, "utf-8")) as Record<string, unknown>;
+  }
+  const next = { ...current, ...updates };
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(next, null, 2));
 }
 
 function assertCommonGitignoreBoilerplate(cwd: string): void {
@@ -355,12 +372,56 @@ async function runFallowInstallScenario() {
   return { cwd, summary: getSummary(notifications), notifications, selectCalls };
 }
 
+async function runTrackerSettingsDrivenScenario() {
+  const cwd = createProject("vazir-tracker-settings-");
+  initGitRepo(cwd);
+  markFakeFossilCheckout(cwd);
+
+  const originalPath = process.env.PATH;
+  process.env.PATH = createToolPath({ git: true, fakeFossil: true });
+
+  try {
+    // Scenario A: both repos present, settings say "none" → must be "none"
+    writeProjectSettings(cwd, { active_vcs_mode: "none" });
+    trackerModule.refreshVcsState(cwd);
+    const kindA = trackerModule.getResolvedVcsKind();
+    assert(kindA === "none", `both-present + active_vcs_mode=none should resolve to none, got ${kindA}`);
+
+    // Scenario B: both repos present, settings say "fossil" → must be "fossil"
+    writeProjectSettings(cwd, { active_vcs_mode: "fossil" });
+    trackerModule.refreshVcsState(cwd);
+    const kindB = trackerModule.getResolvedVcsKind();
+    assert(kindB === "fossil", `both-present + active_vcs_mode=fossil should resolve to fossil, got ${kindB}`);
+
+    // Scenario C: git only, settings say "none" → must be "none"
+    fs.rmSync(path.join(cwd, ".fslckout"));
+    trackerModule.refreshVcsState(cwd);
+    writeProjectSettings(cwd, { active_vcs_mode: "none" });
+    trackerModule.refreshVcsState(cwd);
+    const kindC = trackerModule.getResolvedVcsKind();
+    assert(kindC === "none", `git-only + active_vcs_mode=none should resolve to none, got ${kindC}`);
+
+    // Scenario D: fossil only, settings say "git" → must be "none"
+    markFakeFossilCheckout(cwd);
+    fs.rmSync(path.join(cwd, ".git"), { recursive: true, force: true });
+    writeProjectSettings(cwd, { active_vcs_mode: "git" });
+    trackerModule.refreshVcsState(cwd);
+    const kindD = trackerModule.getResolvedVcsKind();
+    assert(kindD === "none", `fossil-only + active_vcs_mode=git should resolve to none, got ${kindD}`);
+  } finally {
+    process.env.PATH = originalPath;
+  }
+
+  return { cwd };
+}
+
 try {
   const noVcsGitChoice = await runNoVcsGitChoiceScenario();
   const gitOnly = await runGitOnlyScenario();
   const fossilOnly = await runFossilOnlyScenario();
   const bothPresent = await runBothPresentScenario();
   const fallowInstall = await runFallowInstallScenario();
+  const trackerSettingsDriven = await runTrackerSettingsDrivenScenario();
 
   function printScenario(title: string, result: { cwd: string; summary: string; notifications: Notification[]; selectCalls?: SelectCall[] }) {
     console.log(title);
@@ -385,6 +446,11 @@ try {
   printScenario("Fossil only", fossilOnly);
   printScenario("Both present → Fossil active", bothPresent);
   printScenario("Fallow install", fallowInstall);
+
+  console.log("Tracker settings-driven resolution");
+  console.log(`cwd: ${trackerSettingsDriven.cwd}`);
+  console.log("  All tracker VCS resolution assertions passed.");
+  console.log("");
 } finally {
   cleanupStubModules(stubModuleDirs);
 }

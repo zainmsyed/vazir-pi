@@ -66,6 +66,7 @@ const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/unlearn", description: "remove a promoted rule from system memory" },
   { command: "/consolidate", description: "cluster complaints and promote repeated rule candidates" },
   { command: "/design", description: "review and edit design system, brand, components" },
+  { command: "/vcs-settings", description: "pick or set the preferred VCS mode for Vazir" },
   { command: "/diff", description: "show the diff for one changed file" },
   { command: "/edits", description: "show the recent file edit stream" },
   { command: "/checkpoint", description: "pick a JJ checkpoint to restore" },
@@ -125,6 +126,7 @@ let _useJJ = false;
 let _hasFossilRepo = false;
 let _vcsKind: "none" | "git" | "jj" | "fossil" = "none";
 let _vcsDisplay = { refLabel: "workspace", workingLabel: "", syncLabel: "" };
+let _vcsOverridden = false;
 
 // ── Lifecycle setters (called from index.ts) ───────────────────────────
 
@@ -133,12 +135,14 @@ export function setVcsFlags(
   useJJ: boolean,
   vcsKind: "none" | "git" | "jj" | "fossil" = useJJ ? "jj" : hasGitRepo ? "git" : "none",
   display: { refLabel: string; workingLabel: string; syncLabel: string } = { refLabel: "workspace", workingLabel: "", syncLabel: "" },
+  isOverridden: boolean = false,
 ): void {
   _hasGitRepo = hasGitRepo;
   _useJJ = useJJ;
   _vcsKind = vcsKind;
   _hasFossilRepo = vcsKind === "fossil";
   _vcsDisplay = display;
+  _vcsOverridden = isOverridden;
 }
 
 export function setChromeSession(
@@ -729,7 +733,8 @@ function branchLabel(cwd: string): string {
     return isVazirInitialized(cwd) ? "no-git" : "run /vazir-init";
   }
 
-  return clipInline(_vcsDisplay.refLabel || _vcsKind, 24);
+  const suffix = _vcsOverridden ? "*" : "";
+  return clipInline((_vcsDisplay.refLabel || _vcsKind) + suffix, 24);
 }
 
 function repoNameLabel(cwd: string): string {
