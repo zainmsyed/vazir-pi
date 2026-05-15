@@ -28,6 +28,11 @@ export interface PendingVcsApproval {
   protectedTargets: string[];
 }
 
+export interface PendingContextChanges {
+  activeMode: ActiveVcsMode;
+  files: string[];
+}
+
 export const PROTECTED_VCS_TARGETS = [".git/", ".jj/", ".fslckout", ".fossil-settings/"];
 
 const PROTECTED_VCS_TARGET_PATTERNS = [
@@ -314,6 +319,64 @@ export function readActiveVcsMode(cwd: string): ActiveVcsMode {
   if (legacyPreference === "git" || legacyPreference === "jj") return "git";
   if (legacyPreference === "fossil") return "fossil";
   return "none";
+}
+
+function parseGitStatusPaths(output: string): string[] {
+  return output
+    .split("\n")
+    .map(line => line.trimEnd())
+    .filter(Boolean)
+    .map(line => line.replace(/^[ MARCUD?!]{1,2}\s+/, ""))
+    .map(line => line.includes(" -> ") ? line.split(" -> ").pop() ?? line : line)
+    .map(line => line.trim())
+    .filter(Boolean);
+}
+
+function parseFossilStatusPaths(output: string): string[] {
+  return output
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => line.replace(/^[A-Z?]+\s+/, "").trim())
+    .filter(Boolean);
+}
+
+export function listPendingContextChanges(cwd: string): PendingContextChanges {
+  const activeMode = readActiveVcsMode(cwd);
+
+  if (activeMode === "fossil" && detectFossil(cwd)) {
+    const files = new Set<string>();
+    try {
+      for (const file of parseFossilStatusPaths(childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }))) {
+        if (file === ".context" || file.startsWith(".context/")) files.add(file);
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      for (const file of parseFossilStatusPaths(childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe" }))) {
+        if (file === ".context" || file.startsWith(".context/")) files.add(file);
+      }
+    } catch {
+      /* ignore */
+    }
+    return { activeMode, files: [...files].sort() };
+  }
+
+  if (detectGitRepo(cwd) || detectJJ(cwd) || activeMode === "git") {
+    try {
+      const output = childProcess.execSync("git status --porcelain -- .context", { cwd, encoding: "utf-8", stdio: "pipe" });
+      return { activeMode, files: parseGitStatusPaths(output).filter(file => file === ".context" || file.startsWith(".context/")).sort() };
+    } catch {
+      return { activeMode, files: [] };
+    }
+  }
+
+  return { activeMode, files: [] };
+}
+
+export function hasPendingContextChanges(cwd: string): boolean {
+  return listPendingContextChanges(cwd).files.length > 0;
 }
 
 export function storiesDir(cwd: string): string {

@@ -11,8 +11,10 @@ export {
   detectFossil,
   detectGitRepo,
   detectJJ,
+  hasPendingContextChanges,
   hasVcsSafetyPolicyText,
   isProtectedVcsTarget,
+  listPendingContextChanges,
   protectedVcsTargetsInText,
   readActiveVcsMode,
   vcsSafetyRuleLines,
@@ -25,6 +27,8 @@ import {
   detectGitRepo,
   detectJJ,
   findActiveStory,
+  hasPendingContextChanges,
+  listPendingContextChanges,
   listStories,
   nonTerminalStories,
   nowISO,
@@ -172,6 +176,11 @@ export interface StoryCloseCommitResult {
   summary: string;
 }
 
+export interface ContextPersistenceStatus {
+  hasPendingChanges: boolean;
+  summary: string;
+}
+
 export interface LearnedRuleEntry {
   text: string;
   sourceStories: string[];
@@ -297,6 +306,23 @@ function fossilHasPendingChanges(cwd: string): boolean {
   }
 }
 
+export function contextPersistenceStatus(cwd: string): ContextPersistenceStatus {
+  const pending = listPendingContextChanges(cwd);
+  if (pending.files.length === 0) {
+    return {
+      hasPendingChanges: false,
+      summary: `No pending .context changes in active ${pending.activeMode} mode.`,
+    };
+  }
+
+  const preview = pending.files.slice(0, 3).join(", ");
+  const remainder = pending.files.length > 3 ? ` (+${pending.files.length - 3} more)` : "";
+  return {
+    hasPendingChanges: true,
+    summary: `Pending .context changes in active ${pending.activeMode} mode: ${preview}${remainder}`,
+  };
+}
+
 export function commitStoryCloseChanges(cwd: string, storyLabel: string): StoryCloseCommitResult {
   const message = `complete ${storyLabel}`;
   const activeMode = readActiveVcsMode(cwd);
@@ -338,6 +364,10 @@ export function commitStoryCloseChanges(cwd: string, storyLabel: string): StoryC
   }
 
   return { ok: false, summary: "No supported VCS is active here, so Vazir could not commit the closeout." };
+}
+
+export function shouldEnforceContextCommit(cwd: string): boolean {
+  return hasPendingContextChanges(cwd);
 }
 
 export function intakeReadmePath(cwd: string) {

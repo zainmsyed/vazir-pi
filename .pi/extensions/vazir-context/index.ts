@@ -42,6 +42,7 @@ import {
   componentsPath,
   commitStoryCloseChanges,
   contextMapPath,
+  contextPersistenceStatus,
   createReviewDraft,
   designDir,
   designSystemPath,
@@ -99,6 +100,7 @@ import {
   settingsDir,
   snapshotStoryFrontmatter,
   staleRuleCandidates,
+  shouldEnforceContextCommit,
   storyFileName,
   strip,
   syncReviewSummaryAndPromoteRules,
@@ -826,10 +828,15 @@ export default function (pi: ExtensionAPI) {
       return true;
     }
 
+    if (decision === "not-yet") return true;
+
+    const closeChoice = await resolveContextPersistenceChoice(ctx, storyPath, decision);
+    if (closeChoice == null) return true;
+
     pendingCompleteStoryRequests.delete(cwd);
-    if (decision === "close-commit") {
+    if (closeChoice === "close-commit") {
       completeStoryAndCommitNow(ctx, storyPath);
-    } else if (decision === "close") {
+    } else if (closeChoice === "close") {
       completeStoryNow(ctx, storyPath);
     }
     return true;
@@ -908,6 +915,41 @@ export default function (pi: ExtensionAPI) {
     completeStoryNow(ctx, storyPath);
     const commitResult = commitStoryCloseChanges(ctx.cwd, storyLabel);
     ctx.ui.notify(commitResult.summary, commitResult.ok ? "info" : "warning");
+    refreshVcsState(ctx.cwd);
+  }
+
+  async function resolveContextPersistenceChoice(
+    ctx: any,
+    storyPath: string,
+    closeIntent: "close" | "close-commit",
+  ): Promise<"close" | "close-commit" | null> {
+    if (closeIntent === "close-commit") return "close-commit";
+
+    const persistence = contextPersistenceStatus(ctx.cwd);
+    if (!shouldEnforceContextCommit(ctx.cwd)) {
+      ctx.ui.notify(`${path.basename(storyPath, ".md")} closeout: ${persistence.summary}`, "info");
+      return "close";
+    }
+
+    if (!ctx.hasUI) {
+      ctx.ui.notify(`${path.basename(storyPath, ".md")} closeout paused: ${persistence.summary} Re-run interactively to commit now or explicitly close without committing .context.`, "warning");
+      return null;
+    }
+
+    const choice = await ctx.ui.select(
+      `${path.basename(storyPath, ".md")} has pending project-brain updates. ${persistence.summary}`,
+      [
+        "Commit .context changes and close story",
+        "Close story without committing .context changes",
+        "Cancel",
+      ],
+    );
+
+    if (choice == null || choice === "Cancel") return null;
+    if (choice === "Commit .context changes and close story") return "close-commit";
+
+    ctx.ui.notify(`${path.basename(storyPath, ".md")} closeout: user explicitly declined the pending .context commit.`, "warning");
+    return "close";
   }
 
   async function promptReadyCloseout(ctx: any, storyPath: string): Promise<"review" | "close-commit" | "close" | "not-yet" | null> {
@@ -1340,10 +1382,15 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      if (decision === "not-yet") return;
+
+      const closeChoice = await resolveContextPersistenceChoice(ctx, pendingCompleteStory.storyFile, decision);
+      if (closeChoice == null) return;
+
       pendingCompleteStoryRequests.delete(cwd);
-      if (decision === "close-commit") {
+      if (closeChoice === "close-commit") {
         completeStoryAndCommitNow(ctx, pendingCompleteStory.storyFile);
-      } else if (decision === "close") {
+      } else if (closeChoice === "close") {
         completeStoryNow(ctx, pendingCompleteStory.storyFile);
       }
     }
@@ -1392,10 +1439,18 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      if (decision === "not-yet") return;
+
+      let closeChoice: "close" | "close-commit" | null = decision === "close" || decision === "close-commit" ? decision : null;
+      if (targetNoun === "story" && attachedStoryPath && closeChoice) {
+        closeChoice = await resolveContextPersistenceChoice(ctx, attachedStoryPath, closeChoice);
+        if (closeChoice == null) return;
+      }
+
       pendingManualReviewRequests.delete(cwd);
-      if (decision === "close-commit" && targetNoun === "story" && attachedStoryPath) {
+      if (closeChoice === "close-commit" && targetNoun === "story" && attachedStoryPath) {
         completeStoryAndCommitNow(ctx, attachedStoryPath);
-      } else if (decision === "close" && targetNoun === "story" && attachedStoryPath) {
+      } else if (closeChoice === "close" && targetNoun === "story" && attachedStoryPath) {
         completeStoryNow(ctx, attachedStoryPath);
       } else if (decision === "close") {
         ctx.ui.notify(`${path.basename(pendingManualReview.reviewFile)} closeout finished`, "info");
@@ -2122,10 +2177,15 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      if (choice === "not-yet") return;
+
+      const closeChoice = await resolveContextPersistenceChoice(ctx, storyPath, choice);
+      if (closeChoice == null) return;
+
       pendingCompleteStoryRequests.delete(cwd);
-      if (choice === "close-commit") {
+      if (closeChoice === "close-commit") {
         completeStoryAndCommitNow(ctx, storyPath);
-      } else if (choice === "close") {
+      } else if (closeChoice === "close") {
         completeStoryNow(ctx, storyPath);
       }
     },
