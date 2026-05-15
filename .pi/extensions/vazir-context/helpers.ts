@@ -3,7 +3,15 @@
 
 import * as fs from "fs";
 import * as path from "path";
-export { detectGitRepo } from "../../lib/vazir-helpers.ts";
+export {
+  approvalGatedVcsOperation,
+  buildDefaultSystemRulesMarkdown,
+  buildVcsSafetyGuidanceText,
+  detectGitRepo,
+  isProtectedVcsTarget,
+  protectedVcsTargetsInText,
+  vcsSafetyRuleLines,
+} from "../../lib/vazir-helpers.ts";
 import {
   compareStoriesByCompletionDesc,
   compareStoriesByRecencyDesc,
