@@ -34,6 +34,7 @@ import {
   nowISO,
   readActiveVcsMode,
   readIfExists,
+  readProjectSettings,
   storiesDir,
   todayDate,
   type StoryFrontmatter,
@@ -328,7 +329,32 @@ export function commitStoryCloseChanges(cwd: string, storyLabel: string): StoryC
   const activeMode = readActiveVcsMode(cwd);
 
   try {
-    if (activeMode === "fossil" && detectFossil(cwd)) {
+    if (activeMode === "git") {
+      const settings = readProjectSettings(cwd);
+      const vcsPreference = typeof settings.vcs_preference === "string" ? settings.vcs_preference.trim().toLowerCase() : "";
+
+      if (vcsPreference === "jj" && detectJJ(cwd)) {
+        if (!jjHasPendingChangesForCommit(cwd)) {
+          return { ok: true, summary: "No pending JJ changes to describe." };
+        }
+        childProcess.execFileSync("jj", ["describe", "-m", message], { cwd, stdio: "pipe" });
+        return { ok: true, summary: `Recorded JJ change: ${message}` };
+      }
+
+      if (!detectGitRepo(cwd)) {
+        return { ok: false, summary: "Commit failed: active VCS mode is Git, but no Git repo is active here." };
+      }
+      if (!gitHasPendingChanges(cwd)) {
+        return { ok: true, summary: "No pending Git changes to commit." };
+      }
+      childProcess.execSync(`git add -A && git commit -m ${quoteShellArg(message)}`, { cwd, encoding: "utf-8", stdio: "pipe" });
+      return { ok: true, summary: `Committed with Git: ${message}` };
+    }
+
+    if (activeMode === "fossil") {
+      if (!detectFossil(cwd)) {
+        return { ok: false, summary: "Commit failed: active VCS mode is Fossil, but no Fossil checkout is active here." };
+      }
       if (!fossilHasPendingChanges(cwd)) {
         return { ok: true, summary: "No pending Fossil changes to commit." };
       }

@@ -29,6 +29,24 @@ function createProject(prefix: string): string {
   return cwd;
 }
 
+function jjAvailable(): boolean {
+  try {
+    childProcess.execSync("jj --version", { stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function fossilAvailable(): boolean {
+  try {
+    childProcess.execSync("fossil version", { stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function createGitProject(prefix: string): string {
   const cwd = createProject(prefix);
   fs.mkdirSync(path.join(cwd, ".context", "settings"), { recursive: true });
@@ -38,6 +56,41 @@ function createGitProject(prefix: string): string {
   childProcess.execSync("git config user.email 'vazir-test@example.com'", { cwd, stdio: "pipe" });
   childProcess.execSync("git add -A", { cwd, stdio: "pipe" });
   childProcess.execSync("git commit --allow-empty -qm init", { cwd, stdio: "pipe" });
+  return cwd;
+}
+
+function createColocatedGitJjProject(prefix: string, activeMode: "git" | "jj"): string {
+  const cwd = createProject(prefix);
+  fs.mkdirSync(path.join(cwd, ".context", "settings"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, ".context", "settings", "project.json"), JSON.stringify({ active_vcs_mode: "git", vcs_preference: activeMode }, null, 2));
+  childProcess.execFileSync("jj", ["git", "init", "--colocate"], { cwd, stdio: "pipe" });
+  childProcess.execSync("git config user.name 'Vazir Test'", { cwd, stdio: "pipe" });
+  childProcess.execSync("git config user.email 'vazir-test@example.com'", { cwd, stdio: "pipe" });
+  childProcess.execSync("git add -A", { cwd, stdio: "pipe" });
+  childProcess.execSync("git commit --allow-empty -qm init", { cwd, stdio: "pipe" });
+  return cwd;
+}
+
+function createFossilProject(prefix: string): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const repoPath = path.join(root, "repo.fossil");
+  const cwd = path.join(root, "workspace");
+  fs.mkdirSync(cwd, { recursive: true });
+
+  childProcess.execSync(`fossil init ${JSON.stringify(repoPath)}`, { cwd: root, stdio: "pipe" });
+  childProcess.execSync(`fossil open ${JSON.stringify(repoPath)}`, { cwd, stdio: "pipe" });
+
+  fs.writeFileSync(path.join(cwd, "README.md"), "hello\n");
+  childProcess.execSync("fossil add README.md", { cwd, stdio: "pipe" });
+  childProcess.execSync("fossil commit -m initial --user-override vazir-test", { cwd, stdio: "pipe" });
+
+  fs.mkdirSync(path.join(cwd, ".context", "stories"), { recursive: true });
+  fs.mkdirSync(path.join(cwd, ".context", "memory"), { recursive: true });
+  fs.mkdirSync(path.join(cwd, ".context", "settings"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, ".context", "memory", "system.md"), "# System Rules\n\n## Rules\n- Follow existing project conventions.\n\n## Learned Rules\n");
+  fs.writeFileSync(path.join(cwd, ".context", "memory", "index.md"), "# File Index\n\n");
+  fs.writeFileSync(path.join(cwd, ".context", "memory", "context-map.md"), "# Context Map\n\n- Project: Test\n");
+  fs.writeFileSync(path.join(cwd, ".context", "settings", "project.json"), JSON.stringify({ active_vcs_mode: "fossil", vcs_preference: "fossil" }, null, 2));
   return cwd;
 }
 
@@ -417,6 +470,180 @@ async function runReadyCloseAndCommitScenario() {
   return { cwd, notifications, selectCalls };
 }
 
+async function runDirtyContextCommitScenario() {
+  const cwd = createGitProject("vazir-complete-story-dirty-context-commit-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story now", "Commit .context changes and close story"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [
+      "### /fix — \"signup button broken\"",
+      "- **Reported:** 2026-03-25  ",
+      "- **Status:** resolved  ",
+      "- **Agent note:** —  ",
+      "- **Solution:** Added missing submit handler",
+    ],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+  fs.appendFileSync(path.join(cwd, ".context", "memory", "index.md"), "- Added during closeout validation\n");
+
+  await harness.completeStory.handler("", ctx);
+
+  assert(selectCalls.some(call => call.options.includes("Commit .context changes and close story")), "dirty .context closeout should prompt to commit project-brain updates");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "dirty .context commit scenario should still complete the story");
+  assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "dirty .context commit scenario should commit after the prompt");
+  const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(status === "", "dirty .context commit scenario should leave the git checkout clean");
+
+  return { cwd, notifications, selectCalls };
+}
+
+async function runDirtyContextDeclineScenario() {
+  const cwd = createGitProject("vazir-complete-story-dirty-context-decline-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story now", "Close story without committing .context changes"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [
+      "### /fix — \"signup button broken\"",
+      "- **Reported:** 2026-03-25  ",
+      "- **Status:** resolved  ",
+      "- **Agent note:** —  ",
+      "- **Solution:** Added missing submit handler",
+    ],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+  fs.appendFileSync(path.join(cwd, ".context", "memory", "index.md"), "- Left dirty on purpose\n");
+
+  await harness.completeStory.handler("", ctx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "dirty .context decline scenario should complete the story after explicit opt-out");
+  assert(notifications.some(note => note.message.includes("user explicitly declined the pending .context commit")), "dirty .context decline scenario should log the explicit opt-out");
+  const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(status.includes(".context/"), "dirty .context decline scenario should leave the project-brain diff uncommitted");
+
+  return { cwd, notifications, selectCalls };
+}
+
+async function runColocatedGitPreferredCommitScenario() {
+  if (!jjAvailable()) return null;
+
+  const cwd = createColocatedGitJjProject("vazir-complete-story-colocated-git-", "git");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story and commit all"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [
+      "### /fix — \"signup button broken\"",
+      "- **Reported:** 2026-03-25  ",
+      "- **Status:** resolved  ",
+      "- **Agent note:** —  ",
+      "- **Solution:** Added missing submit handler",
+    ],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated git-preferred scenario should complete the story");
+  assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "colocated git-preferred scenario should honor Git instead of switching to JJ");
+  assert(!notifications.some(note => note.message.includes("Recorded JJ change")), "colocated git-preferred scenario should not describe the change with JJ");
+  const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(status === "", "colocated git-preferred scenario should leave the Git checkout clean");
+
+  return { cwd, notifications, selectCalls };
+}
+
+async function runColocatedJjPreferredCommitScenario() {
+  if (!jjAvailable()) return null;
+
+  const cwd = createColocatedGitJjProject("vazir-complete-story-colocated-jj-", "jj");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story and commit all"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [
+      "### /fix — \"signup button broken\"",
+      "- **Reported:** 2026-03-25  ",
+      "- **Status:** resolved  ",
+      "- **Agent note:** —  ",
+      "- **Solution:** Added missing submit handler",
+    ],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated JJ-preferred scenario should complete the story");
+  assert(notifications.some(note => note.message.includes("Recorded JJ change: complete story-001")), "colocated JJ-preferred scenario should use JJ when explicitly preferred");
+  const describedMessage = childProcess.execSync("jj log -r @ -T description --no-graph", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(describedMessage.includes("complete story-001"), "colocated JJ-preferred scenario should describe the current JJ change");
+  const jjStatus = childProcess.execSync("jj status", { cwd, encoding: "utf-8", stdio: "pipe" });
+  assert(jjStatus.includes("Working copy  (@)") && jjStatus.includes("complete story-001"), "colocated JJ-preferred scenario should keep the described JJ working copy active");
+
+  return { cwd, notifications, selectCalls };
+}
+
+async function runFossilCloseAndCommitScenario() {
+  if (!fossilAvailable()) return null;
+
+  const cwd = createFossilProject("vazir-complete-story-fossil-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story and commit all"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [
+      "### /fix — \"signup button broken\"",
+      "- **Reported:** 2026-03-25  ",
+      "- **Status:** resolved  ",
+      "- **Agent note:** —  ",
+      "- **Solution:** Added missing submit handler",
+    ],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+  fs.appendFileSync(path.join(cwd, "README.md"), "story closeout change\n");
+
+  await harness.completeStory.handler("", ctx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "fossil close-and-commit scenario should complete the story");
+  assert(notifications.some(note => note.message.includes("Committed with Fossil: complete story-001")), "fossil close-and-commit scenario should report the Fossil commit result");
+  const changes = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(changes === "" && extras === "", "fossil close-and-commit scenario should leave the checkout clean");
+
+  return { cwd, notifications, selectCalls };
+}
+
 async function runKeepWorkingScenario() {
   const cwd = createProject("vazir-complete-story-keep-working-");
   const notifications: Notification[] = [];
@@ -466,6 +693,11 @@ try {
   const restartedReviewCloseout = await runRestartedReviewCloseoutScenario();
   const readyClose = await runReadyCloseScenario();
   const readyCloseAndCommit = await runReadyCloseAndCommitScenario();
+  const dirtyContextCommit = await runDirtyContextCommitScenario();
+  const dirtyContextDecline = await runDirtyContextDeclineScenario();
+  const colocatedGitPreferred = await runColocatedGitPreferredCommitScenario();
+  const colocatedJjPreferred = await runColocatedJjPreferredCommitScenario();
+  const fossilCloseAndCommit = await runFossilCloseAndCommitScenario();
   const keepWorking = await runKeepWorkingScenario();
 
   console.log("Review Gated Closeout");
@@ -498,6 +730,53 @@ try {
   console.log("notifications:");
   for (const note of readyCloseAndCommit.notifications) {
     console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Dirty .context Commit Closeout");
+  console.log(`cwd: ${dirtyContextCommit.cwd}`);
+  console.log("notifications:");
+  for (const note of dirtyContextCommit.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Dirty .context Decline Closeout");
+  console.log(`cwd: ${dirtyContextDecline.cwd}`);
+  console.log("notifications:");
+  for (const note of dirtyContextDecline.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  if (colocatedGitPreferred) {
+    console.log("Colocated Git/JJ Closeout (Git preferred)");
+    console.log(`cwd: ${colocatedGitPreferred.cwd}`);
+    console.log("notifications:");
+    for (const note of colocatedGitPreferred.notifications) {
+      console.log(`  - [${note.level}] ${note.message}`);
+    }
+  } else {
+    console.log("Colocated Git/JJ Closeout (Git preferred) skipped — jj binary not installed");
+  }
+
+  if (colocatedJjPreferred) {
+    console.log("Colocated Git/JJ Closeout (JJ preferred)");
+    console.log(`cwd: ${colocatedJjPreferred.cwd}`);
+    console.log("notifications:");
+    for (const note of colocatedJjPreferred.notifications) {
+      console.log(`  - [${note.level}] ${note.message}`);
+    }
+  } else {
+    console.log("Colocated Git/JJ Closeout (JJ preferred) skipped — jj binary not installed");
+  }
+
+  if (fossilCloseAndCommit) {
+    console.log("Fossil Closeout And Commit");
+    console.log(`cwd: ${fossilCloseAndCommit.cwd}`);
+    console.log("notifications:");
+    for (const note of fossilCloseAndCommit.notifications) {
+      console.log(`  - [${note.level}] ${note.message}`);
+    }
+  } else {
+    console.log("Fossil Closeout And Commit skipped — fossil binary not installed");
   }
 
   console.log("Keep Working Closeout");
