@@ -33,6 +33,7 @@ export interface EditStreamEntry {
 interface StoryProgressSummary {
   story: StoryFrontmatter;
   slug: string;
+  title: string | null;
   checklistDone: number;
   checklistTotal: number;
 }
@@ -550,6 +551,7 @@ function storyProgressSummary(cwd: string): StoryProgressSummary | null {
   const summary = {
     story,
     slug: path.basename(story.file, ".md"),
+    title: storyPickerTitle(story),
     checklistDone: checklist.done,
     checklistTotal: checklist.total,
   };
@@ -753,6 +755,17 @@ function storySavedLabel(summary: StoryProgressSummary): string | null {
   return `last saved ${formatRelativeAge(modifiedAt)}`;
 }
 
+function issueBadgeSegment(openIssues: number, compact = false): string {
+  if (openIssues === 0) {
+    return `${paint("✓", "success")} ${paint("no open issues", "dim")}`;
+  }
+
+  const label = compact
+    ? `${openIssues} issue${openIssues === 1 ? "" : "s"}`
+    : `${openIssues} issue${openIssues === 1 ? "" : "s"} open`;
+  return `${paint("⚠", "error")} ${paint(label, "error")}`;
+}
+
 function footerVcsStatusSegment(): string {
   const workingLabel = _vcsDisplay.workingLabel;
   const syncLabel = _vcsDisplay.syncLabel;
@@ -849,12 +862,14 @@ function storyStatusWidgetLines(
 
   const progressSegment = `${paint(progressBar(summary.checklistDone, summary.checklistTotal), storyProgressTone(summary))} ${paint(`${summary.checklistDone}/${summary.checklistTotal} ${summary.checklistTotal === 1 ? "task" : "tasks"}`, "dim")}`;
   const openIssues = openIssueCount(readIfExists(summary.story.file));
-  const issueSegment = openIssues === 0
-    ? `${paint("✓", "success")} ${paint("no open issues", "dim")}`
-    : `${paint("⚠", "error")} ${paint(`${openIssues} open issue${openIssues === 1 ? "" : "s"}`, "error")}`;
+  const issueSegment = issueBadgeSegment(openIssues);
+
+  const storyLabel = summary.title
+    ? `${summary.slug} — ${clipInline(summary.title, 48)}`
+    : summary.slug;
 
   const segments = [
-    `${paint("▸", "accent", true)} ${paint(summary.slug, "text")}`,
+    `${paint("▸", "accent", true)} ${paint(storyLabel, "text")}`,
     paint(summary.story.status, storyStatusTone(summary.story.status)),
     progressSegment,
     issueSegment,
@@ -920,20 +935,32 @@ function sessionFooterLine(
   }
 
   const summary = storyProgressSummary(cwd);
-  const storyLabel = summary?.slug ?? "no active story";
-  const repoLabel = clipInline(repoNameLabel(cwd).replace(/-pi$/, ""), 12);
+  const storyText = summary?.slug ?? "no active story";
+  const storyLabel = `▸ ${storyText}`;
+  const repoLabel = "vazir";
+  const openIssues = summary ? openIssueCount(readIfExists(summary.story.file)) : 0;
+  const isWorking = activeToolCalls > 0 && currentWorkingMessage;
 
-  const segments = [
-    paint(repoLabel, "accent", true),
-    paint(storyLabel, "text"),
-    footerBranchSegment(cwd, footerData),
-    footerModelSegment(snapshot),
-    footerContextSegment(snapshot),
-    footerSpendSegment(snapshot),
-    footerTokenOrWorkSegment(snapshot),
-  ].filter(Boolean);
+  const segments = isWorking
+    ? [
+        paint(storyLabel, "accent", true),
+        paint(repoLabel, "text"),
+        footerTokenOrWorkSegment(snapshot),
+        footerContextSegment(snapshot),
+        footerSpendSegment(snapshot),
+      ]
+    : [
+        paint(storyLabel, "accent", true),
+        paint(repoLabel, "text"),
+        footerTokenOrWorkSegment(snapshot),
+        summary ? issueBadgeSegment(openIssues, true) : "",
+        footerBranchSegment(cwd, footerData),
+        footerModelSegment(snapshot),
+        footerContextSegment(snapshot),
+        footerSpendSegment(snapshot),
+      ];
 
-  const left = segments.join(separatorDot());
+  const left = segments.filter(Boolean).join(separatorDot());
   return alignFooterLine(left, footerHint(), width);
 }
 
