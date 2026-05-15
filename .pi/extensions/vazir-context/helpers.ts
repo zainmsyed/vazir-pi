@@ -8,6 +8,7 @@ export {
   buildDefaultSystemRulesMarkdown,
   buildVcsSafetyGuidanceText,
   detectGitRepo,
+  hasVcsSafetyPolicyText,
   isProtectedVcsTarget,
   protectedVcsTargetsInText,
   vcsSafetyRuleLines,

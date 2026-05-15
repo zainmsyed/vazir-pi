@@ -13,6 +13,7 @@ import {
   detectFossil,
   detectJJ,
   findActiveStory,
+  hasVcsSafetyPolicyText,
   listStories,
   nowISO,
   readActiveVcsMode,
@@ -1181,7 +1182,7 @@ export default function (pi: ExtensionAPI) {
     const activeIsUiStory = active ? hasUiTypeOverride(active.file) || isUiStory(active.file) : false;
     const designSystem = activeIsUiStory ? strip(readIfExists(designSystemPath(ctx.cwd))) : "";
     const vcsGuidance = buildVcsSettingsGuidance(ctx.cwd);
-    const vcsSafetyGuidance = buildVcsSafetyGuidanceText();
+    const vcsSafetyGuidance = hasVcsSafetyPolicyText(systemMd) ? "" : buildVcsSafetyGuidanceText();
 
     if (contextMap) parts.push(contextMap);
     else if (agents) parts.push(agents);

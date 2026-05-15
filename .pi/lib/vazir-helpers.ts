@@ -175,6 +175,12 @@ export function buildVcsSafetyGuidanceText(): string {
   return ["[VCS Safety Policy]", ...vcsSafetyRuleLines().map(line => `- ${line}`)].join("\n");
 }
 
+export function hasVcsSafetyPolicyText(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized) return false;
+  return vcsSafetyRuleLines().every(line => normalized.includes(line));
+}
+
 export function buildDefaultSystemRulesMarkdown(): string {
   return [
     "# System Rules",
