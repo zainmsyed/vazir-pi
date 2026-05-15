@@ -8,10 +8,12 @@ import * as path from "path";
 import {
   complaintsLogPath,
   compareStoriesByRecencyDesc,
+  detectFossil,
   detectJJ,
   findActiveStory,
   nonTerminalStories,
   nowISO,
+  readActiveVcsMode,
   readIfExists,
   todayDate,
   type StoryFrontmatter,
@@ -73,6 +75,8 @@ import {
 let lastUserPrompt = "";
 let useJJ = false;
 let hasGitRepo = false;
+let hasFossilRepo = false;
+let vcsKind: "none" | "git" | "jj" | "fossil" = "none";
 let currentSessionId = "";
 
 export function normalizeTrackerInputText(text: string): string {
@@ -302,12 +306,34 @@ async function resolveStoryForImplementation(
   return selected;
 }
 
-export function refreshVcsState(cwd: string): void {
+function resolvePreferredVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" {
+  const activeMode = readActiveVcsMode(cwd);
+  if (activeMode === "fossil" && hasFossilRepo) return "fossil";
+  if (activeMode === "git" && useJJ) return "jj";
+  if (activeMode === "git" && hasGitRepo) return "git";
+  if (hasFossilRepo && !hasGitRepo) return "fossil";
+  if (useJJ) return "jj";
+  if (hasGitRepo) return "git";
+  if (hasFossilRepo) return "fossil";
+  return "none";
+}
+
+function refreshDetectedVcs(cwd: string): void {
   hasGitRepo = detectGitRepo(cwd);
   useJJ = hasGitRepo ? detectJJ(cwd) : false;
-  setVcsFlags(hasGitRepo, useJJ);
+  hasFossilRepo = detectFossil(cwd);
+  vcsKind = resolvePreferredVcsKind(cwd);
   if (useJJ) loadJjCheckpointLabels(cwd);
-  syncChanges(cwd, hasGitRepo, useJJ);
+}
+
+function syncAndPublishVcs(cwd: string): void {
+  const display = syncChanges(cwd, vcsKind);
+  setVcsFlags(hasGitRepo, useJJ, vcsKind, display);
+}
+
+export function refreshVcsState(cwd: string): void {
+  refreshDetectedVcs(cwd);
+  syncAndPublishVcs(cwd);
   refreshWidgets();
 }
 
@@ -355,11 +381,7 @@ export default function (pi: ExtensionAPI) {
       },
     ) => {
       const cwd = ctx.cwd;
-      hasGitRepo = detectGitRepo(cwd);
-      useJJ = hasGitRepo ? detectJJ(cwd) : false;
-      if (useJJ) loadJjCheckpointLabels(cwd);
-
-      setVcsFlags(hasGitRepo, useJJ);
+      refreshVcsState(cwd);
 
       const sessionManager = {
         getBranch: ctx.sessionManager?.getBranch ?? (() => []),
@@ -392,16 +414,7 @@ export default function (pi: ExtensionAPI) {
           );
         }
         startFooterRefreshTicker(cwd => {
-          // Re-detect VCS when git was not present at session start (e.g. /vazir-init ran mid-session).
-          if (!hasGitRepo) {
-            hasGitRepo = detectGitRepo(cwd);
-            if (hasGitRepo) {
-              useJJ = detectJJ(cwd);
-              setVcsFlags(hasGitRepo, useJJ);
-              if (useJJ) loadJjCheckpointLabels(cwd);
-            }
-          }
-          syncChanges(cwd, hasGitRepo, useJJ);
+          refreshVcsState(cwd);
         });
         registerCommandHelpShortcut(ctx);
       }
@@ -432,7 +445,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (!ctx.hasUI) return;
-      syncChanges(cwd, hasGitRepo, useJJ);
+      syncAndPublishVcs(cwd);
       callUiMethod(ctx.ui, "setToolOutputExpanded", false);
       applyWorkingMessage(ctx.ui);
       ensureSessionChromeMounted(ctx.ui, cwd);
@@ -441,7 +454,9 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async (_event: unknown, ctx: { ui?: any }) => {
     hasGitRepo = false;
+    hasFossilRepo = false;
     useJJ = false;
+    vcsKind = "none";
     tearDownChromeSession(ctx.ui);
   });
 
@@ -508,13 +523,13 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (event.toolName === "write" || event.toolName === "edit" || event.toolName === "bash") {
-      syncChanges(ctx.cwd, hasGitRepo, useJJ);
+      syncAndPublishVcs(ctx.cwd);
       refreshWidgets();
     }
   });
 
   pi.on("agent_end", async (_event: unknown, ctx: { cwd: string; hasUI?: boolean; ui?: any }) => {
-    syncChanges(ctx.cwd, hasGitRepo, useJJ);
+    syncAndPublishVcs(ctx.cwd);
     refreshWidgets();
     if (ctx.hasUI) ensureSessionChromeMounted(ctx.ui, ctx.cwd);
 
@@ -538,7 +553,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("diff", {
     description: "Show inline terminal diff for a changed file",
     handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
-      syncChanges(ctx.cwd, hasGitRepo, useJJ);
+      syncAndPublishVcs(ctx.cwd);
       if (changedFiles.size === 0) {
         ctx.ui.notify("No changed files", "info");
         return;
@@ -809,7 +824,7 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
-      syncChanges(cwd, hasGitRepo, useJJ);
+      syncAndPublishVcs(cwd);
       refreshWidgets();
       return;
     }
@@ -830,7 +845,7 @@ export default function (pi: ExtensionAPI) {
 
     if (restoreChoice === "Previous checkpoint — undo last agent turn") {
       gitRestoreCheckpoint(cwd, checkpoints[0].dir);
-      syncChanges(cwd, hasGitRepo, useJJ);
+      syncAndPublishVcs(cwd);
       refreshWidgets();
       ctx.ui.notify("Restored to previous checkpoint", "info");
     } else if (restoreChoice === "Choose checkpoint — pick from list") {
@@ -842,7 +857,7 @@ export default function (pi: ExtensionAPI) {
       if (pick != null) {
         const chosen = checkpoints[labels.indexOf(pick)];
         gitRestoreCheckpoint(cwd, chosen.dir);
-        syncChanges(cwd, hasGitRepo, useJJ);
+        syncAndPublishVcs(cwd);
         refreshWidgets();
         ctx.ui.notify(`Restored checkpoint #${chosen.n}`, "info");
       }

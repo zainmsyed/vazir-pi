@@ -2134,11 +2134,11 @@ export function buildConsolidationInstruction(cwd: string): string {
   ].join("\n");
 }
 
-export function buildInitSummary(fileStatuses: InitFileStatus[], jjLine: string, jjDetailLine: string): string {
+export function buildInitSummary(fileStatuses: InitFileStatus[], vcsLine: string, vcsDetailLine: string): string {
   return [
     "Vazir init summary",
-    jjLine,
-    jjDetailLine,
+    vcsLine,
+    vcsDetailLine,
     "☑ Added files:",
     ...fileStatuses.map(file => `    ${file.present ? "☑" : "☒"} ${file.label}`),
   ].join("\n");

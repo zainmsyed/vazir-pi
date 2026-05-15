@@ -12,6 +12,8 @@ export interface StoryFrontmatter {
   number: number;
 }
 
+export type ActiveVcsMode = "git" | "fossil" | "none";
+
 export function readIfExists(filePath: string): string {
   return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : "";
 }
@@ -24,10 +26,22 @@ export function nowISO(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
+function normalizeRepoRoot(candidatePath: string): string {
+  try {
+    return fs.realpathSync(candidatePath);
+  } catch {
+    return path.resolve(candidatePath);
+  }
+}
+
+function isCurrentDirectoryRepoRoot(cwd: string, repoRoot: string): boolean {
+  return normalizeRepoRoot(cwd) === normalizeRepoRoot(repoRoot);
+}
+
 export function detectGitRepo(cwd: string): boolean {
   try {
-    childProcess.execSync("git rev-parse --git-dir", { cwd, encoding: "utf-8", stdio: "pipe" });
-    return true;
+    const topLevel = childProcess.execSync("git rev-parse --show-toplevel", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    return topLevel ? isCurrentDirectoryRepoRoot(cwd, topLevel) : false;
   } catch {
     return false;
   }
@@ -35,11 +49,68 @@ export function detectGitRepo(cwd: string): boolean {
 
 export function detectJJ(cwd: string): boolean {
   try {
-    childProcess.execSync("jj root", { cwd, stdio: "pipe" });
-    return true;
+    const root = childProcess.execSync("jj root", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    return root ? isCurrentDirectoryRepoRoot(cwd, root) : false;
   } catch {
     return false;
   }
+}
+
+export function detectFossil(cwd: string): boolean {
+  try {
+    const jsonInfo = childProcess.execSync("fossil info --json", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    if (jsonInfo) {
+      const parsed = JSON.parse(jsonInfo) as { checkout?: { root?: string } };
+      const checkoutRoot = parsed.checkout?.root?.trim();
+      if (checkoutRoot) return isCurrentDirectoryRepoRoot(cwd, checkoutRoot);
+    }
+  } catch {
+    // Fall through to plain-text parsing for older Fossil versions.
+  }
+
+  try {
+    const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe" });
+    const checkoutRoot = info.match(/^local-root:\s+(.+)$/m)?.[1]?.trim();
+    return checkoutRoot ? isCurrentDirectoryRepoRoot(cwd, checkoutRoot) : false;
+  } catch {
+    return false;
+  }
+}
+
+export function projectSettingsPath(cwd: string): string {
+  return path.join(cwd, ".context", "settings", "project.json");
+}
+
+export function readProjectSettings(cwd: string): Record<string, unknown> {
+  const filePath = projectSettingsPath(cwd);
+  if (!fs.existsSync(filePath)) return {};
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8")) as Record<string, unknown>;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function writeProjectSettings(cwd: string, updates: Record<string, unknown>): Record<string, unknown> {
+  const filePath = projectSettingsPath(cwd);
+  const current = readProjectSettings(cwd);
+  const next = { ...current, ...updates };
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(next, null, 2));
+  return next;
+}
+
+export function readActiveVcsMode(cwd: string): ActiveVcsMode {
+  const settings = readProjectSettings(cwd);
+  const active = typeof settings.active_vcs_mode === "string" ? settings.active_vcs_mode.trim().toLowerCase() : "";
+  if (active === "git" || active === "fossil" || active === "none") return active;
+
+  const legacyPreference = typeof settings.vcs_preference === "string" ? settings.vcs_preference.trim().toLowerCase() : "";
+  if (legacyPreference === "git" || legacyPreference === "jj") return "git";
+  if (legacyPreference === "fossil") return "fossil";
+  return "none";
 }
 
 export function storiesDir(cwd: string): string {

@@ -8,13 +8,16 @@ import * as path from "path";
 import {
   compareStoriesByRecencyDesc,
   complaintsLogPath,
+  detectFossil,
   detectJJ,
   findActiveStory,
   listStories,
   nowISO,
+  readActiveVcsMode,
   readIfExists,
   storiesDir,
   todayDate,
+  writeProjectSettings,
   updateStoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
 import { showScrollableText } from "../vazir-tracker/chrome.ts";
@@ -246,6 +249,69 @@ export default function (pi: ExtensionAPI) {
     } catch (error: any) {
       ctx.ui.notify(`Fallow install failed: ${error?.message || String(error)}. /review will continue without it.`, "warning");
     }
+  }
+
+  function commandExists(command: string, args: string[] = ["--version"]): boolean {
+    try {
+      childProcess.execFileSync(command, args, { stdio: "pipe" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function ensureFossilIgnoreGlob(cwd: string): boolean {
+    const ignorePath = path.join(cwd, ".fossil-settings", "ignore-glob");
+    const required = [
+      ".context/",
+      "node_modules/",
+      ".git/",
+      ".jj/",
+      ".fallow/",
+      ".env",
+      ".env.*",
+      "*.local",
+      ".local/",
+      "*.log",
+      "*.tmp",
+      "*.temp",
+      "*.swp",
+      ".DS_Store",
+      "Thumbs.db",
+      "*.pem",
+      "*.key",
+      "*.p12",
+      "*.pfx",
+      "*.crt",
+    ];
+    const existing = readIfExists(ignorePath)
+      .split("\n")
+      .map(line => line.trim())
+      .filter(Boolean);
+    const next = [...existing];
+    let changed = !fs.existsSync(ignorePath);
+
+    for (const entry of required) {
+      if (next.includes(entry)) continue;
+      next.push(entry);
+      changed = true;
+    }
+
+    if (!changed) return false;
+    fs.mkdirSync(path.dirname(ignorePath), { recursive: true });
+    fs.writeFileSync(ignorePath, `${next.join("\n")}\n`);
+    return true;
+  }
+
+  function buildVcsSettingsGuidance(cwd: string): string {
+    const activeMode = readActiveVcsMode(cwd);
+    return [
+      "[Version Control System (VCS) Mode]",
+      `- Active mode from settings: ${activeMode}`,
+      "- Check project settings for the current active version control system (VCS) before doing VCS-specific work.",
+      "- The active mode can change over time, so do not assume the /vazir-init choice is still current.",
+      "- If repository guidance depends on version control, double-check settings instead of assuming Git/JJ or Fossil.",
+    ].join("\n");
   }
 
   function listGitVisibleFiles(cwd: string): string[] {
@@ -1103,10 +1169,12 @@ export default function (pi: ExtensionAPI) {
     const active = findActiveStory(ctx.cwd);
     const activeIsUiStory = active ? hasUiTypeOverride(active.file) || isUiStory(active.file) : false;
     const designSystem = activeIsUiStory ? strip(readIfExists(designSystemPath(ctx.cwd))) : "";
+    const vcsGuidance = buildVcsSettingsGuidance(ctx.cwd);
 
     if (contextMap) parts.push(contextMap);
     else if (agents) parts.push(agents);
     if (systemMd) parts.push(systemMd);
+    if (vcsGuidance) parts.push(vcsGuidance);
     if (designSystem) parts.push(`[Design System]\n${designSystem}`);
     if (indexMd) parts.push(indexMd);
 
@@ -1365,7 +1433,7 @@ export default function (pi: ExtensionAPI) {
   // ── /vazir-init ──────────────────────────────────────────────────────
 
   pi.registerCommand("vazir-init", {
-    description: "Bootstrap Vazir context files, then set up git and JJ when available",
+    description: "Bootstrap Vazir context files, then set up Git/JJ or Fossil", 
     handler: async (_args: string, ctx: any) => {
       const cwd = ctx.cwd;
 
@@ -1417,7 +1485,7 @@ export default function (pi: ExtensionAPI) {
 
       const projectSettingsPath = path.join(settingsDir(cwd), "project.json");
       if (!fs.existsSync(projectSettingsPath)) {
-        fs.writeFileSync(projectSettingsPath, JSON.stringify({ project_name: "", model_tier: "balanced" }, null, 2));
+        fs.writeFileSync(projectSettingsPath, JSON.stringify({ project_name: "", model_tier: "balanced", active_vcs_mode: "none" }, null, 2));
         ctx.ui.notify("project.json created", "info");
       }
 
@@ -1464,8 +1532,6 @@ export default function (pi: ExtensionAPI) {
         "Added common ignore boilerplate to .gitignore",
       );
 
-      await maybePromptForFallowInstall(ctx, cwd);
-
       const sourceFiles = walkSourceFiles(cwd);
       const indexSummary = writeIndex(cwd, sourceFiles);
       ctx.ui.notify("index.md generated", "info");
@@ -1486,40 +1552,24 @@ export default function (pi: ExtensionAPI) {
       }
 
       ctx.ui.notify(
-        `Vazir bootstrap complete • context-map.md: ${contextMapStatus} • index.md: ${indexSummary.total} files indexed • Git check runs now`,
+        `Vazir bootstrap complete • context-map.md: ${contextMapStatus} • index.md: ${indexSummary.total} files indexed • version control system (VCS) check runs now`,
         "info",
       );
 
-      let jjLine = "☒ JJ (Jujutsu): Not started";
-      let jjDetailLine = `  ↳ Go here to install directions ${JJ_DOCS_URL}`;
-      let gitReady = detectGitRepo(cwd);
+      let vcsLine = "☒ Version control system (VCS): Not configured";
+      let vcsDetailLine = "  ↳ The active mode can change later in settings.";
+      const initialGitReady = detectGitRepo(cwd);
+      const initialFossilReady = detectFossil(cwd);
+      let gitReady = initialGitReady;
+      let fossilReady = initialFossilReady;
+      let selectedMode: "git" | "fossil" | "none" = "none";
+      let shouldAttemptJjSetup = false;
 
-      if (!gitReady) {
-        const choice = await ctx.ui.select(
-          "This folder has no git repo. Git is required for version control and JJ checkpoint support. Initialise git here?",
-          [
-            "Yes — initialise git",
-            "No — I understand, skip git and JJ",
-          ],
-        );
+      const gitAndJjSetupFlow = async (): Promise<{ jjLine: string; jjDetailLine: string }> => {
+        let nextJjLine = "☒ JJ (Jujutsu): Not started";
+        let nextJjDetailLine = `  ↳ Go here to install directions ${JJ_DOCS_URL}`;
+        let jjAvailable = false;
 
-        if (choice === "Yes — initialise git") {
-          try {
-            childProcess.execSync("git init", { cwd, stdio: "pipe" });
-            gitReady = true;
-            ctx.ui.notify("✓ git initialised\nRemember to add a remote:\ngit remote add origin <url>", "info");
-          } catch (error: any) {
-            ctx.ui.notify(`Git init failed: ${error?.message || String(error)} — JJ skipped`, "warning");
-            jjDetailLine = "  ↳ Git initialisation failed, so JJ was skipped";
-          }
-        } else {
-          ctx.ui.notify("No git — JJ skipped, checkpoints unavailable", "warning");
-          jjDetailLine = "  ↳ Git is not initialised here, so JJ was skipped";
-        }
-      }
-
-      let jjAvailable = false;
-      if (gitReady) {
         try {
           childProcess.execFileSync("jj", ["--version"], { cwd, stdio: "pipe" });
           jjAvailable = true;
@@ -1529,37 +1579,163 @@ export default function (pi: ExtensionAPI) {
             "info",
           );
         }
-      }
 
-      try {
-        if (jjAvailable) {
-          try {
-            childProcess.execFileSync("jj", ["root"], { cwd, stdio: "pipe" });
-            ctx.ui.notify("JJ already initialised", "info");
-            jjLine = "☑ JJ (Jujutsu): active";
-            jjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
-          } catch {
-            childProcess.execFileSync("jj", ["git", "init", "--colocate"], { cwd, stdio: "pipe" });
-            for (const branch of ["main", "master"]) {
-              try {
-                childProcess.execFileSync("jj", ["bookmark", "track", `${branch}@origin`], { cwd, stdio: "pipe" });
-                break;
-              } catch {
-                // Try the next common default branch.
+        try {
+          if (jjAvailable) {
+            try {
+              childProcess.execFileSync("jj", ["root"], { cwd, stdio: "pipe" });
+              ctx.ui.notify("JJ already initialised", "info");
+              nextJjLine = "☑ JJ (Jujutsu): active";
+              nextJjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
+            } catch {
+              childProcess.execFileSync("jj", ["git", "init", "--colocate"], { cwd, stdio: "pipe" });
+              for (const branch of ["main", "master"]) {
+                try {
+                  childProcess.execFileSync("jj", ["bookmark", "track", `${branch}@origin`], { cwd, stdio: "pipe" });
+                  break;
+                } catch {
+                  // Try the next common default branch.
+                }
               }
+              ctx.ui.notify("JJ initialised", "info");
+              nextJjLine = "☑ JJ (Jujutsu): active";
+              nextJjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
             }
-            ctx.ui.notify("JJ initialised", "info");
-            jjLine = "☑ JJ (Jujutsu): active";
-            jjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
-          }
 
-          ensureGitignoreEntries([".jj/"], "Added .jj/ to .gitignore");
+            ensureGitignoreEntries([".jj/"], "Added .jj/ to .gitignore");
+          }
+        } catch (error: any) {
+          ctx.ui.notify(`JJ setup failed: ${error?.message || String(error)} — continuing with git fallback`, "warning");
+          nextJjDetailLine = "  ↳ JJ setup failed, so Git remains active without JJ checkpoints";
         }
-      } catch (error: any) {
-        ctx.ui.notify(`JJ setup failed: ${error?.message || String(error)} — continuing with git fallback`, "warning");
+
+        useJJ = detectJJ(cwd);
+        return { jjLine: nextJjLine, jjDetailLine: nextJjDetailLine };
+      };
+
+      if (!gitReady && !fossilReady) {
+        const choice = await ctx.ui.select(
+          "No version control system (VCS) is configured in this repo yet. Which mode should Vazir set up? This choice can be changed later in settings.",
+          [
+            "Git/JJ",
+            "Fossil",
+          ],
+        );
+        selectedMode = choice === "Fossil" ? "fossil" : "git";
+      } else if (gitReady && !fossilReady) {
+        selectedMode = "git";
+      } else if (!gitReady && fossilReady) {
+        selectedMode = "fossil";
+      } else {
+        const choice = await ctx.ui.select(
+          "Both Git and Fossil are already present in this repo. Which one should be the active mode in settings?",
+          [
+            "Git/JJ",
+            "Fossil",
+          ],
+        );
+        selectedMode = choice === "Fossil" ? "fossil" : "git";
       }
 
-      useJJ = jjAvailable && detectJJ(cwd);
+      if (selectedMode === "git" && !gitReady) {
+        try {
+          childProcess.execSync("git init", { cwd, stdio: "pipe" });
+          gitReady = true;
+          ctx.ui.notify("✓ git initialised\nRemember to add a remote:\ngit remote add origin <url>", "info");
+        } catch (error: any) {
+          ctx.ui.notify(`Git init failed: ${error?.message || String(error)} — JJ skipped`, "warning");
+          selectedMode = "none";
+          vcsDetailLine = "  ↳ Git initialisation failed.";
+        }
+      }
+
+      if (selectedMode === "fossil" && !fossilReady) {
+        if (!commandExists("fossil", ["version"])) {
+          ctx.ui.notify("Fossil is not installed, so Vazir could not configure a Fossil checkout for this repo.", "warning");
+          selectedMode = "none";
+          vcsDetailLine = "  ↳ Fossil was selected but is not installed.";
+        } else {
+          try {
+            const repoFile = `${path.basename(cwd)}.fossil`;
+            childProcess.execFileSync("fossil", ["init", repoFile], { cwd, stdio: "pipe" });
+            childProcess.execFileSync("fossil", ["open", "-f", repoFile], { cwd, stdio: "pipe" });
+            fossilReady = detectFossil(cwd);
+            ctx.ui.notify("✓ fossil repo initialised and opened", "info");
+          } catch (error: any) {
+            ctx.ui.notify(`Fossil setup failed: ${error?.message || String(error)}`, "warning");
+            selectedMode = "none";
+            vcsDetailLine = "  ↳ Fossil initialisation failed.";
+          }
+        }
+      }
+
+      const jjAlreadyActive = gitReady && detectJJ(cwd);
+      if (selectedMode === "git" && gitReady) {
+        if (initialGitReady && !initialFossilReady && !jjAlreadyActive) {
+          const jjChoice = await ctx.ui.select(
+            "Git is already set up in this repo. Do you want to enable JJ for checkpoints?",
+            [
+              "Yes — enable JJ checkpoints",
+              "No — keep Git only for now",
+            ],
+          );
+          shouldAttemptJjSetup = jjChoice === "Yes — enable JJ checkpoints";
+        } else if (initialGitReady && initialFossilReady && selectedMode === "git" && !jjAlreadyActive) {
+          const jjChoice = await ctx.ui.select(
+            "Git is the active mode for this repo. Do you want to enable JJ for checkpoints too?",
+            [
+              "Yes — enable JJ checkpoints",
+              "No — keep Git only for now",
+            ],
+          );
+          shouldAttemptJjSetup = jjChoice === "Yes — enable JJ checkpoints";
+        } else {
+          shouldAttemptJjSetup = true;
+        }
+      }
+
+      let jjLine = "☒ JJ (Jujutsu): Not started";
+      let jjDetailLine = `  ↳ Go here to install directions ${JJ_DOCS_URL}`;
+      if (selectedMode === "git" && gitReady) {
+        if (shouldAttemptJjSetup || detectJJ(cwd)) {
+          const jjStatus = await gitAndJjSetupFlow();
+          jjLine = jjStatus.jjLine;
+          jjDetailLine = jjStatus.jjDetailLine;
+        } else {
+          useJJ = detectJJ(cwd);
+          jjDetailLine = "  ↳ Git is active. JJ can be enabled later for checkpoints.";
+        }
+      } else {
+        useJJ = false;
+      }
+
+      if (selectedMode === "fossil" && fossilReady) {
+        if (ensureFossilIgnoreGlob(cwd)) {
+          ctx.ui.notify("Added Fossil ignore defaults (.context/, node_modules/, .git/, .jj/)", "info");
+        }
+      }
+
+      if (selectedMode === "git" && gitReady) {
+        writeProjectSettings(cwd, { active_vcs_mode: "git", vcs_preference: useJJ ? "jj" : "git" });
+        vcsLine = "☑ Version control system (VCS): Git/JJ active";
+        vcsDetailLine = useJJ
+          ? `  ↳ JJ checkpoints are active. The active mode can be changed later in settings.`
+          : [
+              "  ↳ Git is active. JJ remains optional for checkpoints. The active mode can be changed later in settings.",
+              jjLine,
+              jjDetailLine,
+            ].join("\n");
+      } else if (selectedMode === "fossil" && fossilReady) {
+        writeProjectSettings(cwd, { active_vcs_mode: "fossil", vcs_preference: "fossil" });
+        vcsLine = "☑ Version control system (VCS): Fossil active";
+        vcsDetailLine = "  ↳ Fossil is active for this repo. The active mode can be changed later in settings.";
+      } else {
+        writeProjectSettings(cwd, { active_vcs_mode: "none" });
+        vcsLine = "☒ Version control system (VCS): Not configured";
+      }
+
+      await maybePromptForFallowInstall(ctx, cwd);
+
       const initSummary = buildInitSummary([
         { label: ".context/memory/system.md", present: fs.existsSync(systemPath(cwd)) },
         { label: ".context/memory/index.md", present: fs.existsSync(indexPath(cwd)) },
@@ -1571,7 +1747,7 @@ export default function (pi: ExtensionAPI) {
         { label: ".context/complaints-log.md", present: fs.existsSync(complaintsLogPath(cwd)) },
         { label: "AGENTS.md", present: fs.existsSync(agentsPath) },
         { label: ".context/settings/project.json", present: fs.existsSync(projectSettingsPath) },
-      ], useJJ ? "☑ JJ (Jujutsu): active" : jjLine, useJJ ? `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}` : jjDetailLine);
+      ], vcsLine, vcsDetailLine);
       pendingInitSummary = initSummary;
       ctx.ui.notify(initSummary, "info");
 
