@@ -6,6 +6,8 @@ import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import {
+  buildDefaultSystemRulesMarkdown,
+  buildVcsSafetyGuidanceText,
   compareStoriesByRecencyDesc,
   complaintsLogPath,
   detectFossil,
@@ -121,17 +123,7 @@ const CONTEXT_MAP_TEMPLATE = [
   "",
 ].join("\n");
 
-const SYSTEM_MD_TEMPLATE = [
-  "# System Rules",
-  "",
-  "## Rules",
-  "- Follow existing project conventions.",
-  "- Write directly to real project files.",
-  "- Ask before changing ambiguous areas.",
-  "",
-  "## Learned Rules",
-  "",
-].join("\n");
+const SYSTEM_MD_TEMPLATE = buildDefaultSystemRulesMarkdown();
 
 const AGENTS_MD_TEMPLATE = [
   "# AGENTS.md",
@@ -1189,11 +1181,13 @@ export default function (pi: ExtensionAPI) {
     const activeIsUiStory = active ? hasUiTypeOverride(active.file) || isUiStory(active.file) : false;
     const designSystem = activeIsUiStory ? strip(readIfExists(designSystemPath(ctx.cwd))) : "";
     const vcsGuidance = buildVcsSettingsGuidance(ctx.cwd);
+    const vcsSafetyGuidance = buildVcsSafetyGuidanceText();
 
     if (contextMap) parts.push(contextMap);
     else if (agents) parts.push(agents);
     if (systemMd) parts.push(systemMd);
     if (vcsGuidance) parts.push(vcsGuidance);
+    if (vcsSafetyGuidance) parts.push(vcsSafetyGuidance);
     if (designSystem) parts.push(`[Design System]\n${designSystem}`);
     if (indexMd) parts.push(indexMd);
 
