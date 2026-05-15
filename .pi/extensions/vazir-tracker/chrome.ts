@@ -732,9 +732,9 @@ export function clipInline(text: string, max = 40): string {
 
 function vcsIcon(kind: typeof _vcsKind): string {
   switch (kind) {
-    case "git": return "⎇";
+    case "git": return "";
     case "jj": return "⧉";
-    case "fossil": return "⚱";
+    case "fossil": return "";
     default: return "";
   }
 }
