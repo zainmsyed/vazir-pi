@@ -730,6 +730,15 @@ export function clipInline(text: string, max = 40): string {
   return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
+function vcsIcon(kind: typeof _vcsKind): string {
+  switch (kind) {
+    case "git": return "⎇";
+    case "jj": return "⧉";
+    case "fossil": return "⚱";
+    default: return "";
+  }
+}
+
 function branchLabel(cwd: string): string {
   if (_vcsKind === "none") {
     return isVazirInitialized(cwd) ? "no-git" : "run /vazir-init";
@@ -784,7 +793,9 @@ function footerBranchSegment(
   footerData: { getGitBranch(): string | null | undefined },
 ): string {
   const hostBranch = _vcsKind === "git" && _hasGitRepo ? footerData.getGitBranch() : null;
-  const branch = clipInline(hostBranch || branchLabel(cwd), 24);
+  const rawBranch = hostBranch || branchLabel(cwd);
+  const icon = vcsIcon(_vcsKind);
+  const branch = clipInline(icon ? `${icon} ${rawBranch}` : rawBranch, 24);
   const branchPart = paint(branch, "branch");
   const vcsPart = footerVcsStatusSegment();
   return vcsPart ? `${branchPart}${separatorDot()}${vcsPart}` : branchPart;
