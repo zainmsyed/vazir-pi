@@ -1,9 +1,9 @@
 # Story 017: Runtime guardrails for destructive VCS operations
 
-**Status:** in-progress  
+**Status:** complete  
 **Created:** 2026-05-15  
 **Last accessed:** 2026-05-15  
-**Completed:** —
+**Completed:** 2026-05-15
 
 ---
 
