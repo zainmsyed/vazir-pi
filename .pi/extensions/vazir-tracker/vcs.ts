@@ -4,6 +4,15 @@ import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 export { detectGitRepo } from "../../lib/vazir-helpers.ts";
+import {
+  approvalGatedVcsOperation,
+  approvalTokenForFingerprint,
+  buildBlockedVcsActionGuidance,
+  isProtectedVcsTarget,
+  normalizeCommandFingerprint,
+  type PendingVcsApproval,
+  userInputHasVcsApproval,
+} from "../../lib/vazir-helpers.ts";
 import { changedFiles, invalidateStoryProgressCache } from "./chrome.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -19,6 +28,8 @@ interface JjCheckpointLabelStore {
   labels: Record<string, string>;
 }
 
+const pendingVcsApprovals = new Map<string, PendingVcsApproval>();
+
 export type VcsKind = "none" | "git" | "jj" | "fossil";
 
 export interface VcsDisplayInfo {
@@ -26,6 +37,69 @@ export interface VcsDisplayInfo {
   refLabel: string;
   workingLabel: string;
   syncLabel: string;
+}
+
+export function clearPendingVcsApproval(cwd: string): void {
+  pendingVcsApprovals.delete(cwd);
+}
+
+function directToolApprovalRequirement(toolName: string, input: unknown): PendingVcsApproval | null {
+  if ((toolName !== "write" && toolName !== "edit") || !input || typeof input !== "object") return null;
+  const rawPath = (input as { path?: unknown }).path;
+  if (typeof rawPath !== "string" || !isProtectedVcsTarget(rawPath)) return null;
+
+  const fingerprint = `${toolName}:${normalizeCommandFingerprint(rawPath)}`;
+  return {
+    token: approvalTokenForFingerprint(fingerprint),
+    fingerprint,
+    commandText: rawPath,
+    reason: `Direct ${toolName} against protected VCS metadata requires approval.`,
+    protectedTargets: [rawPath],
+  };
+}
+
+function bashApprovalRequirement(cwd: string, input: unknown): PendingVcsApproval | null {
+  if (!input || typeof input !== "object") return null;
+  const rawCommand = (input as { command?: unknown }).command;
+  if (typeof rawCommand !== "string" || !rawCommand.trim()) return null;
+
+  const requirement = approvalGatedVcsOperation(rawCommand, cwd);
+  if (!requirement.needsApproval || !requirement.reason) return null;
+
+  const fingerprint = `bash:${normalizeCommandFingerprint(rawCommand)}`;
+  return {
+    token: approvalTokenForFingerprint(fingerprint),
+    fingerprint,
+    commandText: rawCommand.trim(),
+    reason: requirement.reason,
+    protectedTargets: requirement.protectedTargets,
+  };
+}
+
+export function inspectVcsToolGuard(
+  cwd: string,
+  toolName: string | undefined,
+  input: unknown,
+  lastUserPrompt: string,
+): { block: false } | { block: true; reason: string } {
+  const pending = toolName === "bash"
+    ? bashApprovalRequirement(cwd, input)
+    : directToolApprovalRequirement(toolName ?? "", input);
+
+  if (!pending) return { block: false };
+
+  const existing = pendingVcsApprovals.get(cwd);
+  if (
+    existing
+    && existing.fingerprint === pending.fingerprint
+    && userInputHasVcsApproval(lastUserPrompt, existing.token)
+  ) {
+    pendingVcsApprovals.delete(cwd);
+    return { block: false };
+  }
+
+  pendingVcsApprovals.set(cwd, pending);
+  return { block: true, reason: buildBlockedVcsActionGuidance(pending) };
 }
 
 export function isGitClean(cwd: string): boolean {
