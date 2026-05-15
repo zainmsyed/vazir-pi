@@ -934,26 +934,19 @@ function sessionFooterLine(
     return alignFooterLine(left, footerHint(), width);
   }
 
-  const summary = storyProgressSummary(cwd);
-  const storyText = summary?.slug ?? "no active story";
-  const storyLabel = `▸ ${storyText}`;
-  const repoLabel = "vazir";
-  const openIssues = summary ? openIssueCount(readIfExists(summary.story.file)) : 0;
+  const repoLabel = repoNameLabel(cwd);
   const isWorking = activeToolCalls > 0 && currentWorkingMessage;
 
   const segments = isWorking
     ? [
-        paint(storyLabel, "accent", true),
-        paint(repoLabel, "text"),
+        paint(repoLabel, "accent", true),
         footerTokenOrWorkSegment(snapshot),
         footerContextSegment(snapshot),
         footerSpendSegment(snapshot),
       ]
     : [
-        paint(storyLabel, "accent", true),
-        paint(repoLabel, "text"),
+        paint(repoLabel, "accent", true),
         footerTokenOrWorkSegment(snapshot),
-        summary ? issueBadgeSegment(openIssues, true) : "",
         footerBranchSegment(cwd, footerData),
         footerModelSegment(snapshot),
         footerContextSegment(snapshot),

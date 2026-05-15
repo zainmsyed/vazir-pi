@@ -142,6 +142,11 @@
     "7fdacc34": "yes. you will likely need to make a new commit bc fossil is imutable",
     "7c64f2a1": "we will fix this loop after the refactor or should we fix the commit loop now. I",
     "d2aaabb6": "yes do it now",
-    "7f821f1d": "yes do it now"
+    "7f821f1d": "yes do it now",
+    "7327e3e1": "commit",
+    "526a65a1": "Implement the in-progress story in .context/stories/story-018.md.\n\nYour job:\n1. ",
+    "a4e59c97": "why was the footer touched in this story???? the issue notification should not b",
+    "e0ff61ff": "please remove the story from the footer and the repo name should be zero",
+    "3cfd5f1b": "please remove the story from the footer and the repo name should be purple"
   }
 }
