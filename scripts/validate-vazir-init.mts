@@ -79,9 +79,6 @@ function makeCtx(cwd: string, choices: string[], notifications: Notification[], 
       notify(message: string, level: string) {
         notifications.push({ message, level });
       },
-      async input(_prompt: string, _placeholder?: string) {
-        return "";
-      },
     },
   };
 }
@@ -122,14 +119,14 @@ async function runMissingJjScenario() {
   process.env.PATH = createPathWithGitOnly();
 
   try {
-    await command.handler("", makeCtx(cwd, ["No — skip Fallow", "Git + JJ — initialise git (JJ optional)"], notifications, selectCalls));
+    await command.handler("", makeCtx(cwd, ["No — skip Fallow", "Yes — initialise git"], notifications, selectCalls));
   } finally {
     process.env.PATH = originalPath;
   }
 
   const summary = getSummary(notifications);
-  assert(summary.includes("☑ Git: active"), "missing-JJ summary did not show git active message");
-  assert(summary.includes("↳ Learn more about git"), "missing-JJ summary did not include the git detail line");
+  assert(summary.includes("☒ JJ (Jujutsu): Not started"), "missing-JJ summary did not show the not-started message");
+  assert(summary.includes("↳ Go here to install directions https://www.jj-vcs.dev/latest/install-and-setup/"), "missing-JJ summary did not include the install directions line");
   assert(fs.existsSync(path.join(cwd, ".context/memory/system.md")), "system.md was not created");
   assert(fs.existsSync(path.join(cwd, ".context/memory/index.md")), "index.md was not created");
   assert(fs.existsSync(path.join(cwd, ".context/memory/context-map.md")), "context-map.md was not created");
@@ -154,7 +151,7 @@ async function runMissingFileScenario() {
   process.env.PATH = fs.mkdtempSync(path.join(os.tmpdir(), "vazir-empty-bin-"));
 
   try {
-    await command.handler("", makeCtx(cwd, ["No — skip Fallow", "Skip VCS — no version control"], notifications));
+    await command.handler("", makeCtx(cwd, ["No — skip Fallow", "Skip JJ — use git fallback"], notifications));
   } finally {
     process.env.PATH = originalPath;
   }
@@ -182,7 +179,7 @@ async function runFallowInstallScenario() {
   process.env.PATH = createPathWithGitAndFakeNpm(cwd);
 
   try {
-    await command.handler("", makeCtx(cwd, ["Yes — install Fallow", "Git + JJ — initialise git (JJ optional)"], notifications, selectCalls));
+    await command.handler("", makeCtx(cwd, ["Yes — install Fallow", "Yes — initialise git"], notifications, selectCalls));
   } finally {
     process.env.PATH = originalPath;
   }
@@ -200,42 +197,10 @@ async function runFallowInstallScenario() {
   return { cwd, summary: getSummary(notifications), notifications };
 }
 
-async function runFossilBootstrapScenario() {
-  const cwd = createProject("vazir-init-fossil-");
-  const { command } = makePi();
-  const notifications: Notification[] = [];
-  const selectCalls: SelectCall[] = [];
-
-  await command.handler("", makeCtx(cwd, ["No — skip Fallow", "Fossil — initialise a fossil repo", "Create a new local repo"], notifications, selectCalls));
-
-  assert(fs.existsSync(path.join(cwd, ".fslckout")), "fossil bootstrap did not create .fslckout");
-  assert(fs.existsSync(path.join(cwd, ".fossil-settings/ignore-glob")), "fossil bootstrap did not create .fossil-settings/ignore-glob");
-
-  const fossilIgnore = fs.readFileSync(path.join(cwd, ".fossil-settings/ignore-glob"), "utf-8");
-  assert(fossilIgnore.includes("node_modules"), "fossil ignore-glob did not include node_modules");
-  assert(fossilIgnore.includes(".git"), "fossil ignore-glob did not include .git");
-  assert(fossilIgnore.includes(".jj"), "fossil ignore-glob did not include .jj");
-  assert(fossilIgnore.includes(".context"), "fossil ignore-glob did not include .context");
-
-  const projectSettings = JSON.parse(fs.readFileSync(path.join(cwd, ".context/settings/project.json"), "utf-8"));
-  assert(projectSettings.vcs_preference === "fossil", "fossil bootstrap did not write vcs_preference to project.json");
-
-  const gitignore = fs.readFileSync(path.join(cwd, ".gitignore"), "utf-8");
-  assert(gitignore.includes(".fslckout"), "fossil bootstrap did not add .fslckout to .gitignore");
-  assert(gitignore.includes("_FOSSIL_"), "fossil bootstrap did not add _FOSSIL_ to .gitignore");
-  assert(gitignore.includes("*.fossil"), "fossil bootstrap did not add *.fossil to .gitignore");
-
-  const summary = getSummary(notifications);
-  assert(summary.includes("Fossil"), "fossil bootstrap summary did not mention Fossil");
-
-  return { cwd, summary, notifications };
-}
-
 try {
   const missingJj = await runMissingJjScenario();
   const missingFile = await runMissingFileScenario();
   const fallowInstall = await runFallowInstallScenario();
-  const fossilBootstrap = await runFossilBootstrapScenario();
 
   function printScenario(title: string, result: { cwd: string; summary: string; notifications: Notification[] }) {
     console.log(title);
@@ -254,7 +219,6 @@ try {
   printScenario("Missing JJ", missingJj);
   printScenario("Missing file", missingFile);
   printScenario("Fallow install", fallowInstall);
-  printScenario("Fossil bootstrap", fossilBootstrap);
 } finally {
   cleanupStubModules(stubModuleDirs);
 }
