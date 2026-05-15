@@ -2,7 +2,7 @@
 
 **Status:** in-progress  
 **Created:** 2026-05-14
-**Last accessed:** 2026-05-14  
+**Last accessed:** 2026-05-15  
 **Completed:** —
 
 ---
@@ -36,23 +36,25 @@ Update `/vazir-init` so Vazir scans the repo for Git and Fossil state, treats Gi
 ---
 
 ## Checklist
-- [ ] Scan the repo during `/vazir-init` to detect whether Git and/or Fossil are already present
-- [ ] If neither is present, prompt the user to choose Git/JJ or Fossil and state the choice can be changed later in settings
-- [ ] If only Git is present, write Git/JJ as the active mode in settings and ask whether the user wants to enable JJ for checkpoints
-- [ ] If only Fossil is present, write Fossil as the active mode in settings and do not prompt for JJ
-- [ ] If both Git and Fossil are present, ask which one should be the active mode in settings
-- [ ] If Git/JJ is chosen, preserve Vazir's current Git/JJ setup behavior
-- [ ] If Fossil is chosen, run/use the Fossil setup path
-- [ ] Write the selected active mode into project settings
-- [ ] Ensure `.fossil-settings/ignore-glob` is created with sensible defaults when Fossil is configured (`.context/`, `node_modules/`, `.git/`, `.jj/`)
-- [ ] Update init summary text to reflect the selected mode and the fact it can change later in settings
-- [ ] Make context/system guidance tell the agent to check settings for the active mode each time instead of assuming init made a permanent choice
-- [ ] Add validation coverage for no-version-control-system (VCS) choice flow, Git-only flow, Fossil-only flow, and both-present active-mode selection flow
+- [x] Scan the repo during `/vazir-init` to detect whether Git and/or Fossil are already present
+- [x] If neither is present, prompt the user to choose Git/JJ or Fossil and state the choice can be changed later in settings
+- [x] If only Git is present, write Git/JJ as the active mode in settings and ask whether the user wants to enable JJ for checkpoints
+- [x] If only Fossil is present, write Fossil as the active mode in settings and do not prompt for JJ
+- [x] If both Git and Fossil are present, ask which one should be the active mode in settings
+- [x] If Git/JJ is chosen, preserve Vazir's current Git/JJ setup behavior
+- [x] If Fossil is chosen, run/use the Fossil setup path
+- [x] Write the selected active mode into project settings
+- [x] Ensure `.fossil-settings/ignore-glob` is created with sensible defaults when Fossil is configured (`.context/`, `node_modules/`, `.git/`, `.jj/`, `.fallow/`, common local junk, and common secret/certificate files such as `.env`, `.env.*`, `*.local`, `.local/`, `*.log`, `*.tmp`, `*.temp`, `*.swp`, `.DS_Store`, `Thumbs.db`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.crt`)
+- [x] Update init summary text to reflect the selected mode and the fact it can change later in settings
+- [x] Make context/system guidance tell the agent to check settings for the active mode each time instead of assuming init made a permanent choice
+- [x] Add validation coverage for no-version-control-system (VCS) choice flow, Git-only flow, Fossil-only flow, and both-present active-mode selection flow
 
 ---
 
 ## Issues
+- None currently.
 
 ---
 
 ## Completion Summary
+Implemented repo-scan-based version control system (VCS) setup in `/vazir-init`. Vazir now detects Git and Fossil repo state, chooses or adopts the active mode in project settings, asks Git-only repos whether to enable JJ checkpoints, keeps the existing Git/JJ setup flow when Git/JJ is selected, runs the Fossil setup path when Fossil is selected, ensures Fossil ignore defaults are present, injects prompt guidance that tells the agent to re-check settings for the active mode instead of assuming the original init choice is permanent, and adds validator coverage for the no-VCS choice flow plus Git-only, Fossil-only, and both-present selection flows.
