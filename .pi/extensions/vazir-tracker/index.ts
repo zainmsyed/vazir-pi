@@ -8,13 +8,11 @@ import * as path from "path";
 import {
   complaintsLogPath,
   compareStoriesByRecencyDesc,
-  detectFossil,
   detectJJ,
   findActiveStory,
   nonTerminalStories,
   nowISO,
   readIfExists,
-  readProjectVcsPreference,
   todayDate,
   type StoryFrontmatter,
   updateStoryFrontmatter,
@@ -49,7 +47,6 @@ import {
   designSystemPath,
   hasUiTypeOverride,
   isUiStory,
-  sanitizeComplaintsLogText,
 } from "../vazir-context/helpers.ts";
 import {
   autoDescribeCurrentJjChange,
@@ -57,10 +54,8 @@ import {
   checkpointLabel,
   detectGitRepo,
   findOrphanedGitSessions,
-  fossilDiffFile,
   gitRestoreCheckpoint,
   gitSnapshotFile,
-  isFossilClean,
   isGitClean,
   jjCheckpointChoices,
   jjDiffFile,
@@ -78,8 +73,6 @@ import {
 let lastUserPrompt = "";
 let useJJ = false;
 let hasGitRepo = false;
-let hasFossilRepo = false;
-let vcsKind: "none" | "git" | "jj" | "fossil" = "none";
 let currentSessionId = "";
 
 export function normalizeTrackerInputText(text: string): string {
@@ -113,7 +106,10 @@ function appendToStoryIssues(storyPath: string, description: string): void {
 }
 
 function sanitizeComplaintDescription(description: string): string {
-  return sanitizeComplaintsLogText(description);
+  return description
+    .replace(/\|/g, "/")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function appendToComplaintsLog(cwd: string, storyName: string, description: string): void {
@@ -306,33 +302,12 @@ async function resolveStoryForImplementation(
   return selected;
 }
 
-function resolvePreferredVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" {
-  const preference = readProjectVcsPreference(cwd);
-  if (preference === "fossil" && hasFossilRepo) return "fossil";
-  if (preference === "jj" && useJJ) return "jj";
-  if (preference === "git" && hasGitRepo) return "git";
-  if (hasFossilRepo) return "fossil";
-  if (useJJ) return "jj";
-  if (hasGitRepo) return "git";
-  return "none";
-}
-
-function refreshDetectedVcs(cwd: string): void {
+export function refreshVcsState(cwd: string): void {
   hasGitRepo = detectGitRepo(cwd);
   useJJ = hasGitRepo ? detectJJ(cwd) : false;
-  hasFossilRepo = detectFossil(cwd);
-  vcsKind = resolvePreferredVcsKind(cwd);
+  setVcsFlags(hasGitRepo, useJJ);
   if (useJJ) loadJjCheckpointLabels(cwd);
-}
-
-function syncAndPublishVcs(cwd: string): void {
-  const display = syncChanges(cwd, vcsKind);
-  setVcsFlags(hasGitRepo, useJJ, vcsKind, display);
-}
-
-export function refreshVcsState(cwd: string): void {
-  refreshDetectedVcs(cwd);
-  syncAndPublishVcs(cwd);
+  syncChanges(cwd, hasGitRepo, useJJ);
   refreshWidgets();
 }
 
@@ -380,8 +355,11 @@ export default function (pi: ExtensionAPI) {
       },
     ) => {
       const cwd = ctx.cwd;
-      refreshDetectedVcs(cwd);
-      setVcsFlags(hasGitRepo, useJJ, vcsKind, syncChanges(cwd, vcsKind));
+      hasGitRepo = detectGitRepo(cwd);
+      useJJ = hasGitRepo ? detectJJ(cwd) : false;
+      if (useJJ) loadJjCheckpointLabels(cwd);
+
+      setVcsFlags(hasGitRepo, useJJ);
 
       const sessionManager = {
         getBranch: ctx.sessionManager?.getBranch ?? (() => []),
@@ -415,13 +393,15 @@ export default function (pi: ExtensionAPI) {
         }
         startFooterRefreshTicker(cwd => {
           // Re-detect VCS when git was not present at session start (e.g. /vazir-init ran mid-session).
-          const previousKind = vcsKind;
-          refreshDetectedVcs(cwd);
-          if (vcsKind !== previousKind || vcsKind === "none" || vcsKind === "fossil") {
-            syncAndPublishVcs(cwd);
-            return;
+          if (!hasGitRepo) {
+            hasGitRepo = detectGitRepo(cwd);
+            if (hasGitRepo) {
+              useJJ = detectJJ(cwd);
+              setVcsFlags(hasGitRepo, useJJ);
+              if (useJJ) loadJjCheckpointLabels(cwd);
+            }
           }
-          syncAndPublishVcs(cwd);
+          syncChanges(cwd, hasGitRepo, useJJ);
         });
         registerCommandHelpShortcut(ctx);
       }
@@ -449,17 +429,10 @@ export default function (pi: ExtensionAPI) {
             }
           }
         }
-      } else if (vcsKind === "fossil") {
-        if (!isFossilClean(cwd)) {
-          ctx.ui.notify(
-            "Work in progress from previous session detected. Commit or stash changes before starting a new session.",
-            "warning",
-          );
-        }
       }
 
       if (!ctx.hasUI) return;
-      syncAndPublishVcs(cwd);
+      syncChanges(cwd, hasGitRepo, useJJ);
       callUiMethod(ctx.ui, "setToolOutputExpanded", false);
       applyWorkingMessage(ctx.ui);
       ensureSessionChromeMounted(ctx.ui, cwd);
@@ -468,9 +441,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async (_event: unknown, ctx: { ui?: any }) => {
     hasGitRepo = false;
-    hasFossilRepo = false;
     useJJ = false;
-    vcsKind = "none";
     tearDownChromeSession(ctx.ui);
   });
 
@@ -537,13 +508,13 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (event.toolName === "write" || event.toolName === "edit" || event.toolName === "bash") {
-      syncAndPublishVcs(ctx.cwd);
+      syncChanges(ctx.cwd, hasGitRepo, useJJ);
       refreshWidgets();
     }
   });
 
   pi.on("agent_end", async (_event: unknown, ctx: { cwd: string; hasUI?: boolean; ui?: any }) => {
-    syncAndPublishVcs(ctx.cwd);
+    syncChanges(ctx.cwd, hasGitRepo, useJJ);
     refreshWidgets();
     if (ctx.hasUI) ensureSessionChromeMounted(ctx.ui, ctx.cwd);
 
@@ -567,7 +538,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("diff", {
     description: "Show inline terminal diff for a changed file",
     handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
-      syncAndPublishVcs(ctx.cwd);
+      syncChanges(ctx.cwd, hasGitRepo, useJJ);
       if (changedFiles.size === 0) {
         ctx.ui.notify("No changed files", "info");
         return;
@@ -587,7 +558,7 @@ export default function (pi: ExtensionAPI) {
 
       let diffText: string;
       try {
-        if (vcsKind === "jj") {
+        if (useJJ) {
           diffText = jjDiffFile(ctx.cwd, chosen.file);
         } else if (chosen.status === "?") {
           const content = fs.readFileSync(path.join(ctx.cwd, chosen.file), "utf-8");
@@ -595,8 +566,6 @@ export default function (pi: ExtensionAPI) {
             .split("\n")
             .map((l: string) => `+ ${l}`)
             .join("\n");
-        } else if (vcsKind === "fossil") {
-          diffText = fossilDiffFile(ctx.cwd, chosen.file);
         } else {
           const { execFileSync } = await import("child_process");
           diffText = execFileSync("git", ["diff", "--no-color", "HEAD", "--", chosen.file], {
@@ -840,7 +809,7 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
-      syncAndPublishVcs(cwd);
+      syncChanges(cwd, hasGitRepo, useJJ);
       refreshWidgets();
       return;
     }
@@ -861,7 +830,7 @@ export default function (pi: ExtensionAPI) {
 
     if (restoreChoice === "Previous checkpoint — undo last agent turn") {
       gitRestoreCheckpoint(cwd, checkpoints[0].dir);
-      syncAndPublishVcs(cwd);
+      syncChanges(cwd, hasGitRepo, useJJ);
       refreshWidgets();
       ctx.ui.notify("Restored to previous checkpoint", "info");
     } else if (restoreChoice === "Choose checkpoint — pick from list") {
@@ -873,7 +842,7 @@ export default function (pi: ExtensionAPI) {
       if (pick != null) {
         const chosen = checkpoints[labels.indexOf(pick)];
         gitRestoreCheckpoint(cwd, chosen.dir);
-        syncAndPublishVcs(cwd);
+        syncChanges(cwd, hasGitRepo, useJJ);
         refreshWidgets();
         ctx.ui.notify(`Restored checkpoint #${chosen.n}`, "info");
       }

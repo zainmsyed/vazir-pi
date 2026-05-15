@@ -1,4 +1,4 @@
-# Story 014: `/vazir-init` Fossil bootstrap parity
+# Story 014: `/vazir-init` version control system (VCS) repo-scan setup and active-mode settings
 
 **Status:** in-progress  
 **Created:** 2026-05-14
@@ -8,10 +8,17 @@
 ---
 
 ## Goal
-Add Fossil as a first-class VCS option during `/vazir-init`. Currently the init flow only prompts for Git (+ JJ colocation) and silently ignores Fossil even when the binary is installed. Users who prefer Fossil must initialise it manually outside Pi, then restart the session before Vazir detects it.
+Update `/vazir-init` so Vazir scans the repo for Git and Fossil state, treats Git/JJ and Fossil as the only user-facing version control system (VCS) modes, and writes the active choice into settings. If one mode is already present in the repo, Vazir should adopt it in settings. If only Git is present, Vazir should also ask whether the user wants to enable JJ for checkpoints. If both Git and Fossil are present, Vazir should ask which one should be active. If neither is present, `/vazir-init` should offer Git/JJ or Fossil and make clear the choice is not permanent because the user can change the active mode later in settings. Prompt/context behavior should not hardcode one VCS choice; it should always tell the agent to check settings again because the active mode can change over time.
 
 ## Verification
-Run `/vazir-init` in a fresh project with `fossil` installed and no existing VCS. The user sees a prompt that includes Fossil alongside Git. Selecting Fossil runs `fossil init` (or `fossil open` if a remote repo URL is provided), creates `.context/settings/project.json` with `"vcs_preference": "fossil"`, and the footer immediately renders the Fossil branch/sync status without requiring a session restart.
+- In a fresh project with neither `.git` nor `.fslckout`, `/vazir-init` offers Git/JJ or Fossil and explains the choice can be changed later in settings.
+- If the user chooses Git/JJ, Vazir initializes Git and follows the current JJ setup flow.
+- If the user chooses Fossil, Vazir runs the Fossil bootstrap flow, including ignore-glob setup.
+- In a repo with Git already present and no Fossil checkout, `/vazir-init` writes Git/JJ as the active mode in settings and asks whether the user wants to enable JJ for checkpoints.
+- In a repo with Fossil already present and no Git repo, `/vazir-init` writes Fossil as the active mode in settings and does not prompt for JJ.
+- In a repo with both Git and Fossil present, `/vazir-init` asks which one should be the active mode in settings.
+- The active mode written to settings is the source of truth for later Vazir behavior.
+- Context/system guidance tells the agent to check settings for the current active mode rather than assuming the init choice is still current.
 
 ## Scope — files this story may touch
 - `.pi/extensions/vazir-context/index.ts`
@@ -19,9 +26,9 @@ Run `/vazir-init` in a fresh project with `fossil` installed and no existing VCS
 - `.pi/lib/vazir-helpers.ts`
 
 ## Out of scope — do not touch
-- Footer rendering logic itself (story-008 covered this)
+- Footer rendering logic itself
 - `/review` Fallow Fossil bridge (already works)
-- VCS preference UX after init (story-015)
+- Full settings-command UX and switching flow (story-015)
 
 ## Dependencies
 - —
@@ -29,13 +36,18 @@ Run `/vazir-init` in a fresh project with `fossil` installed and no existing VCS
 ---
 
 ## Checklist
-- [x] Detect `fossil` binary presence at `/vazir-init` time (probe `fossil version`)
-- [x] Redesign VCS prompt as a multi-option select: Git + JJ / Fossil / Skip VCS
-- [x] If Fossil chosen: run `fossil init` for new repo, or prompt for remote URL then `fossil clone` + `fossil open -f`
-- [x] Write `"vcs_preference": "fossil"` into `.context/settings/project.json` during init
-- [x] Ensure `.fossil-settings/ignore-glob` is created with sensible defaults (`.context/`, `node_modules/`, `.git/`, `.jj/`)
-- [x] Update init summary checklist to mention Fossil when selected
-- [x] Add validation scenario in `scripts/validate-vazir-init.mts` for Fossil bootstrap path
+- [ ] Scan the repo during `/vazir-init` to detect whether Git and/or Fossil are already present
+- [ ] If neither is present, prompt the user to choose Git/JJ or Fossil and state the choice can be changed later in settings
+- [ ] If only Git is present, write Git/JJ as the active mode in settings and ask whether the user wants to enable JJ for checkpoints
+- [ ] If only Fossil is present, write Fossil as the active mode in settings and do not prompt for JJ
+- [ ] If both Git and Fossil are present, ask which one should be the active mode in settings
+- [ ] If Git/JJ is chosen, preserve Vazir's current Git/JJ setup behavior
+- [ ] If Fossil is chosen, run/use the Fossil setup path
+- [ ] Write the selected active mode into project settings
+- [ ] Ensure `.fossil-settings/ignore-glob` is created with sensible defaults when Fossil is configured (`.context/`, `node_modules/`, `.git/`, `.jj/`)
+- [ ] Update init summary text to reflect the selected mode and the fact it can change later in settings
+- [ ] Make context/system guidance tell the agent to check settings for the active mode each time instead of assuming init made a permanent choice
+- [ ] Add validation coverage for no-version-control-system (VCS) choice flow, Git-only flow, Fossil-only flow, and both-present active-mode selection flow
 
 ---
 
@@ -44,27 +56,3 @@ Run `/vazir-init` in a fresh project with `fossil` installed and no existing VCS
 ---
 
 ## Completion Summary
-
-Implemented Fossil bootstrap parity in `/vazir-init`.
-
-**index.ts changes:**
-- Replaced the binary Git-only VCS prompt with a multi-option select that detects all available VCS binaries (git, jj, fossil) and offers relevant choices.
-- If no VCS exists and fossil is available, the prompt includes "Fossil — initialise a fossil repo" alongside "Git + JJ" and "Skip VCS".
-- Fossil path: prompts for local vs remote, runs `fossil init` or `fossil clone`, then `fossil open -f` to handle non-empty project directories. Writes `vcs_preference: "fossil"` to `project.json`.
-- Git path: runs `git init` as before, then JJ setup. Does not write a hard `vcs_preference` so auto-detection can still prefer JJ when colocated.
-- Skip path: writes `vcs_preference: "none"` to record the explicit choice.
-- When an existing VCS is detected at init time (git or fossil already present), the preference is written to match the detected system without prompting.
-- Added `.fossil-settings/ignore-glob` creation with sensible defaults covering node_modules, .git, .jj, .context, .fslckout, _FOSSIL_, and *.fossil.
-- Added `.fslckout`, `_FOSSIL_`, and `*.fossil` to `.gitignore` when fossil is selected.
-- Updated `buildInitSummary` call to use generic `vcsLine`/`vcsDetailLine` variables so the summary correctly shows Fossil, Git, JJ, or skipped status.
-
-**helpers.ts changes:**
-- Renamed `buildInitSummary` parameters from `jjLine`/`jjDetailLine` to `vcsLine`/`vcsDetailLine` for semantic accuracy; no functional change.
-
-**Validation updates:**
-- Updated `scripts/validate-vazir-init.mts` test choices to match the new prompt strings.
-- Added `runFossilBootstrapScenario` that asserts `.fslckout` creation, `.fossil-settings/ignore-glob` content, `vcs_preference: "fossil"` in `project.json`, fossil artifacts in `.gitignore`, and Fossil mention in the init summary.
-- Updated `scripts/validate-vazir-status-chrome.mts` init-refresh scenario choices to match the new VCS prompt.
-
-All automated validations pass.
-

@@ -122,21 +122,12 @@ let storyProgressCache: StoryProgressSummary | null | undefined = undefined;
 // Mirrors of VCS flags — synced from index.ts via setVcsFlags().
 let _hasGitRepo = false;
 let _useJJ = false;
-let _vcsKind: "none" | "git" | "jj" | "fossil" = "none";
-let _vcsDisplay = { refLabel: "workspace", workingLabel: "", syncLabel: "" };
 
 // ── Lifecycle setters (called from index.ts) ───────────────────────────
 
-export function setVcsFlags(
-  hasGitRepo: boolean,
-  useJJ: boolean,
-  vcsKind: "none" | "git" | "jj" | "fossil" = useJJ ? "jj" : hasGitRepo ? "git" : "none",
-  display: { refLabel: string; workingLabel: string; syncLabel: string } = { refLabel: "workspace", workingLabel: "", syncLabel: "" },
-): void {
+export function setVcsFlags(hasGitRepo: boolean, useJJ: boolean): void {
   _hasGitRepo = hasGitRepo;
   _useJJ = useJJ;
-  _vcsKind = vcsKind;
-  _vcsDisplay = display;
 }
 
 export function setChromeSession(
@@ -723,11 +714,50 @@ export function clipInline(text: string, max = 40): string {
 }
 
 function branchLabel(cwd: string): string {
-  if (_vcsKind === "none") {
+  if (!_hasGitRepo && !_useJJ) {
     return isVazirInitialized(cwd) ? "no-git" : "run /vazir-init";
   }
 
-  return clipInline(_vcsDisplay.refLabel || _vcsKind, 24);
+  try {
+    try {
+      const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).toString().trim();
+      if (branch && branch !== "HEAD") return clipInline(branch, 24);
+
+      if (branch === "HEAD") {
+        try {
+          const sha = childProcess.execSync("git rev-parse --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+          if (sha) return clipInline(`detached@${sha}`, 24);
+        } catch {
+          // ignore
+        }
+        // Empty repo (no commits yet) — symbolic-ref gives the configured default branch name.
+        try {
+          const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+          if (symRef) return clipInline(symRef, 24);
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // git not available; fall through to JJ
+    }
+
+    if (_useJJ) {
+      try {
+        const label = childProcess.execSync("jj bookmark list --revision @ --no-graph", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        if (label) return clipInline(label, 24);
+      } catch {
+        // ignore
+      }
+      return "jj";
+    }
+
+    return "workspace";
+  } catch {
+    /* ignore VCS label lookup */
+  }
+
+  return _useJJ ? "jj" : "workspace";
 }
 
 function repoNameLabel(cwd: string): string {
@@ -746,45 +776,14 @@ function storySavedLabel(summary: StoryProgressSummary): string | null {
   return `last saved ${formatRelativeAge(modifiedAt)}`;
 }
 
-function storyLastAccessedLabel(story: StoryFrontmatter): string {
-  if (!story.lastAccessed) return "";
-
-  // Date-only values like "2026-05-13" are written by the context layer.
-  // Parsing them as UTC midnight makes them appear ~N hours old during the
-  // same calendar day, so treat them as calendar dates.
-  if (/^\d{4}-\d{2}-\d{2}$/.test(story.lastAccessed)) {
-    const today = new Date().toISOString().slice(0, 10);
-    if (story.lastAccessed === today) {
-      return "today";
-    }
-    return formatRelativeAge(new Date(`${story.lastAccessed}T00:00:00Z`).getTime());
+function footerGitStatusSegment(): string {
+  const dirtyCount = changedFiles.size;
+  if (dirtyCount <= 0) {
+    return paint("✓ clean", "success");
   }
 
-  return formatRelativeAge(new Date(story.lastAccessed).getTime());
-}
-
-function footerVcsStatusSegment(): string {
-  const workingLabel = _vcsDisplay.workingLabel;
-  const syncLabel = _vcsDisplay.syncLabel;
-  const dirtyCount = changedFiles.size;
-  const workingTone: VazirTone = dirtyCount <= 0 ? "success" : dirtyCount <= 5 ? "warning" : "error";
-  const syncTone: VazirTone = syncLabel === "autosync off" ? "warning" : syncLabel === "not synced" ? "error" : "dim";
-
-  return [
-    workingLabel ? paint(workingLabel, workingTone) : "",
-    syncLabel ? paint(syncLabel, syncTone) : "",
-  ].filter(Boolean).join(separatorDot());
-}
-
-function footerBranchSegment(
-  cwd: string,
-  footerData: { getGitBranch(): string | null | undefined },
-): string {
-  const hostBranch = _vcsKind === "git" && _hasGitRepo ? footerData.getGitBranch() : null;
-  const branch = clipInline(hostBranch || branchLabel(cwd), 24);
-  const branchPart = paint(branch, "branch");
-  const vcsPart = footerVcsStatusSegment();
-  return vcsPart ? `${branchPart}${separatorDot()}${vcsPart}` : branchPart;
+  const tone: VazirTone = dirtyCount <= 5 ? "warning" : "error";
+  return paint(`${dirtyCount} uncommitted`, tone);
 }
 
 function footerSpendSegment(snapshot: FooterSessionSnapshot): string {
@@ -804,12 +803,6 @@ function footerContextSegment(snapshot: FooterSessionSnapshot): string {
           ? "warning"
           : "dim";
   return paint(`${percent}/${formatTokens(contextUsage.contextWindow)}`, tone);
-}
-
-function footerModelSegment(snapshot: FooterSessionSnapshot): string {
-  const modelLabel = clipInline(shortModelLabel(snapshot), 30);
-  const thinkingLevel = latestThinkingLevel(snapshot);
-  return `${paint(modelLabel, "dim")} ${paint(`(${thinkingLevel})`, "dim")}`;
 }
 
 function footerTokenOrWorkSegment(snapshot: FooterSessionSnapshot): string {
@@ -857,19 +850,14 @@ function storyStatusWidgetLines(
     ];
   }
 
-  const title = storyPickerTitle(summary.story);
-  const slugWithTitle = title
-    ? `${paint(summary.slug, "text")}: ${paint(clipInline(title, 40), "dim")}`
-    : paint(summary.slug, "text");
   const progressSegment = `${paint(progressBar(summary.checklistDone, summary.checklistTotal), storyProgressTone(summary))} ${paint(`${summary.checklistDone}/${summary.checklistTotal} ${summary.checklistTotal === 1 ? "task" : "tasks"}`, "dim")}`;
   const openIssues = openIssueCount(readIfExists(summary.story.file));
   const issueSegment = openIssues === 0
     ? `${paint("✓", "success")} ${paint("no open issues", "dim")}`
     : `${paint("⚠", "error")} ${paint(`${openIssues} open issue${openIssues === 1 ? "" : "s"}`, "error")}`;
-  const accessedLabel = storyLastAccessedLabel(summary.story);
 
   const segments = [
-    `${paint("▸", "accent", true)} ${slugWithTitle}`,
+    `${paint("▸", "accent", true)} ${paint(summary.slug, "text")}`,
     paint(summary.story.status, storyStatusTone(summary.story.status)),
     progressSegment,
     issueSegment,
@@ -878,9 +866,6 @@ function storyStatusWidgetLines(
   const savedLabel = activeToolCalls > 0 ? null : storySavedLabel(summary);
   if (savedLabel) {
     segments.push(paint(savedLabel, "dim"));
-  }
-  if (accessedLabel) {
-    segments.push(accessedLabel);
   }
 
   return [
@@ -939,19 +924,31 @@ function sessionFooterLine(
 
   const summary = storyProgressSummary(cwd);
   const storyLabel = summary?.slug ?? "no active story";
+  const branch = clipInline(_hasGitRepo ? (footerData.getGitBranch() ?? branchLabel(cwd)) : branchLabel(cwd), 24);
+  const branchWithStatus = `${paint(branch, "branch")}${separatorDot()}${footerGitStatusSegment()}`;
+  const branchLabelSegment = paint(branch, "branch");
   const repoLabel = clipInline(repoNameLabel(cwd).replace(/-pi$/, ""), 12);
-
-  const segments = [
-    paint(repoLabel, "accent", true),
-    paint(storyLabel, "text"),
-    footerBranchSegment(cwd, footerData),
-    footerModelSegment(snapshot),
-    footerContextSegment(snapshot),
-    footerSpendSegment(snapshot),
-    footerTokenOrWorkSegment(snapshot),
-  ].filter(Boolean);
-
-  const left = segments.join(separatorDot());
+  const modelLabel = clipInline(shortModelLabel(snapshot), 30);
+  const thinkingLevel = latestThinkingLevel(snapshot);
+  const leftSegments = activeToolCalls > 0 && currentWorkingMessage
+    ? [
+        paint(repoLabel, "accent", true),
+        paint(storyLabel, "text"),
+        branchLabelSegment,
+        footerContextSegment(snapshot),
+        footerSpendSegment(snapshot),
+        footerTokenOrWorkSegment(snapshot),
+      ].filter(Boolean)
+    : [
+        paint(repoLabel, "accent", true),
+        paint(storyLabel, "text"),
+        branchWithStatus,
+        `${paint(modelLabel, "dim")} ${paint(`(${thinkingLevel})`, "dim")}`,
+        footerTokenOrWorkSegment(snapshot),
+        footerContextSegment(snapshot),
+        footerSpendSegment(snapshot),
+      ].filter(Boolean);
+  const left = leftSegments.join(separatorDot());
   return alignFooterLine(left, footerHint(), width);
 }
 
@@ -962,7 +959,7 @@ function createSessionFooterComponent(snapshot: FooterSessionSnapshot) {
     footerData: { getGitBranch(): string | null | undefined; onBranchChange?: (callback: () => void) => () => void },
   ) => {
     footerWidgetTui = tui;
-    const unsubscribe = _vcsKind === "git" && _hasGitRepo
+    const unsubscribe = _hasGitRepo
       ? footerData.onBranchChange?.(() => tui.requestRender()) ?? undefined
       : undefined;
 
