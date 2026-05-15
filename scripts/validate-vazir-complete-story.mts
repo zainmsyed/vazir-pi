@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import childProcess from "node:child_process";
 import os from "node:os";
 import * as path from "node:path";
 import { assert, cleanupStubModules, installCommonPiStubs, loadExtensionModule, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
@@ -25,6 +26,18 @@ function createProject(prefix: string): string {
   fs.writeFileSync(path.join(cwd, ".context", "memory", "system.md"), "# System Rules\n\n## Rules\n- Follow existing project conventions.\n\n## Learned Rules\n");
   fs.writeFileSync(path.join(cwd, ".context", "memory", "index.md"), "# File Index\n\n");
   fs.writeFileSync(path.join(cwd, ".context", "memory", "context-map.md"), "# Context Map\n\n- Project: Test\n");
+  return cwd;
+}
+
+function createGitProject(prefix: string): string {
+  const cwd = createProject(prefix);
+  fs.mkdirSync(path.join(cwd, ".context", "settings"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, ".context", "settings", "project.json"), JSON.stringify({ active_vcs_mode: "git", vcs_preference: "git" }, null, 2));
+  childProcess.execSync("git init -q", { cwd, stdio: "pipe" });
+  childProcess.execSync("git config user.name 'Vazir Test'", { cwd, stdio: "pipe" });
+  childProcess.execSync("git config user.email 'vazir-test@example.com'", { cwd, stdio: "pipe" });
+  childProcess.execSync("git add -A", { cwd, stdio: "pipe" });
+  childProcess.execSync("git commit --allow-empty -qm init", { cwd, stdio: "pipe" });
   return cwd;
 }
 
@@ -362,9 +375,42 @@ async function runReadyCloseScenario() {
   await harness.completeStory.handler("", ctx);
 
   assert(selectCalls.some(call => call.prompt.includes("What would you like to do?")), "ready closeout should prompt for the final action");
+  assert(selectCalls.some(call => call.options[0] === "Close story and commit"), "ready closeout should put the close-and-commit option first");
   assert(harness.sentUserMessages.length === 0, "ready closeout without review should not send a visible follow-up user message");
   assert(harness.sentInternalMessages.length === 0, "ready closeout without review should not queue an internal follow-up turn");
   assert(fs.readFileSync(path.join(cwd, ".context", "stories", "story-001.md"), "utf-8").includes("**Status:** complete"), "ready closeout should complete the story immediately when the user chooses close now");
+
+  return { cwd, notifications, selectCalls };
+}
+
+async function runReadyCloseAndCommitScenario() {
+  const cwd = createGitProject("vazir-complete-story-ready-close-commit-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story and commit"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [
+      "### /fix — \"signup button broken\"",
+      "- **Reported:** 2026-03-25  ",
+      "- **Status:** resolved  ",
+      "- **Agent note:** —  ",
+      "- **Solution:** Added missing submit handler",
+    ],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "close-and-commit scenario should mark the story complete");
+  assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "close-and-commit scenario should report the commit result");
+  const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(status === "", "close-and-commit scenario should leave the git checkout clean");
 
   return { cwd, notifications, selectCalls };
 }
@@ -417,6 +463,7 @@ try {
   const reviewGated = await runReviewGatedScenario();
   const restartedReviewCloseout = await runRestartedReviewCloseoutScenario();
   const readyClose = await runReadyCloseScenario();
+  const readyCloseAndCommit = await runReadyCloseAndCommitScenario();
   const keepWorking = await runKeepWorkingScenario();
 
   console.log("Review Gated Closeout");
@@ -441,6 +488,13 @@ try {
   console.log(`cwd: ${readyClose.cwd}`);
   console.log("notifications:");
   for (const note of readyClose.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Ready Closeout And Commit");
+  console.log(`cwd: ${readyCloseAndCommit.cwd}`);
+  console.log("notifications:");
+  for (const note of readyCloseAndCommit.notifications) {
     console.log(`  - [${note.level}] ${note.message}`);
   }
 

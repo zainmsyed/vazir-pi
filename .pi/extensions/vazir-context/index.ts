@@ -40,6 +40,7 @@ import {
   buildReviewInstruction,
   clearLegacyPendingLearnings,
   componentsPath,
+  commitStoryCloseChanges,
   contextMapPath,
   createReviewDraft,
   designDir,
@@ -826,7 +827,9 @@ export default function (pi: ExtensionAPI) {
     }
 
     pendingCompleteStoryRequests.delete(cwd);
-    if (decision === "close") {
+    if (decision === "close-commit") {
+      completeStoryAndCommitNow(ctx, storyPath);
+    } else if (decision === "close") {
       completeStoryNow(ctx, storyPath);
     }
     return true;
@@ -900,7 +903,14 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.notify(`${storyLabel} marked complete`, "info");
   }
 
-  async function promptReadyCloseout(ctx: any, storyPath: string): Promise<"review" | "close" | "not-yet" | null> {
+  function completeStoryAndCommitNow(ctx: any, storyPath: string): void {
+    const storyLabel = path.basename(storyPath, ".md");
+    completeStoryNow(ctx, storyPath);
+    const commitResult = commitStoryCloseChanges(ctx.cwd, storyLabel);
+    ctx.ui.notify(commitResult.summary, commitResult.ok ? "info" : "warning");
+  }
+
+  async function promptReadyCloseout(ctx: any, storyPath: string): Promise<"review" | "close-commit" | "close" | "not-yet" | null> {
     const storyLabel = path.basename(storyPath, ".md");
 
     if (!ctx.hasUI) {
@@ -909,12 +919,14 @@ export default function (pi: ExtensionAPI) {
     }
 
     const choice = await ctx.ui.select(`${storyLabel} is ready. What would you like to do?`, [
+      "Close story and commit",
       "Start code review before closing",
       "Close story now",
       "Not yet, keep working",
     ]);
 
     if (choice == null) return null;
+    if (choice === "Close story and commit") return "close-commit";
     if (choice === "Start code review before closing") return "review";
     if (choice === "Close story now") return "close";
     return "not-yet";
@@ -925,7 +937,7 @@ export default function (pi: ExtensionAPI) {
     reviewFilePath: string,
     findings: ReviewFindingSummary[],
     targetNoun: ReviewCloseoutTarget = "story",
-  ): Promise<"fix-high" | "fix-all" | "close" | "not-yet" | null> {
+  ): Promise<"fix-high" | "fix-all" | "close-commit" | "close" | "not-yet" | null> {
     const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
     const recommendedFixes = reviewRecommendedFixesFromFile(reviewFilePath);
     const otherFixes = reviewOtherFixesFromFile(reviewFilePath);
@@ -971,6 +983,7 @@ export default function (pi: ExtensionAPI) {
         return "fix-all";
       }
 
+      if (choice === `Close ${targetNoun} and commit`) return "close-commit";
       if (choice.includes(`Close ${targetNoun} now`)) return "close";
       return "not-yet";
     }
@@ -1045,6 +1058,9 @@ export default function (pi: ExtensionAPI) {
     const { pendingFixCount, pendingHighPriorityFixCount, targetNoun } = options;
     const choices: string[] = [];
 
+    if (targetNoun === "story") {
+      choices.push(`Close ${targetNoun} and commit`);
+    }
     if (pendingHighPriorityFixCount > 0) {
       choices.push(`Keep ${targetNoun} open and fix high-priority recommended items`);
     }
@@ -1325,7 +1341,9 @@ export default function (pi: ExtensionAPI) {
       }
 
       pendingCompleteStoryRequests.delete(cwd);
-      if (decision === "close") {
+      if (decision === "close-commit") {
+        completeStoryAndCommitNow(ctx, pendingCompleteStory.storyFile);
+      } else if (decision === "close") {
         completeStoryNow(ctx, pendingCompleteStory.storyFile);
       }
     }
@@ -1375,7 +1393,9 @@ export default function (pi: ExtensionAPI) {
       }
 
       pendingManualReviewRequests.delete(cwd);
-      if (decision === "close" && targetNoun === "story" && attachedStoryPath) {
+      if (decision === "close-commit" && targetNoun === "story" && attachedStoryPath) {
+        completeStoryAndCommitNow(ctx, attachedStoryPath);
+      } else if (decision === "close" && targetNoun === "story" && attachedStoryPath) {
         completeStoryNow(ctx, attachedStoryPath);
       } else if (decision === "close") {
         ctx.ui.notify(`${path.basename(pendingManualReview.reviewFile)} closeout finished`, "info");
@@ -2103,7 +2123,9 @@ export default function (pi: ExtensionAPI) {
       }
 
       pendingCompleteStoryRequests.delete(cwd);
-      if (choice === "close") {
+      if (choice === "close-commit") {
+        completeStoryAndCommitNow(ctx, storyPath);
+      } else if (choice === "close") {
         completeStoryNow(ctx, storyPath);
       }
     },
