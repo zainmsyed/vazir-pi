@@ -1,41 +1,67 @@
 # Intake Brief
 
-**Last updated:** 2026-05-05
+**Last updated:** 2026-05-15
 
 ## Planning brief
-Implement Vazir POC Addenda C and D: design system context layer (.context/design/) and enhanced two-tier consolidation (story-close mini-consolidate + manual /consolidate improvements).
+The next planning slice adds two priorities on top of the existing Addenda C/D roadmap.
+
+### Priority 1: harden persistence and VCS safety
+The Vazir system guidance must explicitly treat these as non-negotiable:
+- Commit `.context` changes whenever they are part of the work, unless the user explicitly says not to.
+- Never delete, reset, clean, reinitialize, or overwrite VCS files or metadata without explicit user approval for that exact action.
+
+Prompt rules alone are not enough. Vazir should also add runtime guardrails that block dangerous commands when they target protected VCS state.
+
+Protected paths and metadata to cover at minimum:
+- `.git/`
+- `.jj/`
+- `.fslckout`
+- `.fossil-settings/`
+
+Guardrails should also treat repo-shaping commands as dangerous when they would mutate initialized VCS state, including patterns like:
+- `rm -rf`
+- `git clean`
+- `git reset --hard`
+- re-init/open flows such as `jj git init` or `fossil open` when the repo is already initialized
+
+For ambiguous repo files such as `.gitignore`, prefer warning/confirmation rather than silent mutation or blanket blocking. Destructive VCS actions should require a very explicit confirmation token.
+
+### Priority 2: reduce extension sprawl
+The current extension surface is large enough that reviews and fixes feel slow and overly coupled. The preferred direction is to split by responsibility, not by arbitrary file size.
+
+Working split direction:
+- Keep `vazir-context` focused on init, plan, memory, consolidation, and learned-rules/system-prompt assembly.
+- Split review lifecycle into a dedicated review extension.
+- Split story lifecycle and story-close flows into a dedicated story extension.
+- Split VCS/checkpoint/settings logic into a dedicated VCS extension.
+- Keep tracker or UI-focused chrome/status rendering separate from workflow logic.
+
+The highest-risk areas during the split are:
+- `.context` persistence
+- story/review closeout handoffs
+- checkpoint sync and active-mode refresh
+- footer refresh timing and chrome state
+- shared helper drift
+
+### Safe planning assumptions
+- The split should be incremental and behavior-preserving, with regression coverage added before or alongside moves.
+- `.pi/lib/vazir-helpers.ts` remains the shared source for common helpers unless a cleaner shared module emerges during implementation.
+- Existing stories `story-001` through `story-015` are preserved as history; new work starts at `story-016`.
 
 ## Source files
-- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_C.md (13039 bytes)
-- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_D.md (12436 bytes)
+- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_C.md
+- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_D.md
+- User replanning direction captured in the current planning conversation
 
 ## Distilled notes
-
-### Addendum C — Design system context
-- New `.context/design/` folder with three files: `design-system.md` (injected for UI stories, 300-token soft cap), `brand.md` (read on demand), `components.md` (living registry, read on demand).
-- UI story detection via scope-path extensions: `.tsx`, `.jsx`, `.css`, `.scss`, `.html`, `.svelte`. `.ts` excluded. Optional `Type: ui` frontmatter override.
-- `/plan` gains silent design seeding pass from `.context/intake/references/` text files only (no vision analysis). Empty stubs if nothing found.
-- First UI story triggers lazy question flow for missing design tokens (primary colour, font, visual style, hard constraints).
-- `/design` command presents summary and applies user-described updates; warns and proposes trim if over 300 tokens.
-- Design compliance checklist appended to `/review` files for UI stories.
-
-### Addendum D — Enhanced consolidation
-- Two-tier model: automatic story-close mini-consolidate at `/complete-story` + unchanged manual `/consolidate` trigger.
-- Mini-consolidate reads story issues, review findings, and Fallow output; proposes rule candidates with confidence levels; user approves/skips/selects; promotes to `system.md ## Learned Rules` with provenance tags.
-- Fallow recurrence tracking: Fallow findings appended to `complaints-log.md` with `[fallow]` tag. Deduplicated per story. At 3 occurrences across different stories, graduates to promotion candidate.
-- Enhanced manual `/consolidate` gains inputs: story completion summaries, `.context/decisions.md`, rule confidence adjustment. Low-confidence rules flagged after N stories with no signal.
-- Positive pattern capture: success-derived rules promoted to `### From successes` subsection; failure-derived rules to `### From failures`.
-
-## Safe assumptions
-- Fallow (Addendum B) is not in scope for this plan; Addendum D code will look for Fallow findings in review files but gracefully handle their absence.
-- Token counting for the 300-token cap will use approximate word-based heuristics; the agent warns and proposes rather than hard-truncating.
-- `.context/decisions.md` is read opportunistically if present; no new file creation required.
-- Vision analysis for image intake is explicitly out of scope per Addendum C.
+- Addendum C remains the source of truth for design-system behavior.
+- Addendum D remains the source of truth for mini-consolidate, recurrence tracking, and consolidation UX.
+- New scope adds security and maintainability work around `.context` persistence, VCS safety, and extension decomposition.
+- The user wants both prompt-level rules and programmatic enforcement for VCS safety.
+- The user wants the extension split to improve review/fix performance by narrowing responsibility boundaries.
 
 ## Planning rules
-- Treat listed source files as user-authored planning inputs unless they are explicitly marked as generated artifacts.
-- Vazir-generated files in .context/stories/ are replan context, not primary intake.
-- Read all text-based planning sources before asking questions.
-- Ask only implementation-blocking delta questions after reviewing this brief and any raw files you actually need.
-- State safe default assumptions briefly so the user can correct them.
-- Surface contradictions instead of resolving them silently.
+- Preserve existing story files and queue entries.
+- Express new scope only as additive story rows and new `story-016+` files.
+- Keep each story small enough for one focused implementation session.
+- Do not place questions or open issues inside story checklist items.
