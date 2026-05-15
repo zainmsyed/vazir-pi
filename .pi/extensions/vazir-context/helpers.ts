@@ -1,26 +1,34 @@
 /// <reference path="../../../types/pi-runtime-ambient.d.ts" />
 /// <reference path="../../../types/node-runtime-ambient.d.ts" />
 
+import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 export {
   approvalGatedVcsOperation,
   buildDefaultSystemRulesMarkdown,
   buildVcsSafetyGuidanceText,
+  detectFossil,
   detectGitRepo,
+  detectJJ,
   hasVcsSafetyPolicyText,
   isProtectedVcsTarget,
   protectedVcsTargetsInText,
+  readActiveVcsMode,
   vcsSafetyRuleLines,
 } from "../../lib/vazir-helpers.ts";
 import {
   compareStoriesByCompletionDesc,
   compareStoriesByRecencyDesc,
   complaintsLogPath,
+  detectFossil,
+  detectGitRepo,
+  detectJJ,
   findActiveStory,
   listStories,
   nonTerminalStories,
   nowISO,
+  readActiveVcsMode,
   readIfExists,
   storiesDir,
   todayDate,
@@ -159,6 +167,11 @@ export interface StoryCompletionReadiness {
   hasCompletionSummary: boolean;
 }
 
+export interface StoryCloseCommitResult {
+  ok: boolean;
+  summary: string;
+}
+
 export interface LearnedRuleEntry {
   text: string;
   sourceStories: string[];
@@ -241,6 +254,90 @@ export function systemPath(cwd: string) {
 
 export function contextMapPath(cwd: string) {
   return path.join(memoryDir(cwd), "context-map.md");
+}
+
+function quoteShellArg(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function shellSummary(error: unknown): string {
+  const maybeError = error as { stderr?: string | Buffer; stdout?: string | Buffer; message?: string };
+  const stderr = typeof maybeError?.stderr === "string"
+    ? maybeError.stderr.trim()
+    : maybeError?.stderr?.toString("utf-8")?.trim() ?? "";
+  const stdout = typeof maybeError?.stdout === "string"
+    ? maybeError.stdout.trim()
+    : maybeError?.stdout?.toString("utf-8")?.trim() ?? "";
+  return stderr || stdout || maybeError?.message || String(error);
+}
+
+function gitHasPendingChanges(cwd: string): boolean {
+  try {
+    return childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim() !== "";
+  } catch {
+    return false;
+  }
+}
+
+function jjHasPendingChangesForCommit(cwd: string): boolean {
+  try {
+    return childProcess.execSync("jj diff --summary", { cwd, encoding: "utf-8", stdio: "pipe" }).trim() !== "";
+  } catch {
+    return false;
+  }
+}
+
+function fossilHasPendingChanges(cwd: string): boolean {
+  try {
+    const changed = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    return changed !== "" || extras !== "";
+  } catch {
+    return false;
+  }
+}
+
+export function commitStoryCloseChanges(cwd: string, storyLabel: string): StoryCloseCommitResult {
+  const message = `complete ${storyLabel}`;
+  const activeMode = readActiveVcsMode(cwd);
+
+  try {
+    if (activeMode === "fossil" && detectFossil(cwd)) {
+      if (!fossilHasPendingChanges(cwd)) {
+        return { ok: true, summary: "No pending Fossil changes to commit." };
+      }
+      childProcess.execSync(`fossil addremove && fossil commit -m ${quoteShellArg(message)}`, { cwd, encoding: "utf-8", stdio: "pipe" });
+      return { ok: true, summary: `Committed with Fossil: ${message}` };
+    }
+
+    if (detectJJ(cwd)) {
+      if (!jjHasPendingChangesForCommit(cwd)) {
+        return { ok: true, summary: "No pending JJ changes to describe." };
+      }
+      childProcess.execFileSync("jj", ["describe", "-m", message], { cwd, stdio: "pipe" });
+      return { ok: true, summary: `Recorded JJ change: ${message}` };
+    }
+
+    if (detectGitRepo(cwd)) {
+      if (!gitHasPendingChanges(cwd)) {
+        return { ok: true, summary: "No pending Git changes to commit." };
+      }
+      childProcess.execSync(`git add -A && git commit -m ${quoteShellArg(message)}`, { cwd, encoding: "utf-8", stdio: "pipe" });
+      return { ok: true, summary: `Committed with Git: ${message}` };
+    }
+
+    if (detectFossil(cwd)) {
+      if (!fossilHasPendingChanges(cwd)) {
+        return { ok: true, summary: "No pending Fossil changes to commit." };
+      }
+      childProcess.execSync(`fossil addremove && fossil commit -m ${quoteShellArg(message)}`, { cwd, encoding: "utf-8", stdio: "pipe" });
+      return { ok: true, summary: `Committed with Fossil: ${message}` };
+    }
+  } catch (error) {
+    return { ok: false, summary: `Commit failed: ${shellSummary(error)}` };
+  }
+
+  return { ok: false, summary: "No supported VCS is active here, so Vazir could not commit the closeout." };
 }
 
 export function intakeReadmePath(cwd: string) {

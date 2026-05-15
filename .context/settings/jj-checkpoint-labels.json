@@ -138,6 +138,10 @@
     "d658a45c": "Implement the in-progress story in .context/stories/story-017.md.\n\nYour job:\n1. ",
     "3b37f254": "Implement the in-progress story in .context/stories/story-017.md.\n\nYour job:\n1. ",
     "0cb9c278": "why didnt you commit ALL files i thought we fixed this???????",
-    "269cfdf8": "the .contxt folder as said many many masny times b4 need to be commited. that is"
+    "269cfdf8": "the .contxt folder as said many many masny times b4 need to be commited. that is",
+    "7fdacc34": "yes. you will likely need to make a new commit bc fossil is imutable",
+    "7c64f2a1": "we will fix this loop after the refactor or should we fix the commit loop now. I",
+    "d2aaabb6": "yes do it now",
+    "7f821f1d": "yes do it now"
   }
 }
