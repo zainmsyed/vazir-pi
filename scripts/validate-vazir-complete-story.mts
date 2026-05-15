@@ -288,6 +288,7 @@ async function runReviewGatedScenario() {
   assert(selectCalls.some(call => call.prompt.includes("High-priority items are done. Do you want to fix the remaining items before closing?")), "review-gated complete-story should reprompt after high-priority remediation finishes");
   assert(selectCalls.some(call => call.options.includes("Keep story open and fix remaining recommended items")), "review-gated complete-story should offer the remaining-item remediation path after high-priority work is done");
   assert(selectCalls.some(call => call.options.includes("Close story now (remaining items noted)")), "review-gated complete-story should offer a remaining-items-noted close option");
+  assert(selectCalls.some(call => call.options.includes("Close story and commit all")), "review-gated complete-story should offer an explicit close-and-commit-all option after review");
   assert(selectCalls.some(call => call.options.includes("Not yet, keep working")), "review-gated complete-story should let the user keep working after remediation");
 
   return { cwd, notifications, selectCalls, customCalls, reviewFiles, story };
@@ -375,7 +376,8 @@ async function runReadyCloseScenario() {
   await harness.completeStory.handler("", ctx);
 
   assert(selectCalls.some(call => call.prompt.includes("What would you like to do?")), "ready closeout should prompt for the final action");
-  assert(selectCalls.some(call => call.options[0] === "Close story and commit"), "ready closeout should put the close-and-commit option first");
+  assert(selectCalls.some(call => call.options.includes("Close story and commit all")), "ready closeout should offer an explicit close-and-commit-all option");
+  assert(selectCalls.some(call => call.options[0] === "Start code review before closing"), "ready closeout should keep review as the first closeout option");
   assert(harness.sentUserMessages.length === 0, "ready closeout without review should not send a visible follow-up user message");
   assert(harness.sentInternalMessages.length === 0, "ready closeout without review should not queue an internal follow-up turn");
   assert(fs.readFileSync(path.join(cwd, ".context", "stories", "story-001.md"), "utf-8").includes("**Status:** complete"), "ready closeout should complete the story immediately when the user chooses close now");
@@ -390,7 +392,7 @@ async function runReadyCloseAndCommitScenario() {
   const harness = makePi();
   const ctx = makeCtx(cwd, notifications, {
     hasUI: true,
-    selectResponses: ["Close story and commit"],
+    selectResponses: ["Close story and commit all"],
     selectCalls,
   });
   const storyPath = writeStory(cwd, {

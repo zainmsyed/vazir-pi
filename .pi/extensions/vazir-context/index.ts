@@ -961,16 +961,16 @@ export default function (pi: ExtensionAPI) {
     }
 
     const choice = await ctx.ui.select(`${storyLabel} is ready. What would you like to do?`, [
-      "Close story and commit",
       "Start code review before closing",
       "Close story now",
+      "Close story and commit all",
       "Not yet, keep working",
     ]);
 
     if (choice == null) return null;
-    if (choice === "Close story and commit") return "close-commit";
     if (choice === "Start code review before closing") return "review";
     if (choice === "Close story now") return "close";
+    if (choice === "Close story and commit all") return "close-commit";
     return "not-yet";
   }
 
@@ -1025,7 +1025,7 @@ export default function (pi: ExtensionAPI) {
         return "fix-all";
       }
 
-      if (choice === `Close ${targetNoun} and commit`) return "close-commit";
+      if (choice === `Close ${targetNoun} and commit all`) return "close-commit";
       if (choice.includes(`Close ${targetNoun} now`)) return "close";
       return "not-yet";
     }
@@ -1100,9 +1100,6 @@ export default function (pi: ExtensionAPI) {
     const { pendingFixCount, pendingHighPriorityFixCount, targetNoun } = options;
     const choices: string[] = [];
 
-    if (targetNoun === "story") {
-      choices.push(`Close ${targetNoun} and commit`);
-    }
     if (pendingHighPriorityFixCount > 0) {
       choices.push(`Keep ${targetNoun} open and fix high-priority recommended items`);
     }
@@ -1113,6 +1110,9 @@ export default function (pi: ExtensionAPI) {
     }
     choices.push("Open review document");
     choices.push(pendingFixCount > 0 ? `Close ${targetNoun} now (remaining items noted)` : `Close ${targetNoun} now`);
+    if (targetNoun === "story") {
+      choices.push(`Close ${targetNoun} and commit all`);
+    }
     choices.push("Not yet, keep working");
     return choices;
   }
