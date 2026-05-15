@@ -20,6 +20,14 @@ export interface VcsApprovalRequirement {
   reason: string | null;
 }
 
+export interface PendingVcsApproval {
+  token: string;
+  fingerprint: string;
+  commandText: string;
+  reason: string;
+  protectedTargets: string[];
+}
+
 export const PROTECTED_VCS_TARGETS = [".git/", ".jj/", ".fslckout", ".fossil-settings/"];
 
 const PROTECTED_VCS_TARGET_PATTERNS = [
@@ -34,11 +42,14 @@ const APPROVAL_GATED_VCS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: stri
   { pattern: /\bgit\s+clean(?:\s|$)/, reason: "Git clean permanently removes untracked files." },
   { pattern: /\bgit\s+restore(?:\s|$)/, reason: "Git restore can overwrite tracked files or staged state." },
   { pattern: /\bgit\s+checkout\b[^\n]*\s--(?:\s|$)/, reason: "Git checkout -- can overwrite tracked files." },
-  { pattern: /\bgit\s+init(?:\s|$)/, reason: "Git init creates or reinitializes repository metadata." },
-  { pattern: /\bjj\s+(?:git\s+init|init)(?:\s|$)/, reason: "JJ init creates repository metadata." },
   { pattern: /\bjj\s+(?:undo|restore|abandon|backout)(?:\s|$)/, reason: "JJ history-changing commands require approval." },
   { pattern: /\bfossil\s+(?:clean|revert|undo)(?:\s|$)/, reason: "Fossil revert-style commands discard local state." },
-  { pattern: /\bfossil\s+(?:init|new|open|clone)(?:\s|$)/, reason: "Fossil init/open-style commands create or replace repository metadata." },
+];
+
+const REINITIALIZING_VCS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /\bgit\s+init(?:\s|$)/, reason: "Git init would create or reinitialize repository metadata." },
+  { pattern: /\bjj\s+(?:git\s+init|init)(?:\s|$)/, reason: "JJ init would create or reinitialize repository metadata." },
+  { pattern: /\bfossil\s+(?:init|new|open|clone)(?:\s|$)/, reason: "Fossil init/open-style commands would create or replace repository metadata." },
 ];
 
 const APPROVAL_GATED_PROTECTED_TARGET_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
@@ -112,6 +123,15 @@ function tokenizeShellLike(text: string): string[] {
     .filter(Boolean);
 }
 
+function shortHash(text: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36).padStart(6, "0").slice(0, 8);
+}
+
 export function normalizeVcsTarget(target: string): string {
   return trimShellToken(target)
     .replace(/\\/g, "/")
@@ -136,7 +156,30 @@ export function protectedVcsTargetsInText(text: string): string[] {
   return matches;
 }
 
-export function approvalGatedVcsOperation(command: string): VcsApprovalRequirement {
+export function protectedVcsMetadataPresent(cwd: string): string[] {
+  return PROTECTED_VCS_TARGETS.filter(target => {
+    const relative = target.endsWith("/") ? target.slice(0, -1) : target;
+    return fs.existsSync(path.join(cwd, relative));
+  });
+}
+
+export function normalizeCommandFingerprint(command: string): string {
+  return command.trim().replace(/\s+/g, " ");
+}
+
+export function approvalTokenForFingerprint(fingerprint: string): string {
+  return `vcs-${shortHash(fingerprint)}`;
+}
+
+export function vcsApprovalPhrase(token: string): string {
+  return `VCS_APPROVE ${token}`;
+}
+
+export function userInputHasVcsApproval(text: string, token: string): boolean {
+  return text.toUpperCase().includes(vcsApprovalPhrase(token).toUpperCase());
+}
+
+export function approvalGatedVcsOperation(command: string, cwd?: string): VcsApprovalRequirement {
   const normalized = command.trim().toLowerCase();
   if (!normalized) {
     return { needsApproval: false, protectedTargets: [], reason: null };
@@ -145,6 +188,16 @@ export function approvalGatedVcsOperation(command: string): VcsApprovalRequireme
   for (const entry of APPROVAL_GATED_VCS_COMMAND_PATTERNS) {
     if (entry.pattern.test(normalized)) {
       return { needsApproval: true, protectedTargets: [], reason: entry.reason };
+    }
+  }
+
+  const presentTargets = cwd ? protectedVcsMetadataPresent(cwd) : [];
+  for (const entry of REINITIALIZING_VCS_COMMAND_PATTERNS) {
+    if (entry.pattern.test(normalized)) {
+      if (!cwd || presentTargets.length > 0) {
+        return { needsApproval: true, protectedTargets: presentTargets, reason: entry.reason };
+      }
+      return { needsApproval: false, protectedTargets: [], reason: null };
     }
   }
 
@@ -162,12 +215,25 @@ export function approvalGatedVcsOperation(command: string): VcsApprovalRequireme
   return { needsApproval: false, protectedTargets, reason: null };
 }
 
+export function buildBlockedVcsActionGuidance(approval: PendingVcsApproval): string {
+  const targetLine = approval.protectedTargets.length > 0
+    ? `Protected targets: ${approval.protectedTargets.join(", ")}.`
+    : "Protected VCS state is already present in this repo.";
+  return [
+    `Blocked destructive VCS action: ${approval.reason}`,
+    targetLine,
+    `To approve exactly this action, send: ${vcsApprovalPhrase(approval.token)}`,
+    "Then ask Vazir to retry the same command unchanged.",
+  ].join(" ");
+}
+
 export function vcsSafetyRuleLines(): string[] {
   const protectedTargets = PROTECTED_VCS_TARGETS.join(", ");
   return [
     "Commit `.context` changes whenever they are part of the work, unless the user explicitly says not to commit them.",
     `Treat ${protectedTargets} as protected VCS metadata targets.`,
     "Never delete, reset, clean, reinitialize, or overwrite VCS metadata without explicit user approval for that exact action.",
+    "If Vazir blocks a destructive VCS action, wait for the user to send the exact `VCS_APPROVE <token>` phrase before retrying that same action.",
   ];
 }
 

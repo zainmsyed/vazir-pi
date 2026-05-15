@@ -53,12 +53,14 @@ import {
 } from "../vazir-context/helpers.ts";
 import {
   autoDescribeCurrentJjChange,
+  clearPendingVcsApproval,
   type CheckpointMeta,
   checkpointLabel,
   detectGitRepo,
   findOrphanedGitSessions,
   gitRestoreCheckpoint,
   gitSnapshotFile,
+  inspectVcsToolGuard,
   isGitClean,
   jjCheckpointChoices,
   jjDiffFile,
@@ -492,7 +494,8 @@ export default function (pi: ExtensionAPI) {
     },
   );
 
-  pi.on("session_shutdown", async (_event: unknown, ctx: { ui?: any }) => {
+  pi.on("session_shutdown", async (_event: unknown, ctx: { cwd?: string; ui?: any }) => {
+    if (ctx.cwd) clearPendingVcsApproval(ctx.cwd);
     hasGitRepo = false;
     hasFossilRepo = false;
     useJJ = false;
@@ -527,7 +530,13 @@ export default function (pi: ExtensionAPI) {
 
   pi.on(
     "tool_call",
-    async (event: { toolName?: string; input?: { path?: string } }, ctx: { cwd: string; ui?: any }) => {
+    async (event: { toolName?: string; input?: { path?: string; command?: string } }, ctx: { cwd: string; ui?: any }) => {
+      const guard = inspectVcsToolGuard(ctx.cwd, event.toolName, event.input, lastUserPrompt);
+      if (guard.block) {
+        ctx.ui?.notify?.(guard.reason, "warning");
+        return { block: true, reason: guard.reason };
+      }
+
       beginToolActivity(ctx.ui, event.toolName, event.input);
 
       if (event.toolName === "write" || event.toolName === "edit") {
