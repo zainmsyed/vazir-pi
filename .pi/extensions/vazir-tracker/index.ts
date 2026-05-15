@@ -15,6 +15,7 @@ import {
   nowISO,
   readActiveVcsMode,
   readIfExists,
+  readProjectSettings,
   todayDate,
   type StoryFrontmatter,
   updateStoryFrontmatter,
@@ -307,14 +308,47 @@ async function resolveStoryForImplementation(
 }
 
 function resolvePreferredVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" {
+  const settings = readProjectSettings(cwd);
+  const vcsPreference = typeof settings.vcs_preference === "string" ? settings.vcs_preference.trim().toLowerCase() : "";
+  const hasExplicitMode = "active_vcs_mode" in settings;
   const activeMode = readActiveVcsMode(cwd);
-  if (activeMode === "fossil" && hasFossilRepo) return "fossil";
-  if (activeMode === "git" && useJJ) return "jj";
-  if (activeMode === "git" && hasGitRepo) return "git";
-  if (hasFossilRepo && !hasGitRepo) return "fossil";
+
+  // vcs_preference acts as an override when explicitly set to a non-auto value
+  if (vcsPreference && vcsPreference !== "auto") {
+    if (vcsPreference === "fossil" && hasFossilRepo) return "fossil";
+    if (vcsPreference === "jj" && useJJ) return "jj";
+    if (vcsPreference === "git" && hasGitRepo) return "git";
+    // If preference doesn't match detected repos, still honor it for explicit user choice
+    if (vcsPreference === "fossil") return "fossil";
+    if (vcsPreference === "jj" && hasGitRepo) return "jj"; // jj requires git
+    if (vcsPreference === "git") return "git";
+  }
+
+  if (hasExplicitMode) {
+    // Settings are the source of truth
+    if (activeMode === "fossil") return hasFossilRepo ? "fossil" : "none";
+    if (activeMode === "git") {
+      if (useJJ) return "jj";
+      return hasGitRepo ? "git" : "none";
+    }
+    return "none"; // activeMode === "none"
+  }
+
+  // Legacy fallback for pre-story-014 projects without active_vcs_mode
+  // Prefer Git over Fossil when both are present
   if (useJJ) return "jj";
   if (hasGitRepo) return "git";
   if (hasFossilRepo) return "fossil";
+  return "none";
+}
+
+function computeAutoDetectedVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" {
+  const git = detectGitRepo(cwd);
+  const jj = git ? detectJJ(cwd) : false;
+  const fossil = detectFossil(cwd);
+  if (jj) return "jj";
+  if (git) return "git";
+  if (fossil) return "fossil";
   return "none";
 }
 
@@ -328,13 +362,19 @@ function refreshDetectedVcs(cwd: string): void {
 
 function syncAndPublishVcs(cwd: string): void {
   const display = syncChanges(cwd, vcsKind);
-  setVcsFlags(hasGitRepo, useJJ, vcsKind, display);
+  const autoKind = computeAutoDetectedVcsKind(cwd);
+  const isOverridden = vcsKind !== autoKind;
+  setVcsFlags(hasGitRepo, useJJ, vcsKind, display, isOverridden);
 }
 
 export function refreshVcsState(cwd: string): void {
   refreshDetectedVcs(cwd);
   syncAndPublishVcs(cwd);
   refreshWidgets();
+}
+
+export function getResolvedVcsKind(): "none" | "git" | "jj" | "fossil" {
+  return vcsKind;
 }
 
 // ── Extension ──────────────────────────────────────────────────────────

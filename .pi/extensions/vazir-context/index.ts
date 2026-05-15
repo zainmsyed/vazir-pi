@@ -152,6 +152,25 @@ const AGENTS_MD_TEMPLATE = [
   "",
 ].join("\n");
 
+const SETTINGS_README_TEMPLATE = [
+  "# Vazir Settings",
+  "",
+  "This folder contains per-project configuration for Vazir.",
+  "",
+  "## Tunables",
+  "",
+  "- `active_vcs_mode` — Current active version control system: `git`, `fossil`, or `none`. Set by `/vazir-init` or `/vcs-settings`.",
+  "- `vcs_preference` — Explicit VCS override: `auto`, `git`, `jj`, or `fossil`. Use `/vcs-settings` to change without hand-editing.",
+  "- `project_name` — Display name used in plan scaffolding.",
+  "- `model_tier` — Default model tier: `fast`, `balanced`, or `quality`.",
+  "",
+  "## Changing settings",
+  "",
+  "Run `/vcs-settings` to open a picker, or `/vcs-settings <auto|git|jj|fossil>` to set the preference directly.",
+  "If you choose Git/JJ or Fossil and the required tool is missing, Vazir will prompt before helping you install it.",
+  "",
+].join("\n");
+
 const JJ_DOCS_URL = "https://www.jj-vcs.dev/latest/install-and-setup/";
 const JJ_OVERVIEW_URL = "https://www.jj-vcs.dev/latest/";
 const FALLOW_INSTALL_COMMAND = "npm install -D fallow";
@@ -1437,8 +1456,29 @@ export default function (pi: ExtensionAPI) {
     handler: async (_args: string, ctx: any) => {
       const cwd = ctx.cwd;
 
-      ensureDir(memoryDir(cwd));
-      ensureDir(storiesDir(cwd));
+      const isAlreadyInitialized = fs.existsSync(path.join(cwd, ".context", "settings", "project.json"));
+      let reconfigureOnly = false;
+      if (isAlreadyInitialized && typeof ctx.ui?.select === "function") {
+        const choice = await ctx.ui.select(
+          "Vazir is already initialized. What would you like to do?",
+          [
+            "Reconfigure VCS preference",
+            "Full re-bootstrap",
+            "Cancel",
+          ],
+        );
+        if (choice === "Cancel" || choice == null) return;
+        reconfigureOnly = choice === "Reconfigure VCS preference";
+      }
+
+      const projectSettingsPath = path.join(settingsDir(cwd), "project.json");
+      const agentsPath = path.join(cwd, "AGENTS.md");
+      let indexSummary = { total: 0, undescribed: 0 };
+      let shouldRequestModelDraft = false;
+
+      if (!reconfigureOnly) {
+        ensureDir(memoryDir(cwd));
+        ensureDir(storiesDir(cwd));
       ensureDir(settingsDir(cwd));
       ensureIntakeStructure(cwd);
       ensureReviewStructure(cwd);
@@ -1483,13 +1523,17 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("remembered rules log created", "info");
       }
 
-      const projectSettingsPath = path.join(settingsDir(cwd), "project.json");
       if (!fs.existsSync(projectSettingsPath)) {
         fs.writeFileSync(projectSettingsPath, JSON.stringify({ project_name: "", model_tier: "balanced", active_vcs_mode: "none" }, null, 2));
         ctx.ui.notify("project.json created", "info");
       }
 
-      const agentsPath = path.join(cwd, "AGENTS.md");
+      const settingsReadmePath = path.join(settingsDir(cwd), "README.md");
+      if (!fs.existsSync(settingsReadmePath)) {
+        fs.writeFileSync(settingsReadmePath, SETTINGS_README_TEMPLATE);
+        ctx.ui.notify("settings README created", "info");
+      }
+
       if (!fs.existsSync(agentsPath)) {
         fs.writeFileSync(agentsPath, AGENTS_MD_TEMPLATE);
         ctx.ui.notify("AGENTS.md created", "info");
@@ -1533,12 +1577,12 @@ export default function (pi: ExtensionAPI) {
       );
 
       const sourceFiles = walkSourceFiles(cwd);
-      const indexSummary = writeIndex(cwd, sourceFiles);
+      indexSummary = writeIndex(cwd, sourceFiles);
       ctx.ui.notify("index.md generated", "info");
 
       let contextMapStatus = "existing";
       const contextMapExisted = fs.existsSync(contextMapPath(cwd));
-      let shouldRequestModelDraft = false;
+      shouldRequestModelDraft = false;
       if (!contextMapExisted) {
         fs.writeFileSync(contextMapPath(cwd), CONTEXT_MAP_TEMPLATE);
         contextMapStatus = "fill in manually";
@@ -1555,6 +1599,7 @@ export default function (pi: ExtensionAPI) {
         `Vazir bootstrap complete • context-map.md: ${contextMapStatus} • index.md: ${indexSummary.total} files indexed • version control system (VCS) check runs now`,
         "info",
       );
+      } // end if (!reconfigureOnly)
 
       let vcsLine = "☒ Version control system (VCS): Not configured";
       let vcsDetailLine = "  ↳ The active mode can change later in settings.";
@@ -1567,7 +1612,7 @@ export default function (pi: ExtensionAPI) {
 
       const gitAndJjSetupFlow = async (): Promise<{ jjLine: string; jjDetailLine: string }> => {
         let nextJjLine = "☒ JJ (Jujutsu): Not started";
-        let nextJjDetailLine = `  ↳ Go here to install directions ${JJ_DOCS_URL}`;
+        let nextJjDetailLine = `  ↳ Install JJ here ${JJ_DOCS_URL}`;
         let jjAvailable = false;
 
         try {
@@ -1695,7 +1740,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       let jjLine = "☒ JJ (Jujutsu): Not started";
-      let jjDetailLine = `  ↳ Go here to install directions ${JJ_DOCS_URL}`;
+      let jjDetailLine = `  ↳ Install JJ here ${JJ_DOCS_URL}`;
       if (selectedMode === "git" && gitReady) {
         if (shouldAttemptJjSetup || detectJJ(cwd)) {
           const jjStatus = await gitAndJjSetupFlow();
@@ -2357,6 +2402,234 @@ export default function (pi: ExtensionAPI) {
       // direct invocation
       await applyInstruction(direct);
 
+    },
+  });
+
+  // ── /vcs-settings ────────────────────────────────────────────────────
+
+  function resolveAutoVcsModeForSettings(cwd: string): "git" | "fossil" | "none" {
+    const hasGit = detectGitRepo(cwd);
+    const hasJJ = hasGit ? detectJJ(cwd) : false;
+    const hasFossil = detectFossil(cwd);
+    if (hasJJ || hasGit) return "git";
+    if (hasFossil) return "fossil";
+    return "none";
+  }
+
+  function persistVcsSettings(cwd: string, preference: "auto" | "git" | "jj" | "fossil", activeMode: "git" | "fossil" | "none") {
+    writeProjectSettings(cwd, {
+      vcs_preference: preference,
+      active_vcs_mode: activeMode,
+    });
+    refreshVcsState(cwd);
+  }
+
+  function ensureGitignoreEntriesForVcsCommand(cwd: string, entries: string[], ctx: any, notification: string): void {
+    const gitignorePath = path.join(cwd, ".gitignore");
+    let current = readIfExists(gitignorePath);
+    let changed = false;
+    for (const entry of entries) {
+      if (new RegExp(`^${escapeRegExp(entry)}$`, "m").test(current)) continue;
+      current = `${current.trimEnd()}${current.trim() ? "\n" : ""}${entry}\n`;
+      changed = true;
+    }
+    if (!changed) return;
+    fs.writeFileSync(gitignorePath, current);
+    ctx.ui.notify(notification, "info");
+  }
+
+  async function promptInstallIfMissing(ctx: any, label: "Git" | "JJ" | "Fossil", message: string): Promise<boolean> {
+    if (typeof ctx.ui?.select !== "function") {
+      ctx.ui.notify(message, "info");
+      return false;
+    }
+
+    const choice = await ctx.ui.select(
+      `${label} is not installed. Would you like to install it?`,
+      ["Yes", "No"],
+    );
+    if (choice === "Yes") {
+      ctx.ui.notify(message, "info");
+      return true;
+    }
+    return false;
+  }
+
+  async function promptInitializeMode(ctx: any, label: string): Promise<boolean> {
+    if (typeof ctx.ui?.select !== "function") return true;
+    const choice = await ctx.ui.select(
+      `${label} is not initialized in this repo yet. Would you like Vazir to initialize it now?`,
+      ["Yes", "No"],
+    );
+    return choice === "Yes";
+  }
+
+  async function activateGitOrJjMode(ctx: any, cwd: string, requestedPreference: "git" | "jj"): Promise<void> {
+    const preferJj = requestedPreference === "jj";
+    if (!commandExists("git", ["--version"])) {
+      await promptInstallIfMissing(
+        ctx,
+        "Git",
+        "Git is not installed. Install it first, then re-run /vcs-settings.\n\nExamples:\n  macOS: brew install git\n  Ubuntu/Debian: sudo apt install git\n  Fedora: sudo dnf install git",
+      );
+      return;
+    }
+
+    let gitReady = detectGitRepo(cwd);
+    if (!gitReady) {
+      const shouldInitializeGit = await promptInitializeMode(ctx, "Git");
+      if (!shouldInitializeGit) {
+        ctx.ui.notify("Git setup skipped.", "info");
+        return;
+      }
+      try {
+        childProcess.execSync("git init", { cwd, stdio: "pipe" });
+        gitReady = true;
+        ctx.ui.notify("✓ git initialised\nRemember to add a remote:\ngit remote add origin <url>", "info");
+      } catch (error: any) {
+        ctx.ui.notify(`Git init failed: ${error?.message || String(error)}`, "warning");
+        return;
+      }
+    }
+
+    let jjActive = gitReady ? detectJJ(cwd) : false;
+    if (preferJj && gitReady && !jjActive) {
+      if (!commandExists("jj", ["--version"])) {
+        const wantsInstallHelp = await promptInstallIfMissing(
+          ctx,
+          "JJ",
+          "JJ is not installed. It gives Vazir a full checkpoint history of every agent turn.\n\nTo install:\n  macOS: brew install jj\n  Linux: cargo install jj-cli\n\nAfter installing, re-run /vcs-settings and choose Git/JJ.",
+        );
+        ctx.ui.notify(
+          wantsInstallHelp
+            ? "Continuing with Git only for now. Re-run /vcs-settings after installing JJ to enable checkpoints."
+            : "JJ setup skipped. Continuing with Git only for now.",
+          "info",
+        );
+      } else {
+        const shouldInitializeJj = await promptInitializeMode(ctx, "JJ");
+        if (!shouldInitializeJj) {
+          ctx.ui.notify("JJ setup skipped. Continuing with Git only for now.", "info");
+        } else {
+          try {
+            childProcess.execFileSync("jj", ["git", "init", "--colocate"], { cwd, stdio: "pipe" });
+            for (const branch of ["main", "master"]) {
+              try {
+                childProcess.execFileSync("jj", ["bookmark", "track", `${branch}@origin`], { cwd, stdio: "pipe" });
+                break;
+              } catch {
+                // Try the next common default branch.
+              }
+            }
+            ensureGitignoreEntriesForVcsCommand(cwd, [".jj/"], ctx, "Added .jj/ to .gitignore");
+            ctx.ui.notify("JJ initialised", "info");
+          } catch (error: any) {
+            ctx.ui.notify(`JJ setup failed: ${error?.message || String(error)} — continuing with Git only`, "warning");
+          }
+          jjActive = detectJJ(cwd);
+        }
+      }
+    }
+
+    useJJ = jjActive;
+    const resolvedPreference = requestedPreference === "jj" && jjActive ? "jj" : "git";
+    persistVcsSettings(cwd, resolvedPreference, "git");
+    ctx.ui.notify(`VCS preference set to ${resolvedPreference}`, "info");
+  }
+
+  async function activateFossilMode(ctx: any, cwd: string): Promise<void> {
+    if (!commandExists("fossil", ["version"])) {
+      await promptInstallIfMissing(
+        ctx,
+        "Fossil",
+        "Fossil is not installed. Install it first, then re-run /vcs-settings.\n\nExamples:\n  macOS: brew install fossil\n  Ubuntu/Debian: sudo apt install fossil\n  Fedora: sudo dnf install fossil",
+      );
+      return;
+    }
+
+    let fossilReady = detectFossil(cwd);
+    if (!fossilReady) {
+      const shouldInitializeFossil = await promptInitializeMode(ctx, "Fossil");
+      if (!shouldInitializeFossil) {
+        ctx.ui.notify("Fossil setup skipped.", "info");
+        return;
+      }
+      try {
+        const repoFile = `${path.basename(cwd)}.fossil`;
+        childProcess.execFileSync("fossil", ["init", repoFile], { cwd, stdio: "pipe" });
+        childProcess.execFileSync("fossil", ["open", "-f", repoFile], { cwd, stdio: "pipe" });
+        fossilReady = detectFossil(cwd);
+        ctx.ui.notify("✓ fossil repo initialised and opened", "info");
+      } catch (error: any) {
+        ctx.ui.notify(`Fossil setup failed: ${error?.message || String(error)}`, "warning");
+        return;
+      }
+    }
+
+    if (ensureFossilIgnoreGlob(cwd)) {
+      ctx.ui.notify("Added Fossil ignore defaults (.context/, node_modules/, .git/, .jj/)", "info");
+    }
+
+    useJJ = false;
+    persistVcsSettings(cwd, "fossil", "fossil");
+    ctx.ui.notify("VCS preference set to fossil", "info");
+  }
+
+  async function chooseVcsPreferenceFromMenu(ctx: any): Promise<"auto" | "git" | "jj" | "fossil" | null | undefined> {
+    if (typeof ctx.ui?.select !== "function") return undefined;
+    const choice = await ctx.ui.select(
+      "Which VCS mode should Vazir use?",
+      ["Auto", "Git/JJ", "Fossil", "Cancel"],
+    );
+    if (choice === "Auto") return "auto";
+    if (choice === "Git/JJ") return "jj";
+    if (choice === "Fossil") return "fossil";
+    return null;
+  }
+
+  async function applyVcsSettingsCommand(rawArgs: string, ctx: any) {
+    const cwd = ctx.cwd;
+    const normalizedParts = rawArgs.trim().split(/\s+/).filter(Boolean);
+
+    let preference: "auto" | "git" | "jj" | "fossil" | null = null;
+    if (normalizedParts.length < 1) {
+      preference = await chooseVcsPreferenceFromMenu(ctx);
+      if (preference === undefined) {
+        ctx.ui.notify("Usage: /vcs-settings <auto|git|jj|fossil>", "info");
+        return;
+      }
+      if (preference === null) return;
+    } else {
+      const candidate = normalizedParts[0].toLowerCase();
+      if (candidate === "auto" || candidate === "git" || candidate === "jj" || candidate === "fossil") {
+        preference = candidate;
+      }
+    }
+
+    if (preference === null) {
+      ctx.ui.notify(`Invalid VCS preference: ${normalizedParts[0]}. Use auto, git, jj, or fossil.`, "warning");
+      return;
+    }
+
+    if (preference === "auto") {
+      const activeMode = resolveAutoVcsModeForSettings(cwd);
+      persistVcsSettings(cwd, "auto", activeMode);
+      ctx.ui.notify(`VCS preference set to auto (resolved to ${activeMode})`, "info");
+      return;
+    }
+
+    if (preference === "fossil") {
+      await activateFossilMode(ctx, cwd);
+      return;
+    }
+
+    await activateGitOrJjMode(ctx, cwd, preference);
+  }
+
+  pi.registerCommand("vcs-settings", {
+    description: "Pick or set the preferred VCS mode for Vazir",
+    handler: async (args: string, ctx: any) => {
+      await applyVcsSettingsCommand(args, ctx);
     },
   });
 

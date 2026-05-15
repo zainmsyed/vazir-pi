@@ -9,7 +9,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 
 const stubModuleDirs = installCommonPiStubs();
 
-const trackerExtensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-tracker", String(Date.now()));
+const trackerExtensionModule = await loadExtensionModule<{ default: (pi: any) => void; refreshVcsState: (cwd: string) => void }>("vazir-tracker", String(Date.now()));
 const contextExtensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context", String(Date.now()));
 const registerTracker = trackerExtensionModule.default;
 const registerContext = contextExtensionModule.default;
@@ -457,6 +457,55 @@ async function runBootstrappedPlainFolderScenario() {
   };
 }
 
+async function runVcsPreferenceOverrideScenario() {
+  const cwd = createProject("vazir-status-vcs-override-");
+  const notifications: Notification[] = [];
+  const harness = makePi([registerTracker, registerContext]);
+  const ctx = makeCtx(cwd, notifications);
+  const theme: Theme = { fg: (_label: string, text: string) => text };
+
+  await harness.emit("session_start", {}, ctx);
+
+  const footerFactory = ctx.getFooterFactory();
+  assert(footerFactory !== null, "vcs-preference-override scenario did not mount the footer");
+
+  let footerRenderRequests = 0;
+  const footerComponent = footerFactory!(
+    { requestRender() { footerRenderRequests += 1; } },
+    theme,
+    { getGitBranch() { return "main"; } },
+  );
+
+  const beforeOverrideLines = footerComponent.render(140).map(stripAnsi);
+  assert(beforeOverrideLines[1]?.includes("main"), "footer did not show git branch before override");
+  assert(!beforeOverrideLines[1]?.includes("main*"), "footer should not show override indicator before setting preference");
+
+  const vcsSettingsCommand = harness.commands.get("vcs-settings");
+  assert(Boolean(vcsSettingsCommand), "vcs-settings command was not registered");
+  await vcsSettingsCommand!.handler("fossil", ctx);
+
+  const settingsPath = path.join(cwd, ".context", "settings", "project.json");
+  const afterOverrideSettings = JSON.parse(fs.readFileSync(settingsPath, "utf-8")) as { vcs_preference?: string; active_vcs_mode?: string };
+  assert(afterOverrideSettings.vcs_preference === "fossil", "vcs-settings did not write vcs_preference=fossil");
+  assert(afterOverrideSettings.active_vcs_mode === "fossil", "vcs-settings did not write active_vcs_mode=fossil");
+
+  const afterOverrideLines = footerComponent.render(140).map(stripAnsi);
+  assert(afterOverrideLines[1]?.includes("fossil*"), "footer did not show override indicator after /vcs-settings fossil");
+
+  await vcsSettingsCommand!.handler("auto", ctx);
+  const afterAutoSettings = JSON.parse(fs.readFileSync(settingsPath, "utf-8")) as { vcs_preference?: string; active_vcs_mode?: string };
+  assert(afterAutoSettings.vcs_preference === "auto", "vcs-settings did not write vcs_preference=auto");
+  assert(afterAutoSettings.active_vcs_mode === "git", "vcs-settings auto did not resolve back to active_vcs_mode=git");
+
+  const afterAutoLines = footerComponent.render(140).map(stripAnsi);
+  assert(afterAutoLines[1]?.includes("main"), "footer did not switch back to git after /vcs-settings auto");
+  assert(!afterAutoLines[1]?.includes("*"), "footer should clear override indicator after /vcs-settings auto");
+
+  await harness.emit("session_shutdown", {}, ctx);
+
+  return { cwd, beforeOverrideLines, afterOverrideLines, afterAutoLines };
+}
+
 async function runInitRefreshScenario() {
   const cwd = createPlainFolder("vazir-status-init-refresh-");
   const notifications: Notification[] = [];
@@ -567,10 +616,12 @@ try {
   const cleanFolder = await runCleanFolderScenario();
   const bootstrappedPlainFolder = await runBootstrappedPlainFolderScenario();
   const initRefresh = await runInitRefreshScenario();
+  const vcsPreferenceOverride = await runVcsPreferenceOverrideScenario();
   printScenario("Status Chrome", scenario);
   printScenario("Clean Folder Startup", cleanFolder);
   printScenario("Bootstrapped Plain Folder", bootstrappedPlainFolder);
   printScenario("Init Refresh", initRefresh);
+  printScenario("VCS Preference Override", vcsPreferenceOverride);
 } finally {
   cleanupStubModules(stubModuleDirs);
 }
