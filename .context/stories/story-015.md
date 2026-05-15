@@ -1,9 +1,9 @@
 # Story 015: VCS preference discoverability and override
 
-**Status:** in-progress  
+**Status:** complete  
 **Created:** 2026-05-14
 **Last accessed:** 2026-05-15  
-**Completed:** —
+**Completed:** 2026-05-15
 
 ---
 

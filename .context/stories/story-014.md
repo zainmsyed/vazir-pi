@@ -1,9 +1,9 @@
 # Story 014: `/vazir-init` version control system (VCS) repo-scan setup and active-mode settings
 
-**Status:** in-progress  
+**Status:** complete  
 **Created:** 2026-05-14
 **Last accessed:** 2026-05-15  
-**Completed:** —
+**Completed:** 2026-05-15
 
 ---
 
