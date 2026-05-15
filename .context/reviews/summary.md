@@ -1,9 +1,10 @@
 # Review Summary
 
-**Last updated:** 2026-05-15T19:09:45Z
+**Last updated:** 2026-05-15T19:24:57Z
 
 ## Findings
 - Add extension-level validation whenever new safety logic is wired into a live event interception path, not just helper-level unit checks. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
+- Add one validation per supported VCS mode and per protected decision branch whenever closeout behavior depends on persisted VCS mode or commit-policy prompts. | count: 1 | status: tracked | sources: review-20260515-191433.md | stories: story-018
 - Avoid committing editor or backup files (e.g. .bak, ~, .tmp). | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Consider adding a rule disallowing editor/backup artifacts (.bak, ~, .orig) in source tree (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Do not commit large binary backups into the main repository; use external storage or LFS. | count: 1 | status: tracked | sources: review-20260422-120959.md
@@ -16,6 +17,7 @@
 - Require an automated integration test for any change touching .context persistence or extension APIs (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - When a safety approval flow instructs the user to approve in one turn and retry in another, store the approval state independently from the latest natural-language prompt. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
+- When a workflow persists an active backend/mode choice, write follow-up actions against that persisted mode instead of re-probing a different backend first. | count: 1 | status: tracked | sources: review-20260515-191433.md | stories: story-018
 - When adding conditional template/instruction injection, add automated positive and negative harness tests for each branch. | count: 1 | status: tracked | sources: review-20260505-235339.md | stories: story-004
 - When adding shared policy helpers that parse commands or paths, add a checked-in validation covering representative positive and negative cases. | count: 1 | status: tracked | sources: review-20260515-125626.md | stories: story-016
 - When adding story-dependent prompt/context injection, add automated positive and negative harness tests for each story type branch. | count: 1 | status: tracked | sources: review-20260505-224448.md | stories: story-002
