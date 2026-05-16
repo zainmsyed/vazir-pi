@@ -36,7 +36,7 @@ Create a review file containing a `## Fallow Findings` section with two identica
 - [x] Implement deduplication: if the same finding appears in multiple reviews for the same story, count as one occurrence
 - [x] Update `/review` handler in vazir-context/index.ts to scan the completed review file for Fallow findings and call the appender
 - [x] Update status transitions: `noted` (below threshold) → `promoted` (at 3+ distinct stories)
-- [ ] Ensure the complaints-log parser in `/consolidate` and mini-consolidate recognizes `[fallow]` entries as valid signal sources
+- [x] Ensure the complaints-log parser in `/consolidate` and mini-consolidate recognizes `[fallow]` entries as valid signal sources
 - [x] Manual verification with mock review files containing fake Fallow findings
 
 ---
@@ -52,4 +52,17 @@ Create a review file containing a `## Fallow Findings` section with two identica
 ---
 
 ## Completion Summary
+
+Restored and revalidated the story-006 Fallow recurrence flow on current main.
+
+Validated pieces:
+- `reviewFallowFindingsFromFile()` parses `## Fallow Findings` blocks from completed review files.
+- `appendFallowToComplaintsLog()` appends sanitized `[fallow]` entries to `.context/complaints-log.md`, dedupes repeated findings within the same story, and promotes all matching entries after the third distinct-story occurrence.
+- Review closeout now records Fallow findings during both manual `/review` closeout and `/complete-story` review closeout.
+- Consolidation/mini-consolidate instructions now explicitly treat `[fallow]` complaints-log entries as valid signal sources so future promotion passes and story-close closeouts can use them consistently.
+
+Validation coverage:
+- `scripts/validate-vazir-fallow-recurrence.mts`
+- `scripts/validate-vazir-fallow-review-closeout.mts`
+- `scripts/validate-vazir-fallow-signal-sources.mts`
 
