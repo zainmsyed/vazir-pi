@@ -170,8 +170,11 @@ try {
   // ── Scenario 3: bridge failure (broken binary) ──
   const brokenCwd = createFossilProject("vazir-fallow-fossil-broken-");
   fs.appendFileSync(path.join(brokenCwd, "src", "example.ts"), "export const broken = 3;\n");
+  // Use a local node_modules copy so we do not corrupt the shared symlink target.
+  fs.unlinkSync(path.join(brokenCwd, "node_modules"));
+  fs.mkdirSync(path.join(brokenCwd, "node_modules", ".bin"), { recursive: true });
+  fs.copyFileSync(path.join(process.cwd(), "node_modules", ".bin", "fallow"), path.join(brokenCwd, "node_modules", ".bin", "fallow"));
   const brokenBinary = path.join(brokenCwd, "node_modules", ".bin", "fallow");
-  fs.renameSync(brokenBinary, `${brokenBinary}.real`);
   fs.writeFileSync(brokenBinary, "#!/bin/sh\necho 'not json'\nexit 1\n", { mode: 0o755 });
 
   const brokenNotifications: Notification[] = [];
