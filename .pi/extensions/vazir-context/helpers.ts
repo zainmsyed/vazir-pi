@@ -2533,7 +2533,7 @@ export function miniConsolidateCandidatesPath(cwd: string, storyLabel: string): 
 export function buildMiniConsolidateInstruction(cwd: string, storyLabel: string, reviewFilePath?: string): string {
   const reviewLines = reviewFilePath
     ? [
-        "- Read the review file at .context/reviews/${path.basename(reviewFilePath)}.",
+        `- Read the review file at .context/reviews/${path.basename(reviewFilePath)}.`,
         "- Read the Findings, Recommended Fixes, and Other Fixes sections.",
         "- If the review has a Fallow Findings section, read that too.",
       ]
