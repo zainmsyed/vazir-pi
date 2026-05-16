@@ -5,6 +5,8 @@ import {
   buildConsolidationInstruction,
   buildLearnedRuleCloseoutInstruction,
   buildMiniConsolidateInstruction,
+  buildReviewInstruction,
+  reviewFileTemplate,
   updateRuleConfidence,
 } from "../.pi/extensions/vazir-context/helpers.ts";
 
@@ -94,6 +96,53 @@ const learnedRuleInstruction = buildLearnedRuleCloseoutInstruction(cwd, "story-0
 assert(learnedRuleInstruction.includes(".context/complaints-log.md"), "learned-rule closeout instruction should read complaints-log.md");
 assert(learnedRuleInstruction.includes("[fallow]"), "learned-rule closeout instruction should explicitly treat [fallow] entries as valid signals");
 assert(learnedRuleInstruction.includes("story-001"), "learned-rule closeout instruction should scope complaints-log reading to the active story");
+
+const reviewTemplate = reviewFileTemplate(
+  "2026-05-16T12:45:00Z",
+  "story",
+  "story-001",
+  "fallow signal-source validation",
+  "manual",
+  "fallow audit — pass",
+);
+assert(reviewTemplate.includes("## Fallow Findings"), "review template should include a Fallow Findings section placeholder");
+assert(reviewTemplate.includes("- No Fallow findings."), "review template should include a default No Fallow findings line");
+
+const reviewInstruction = buildReviewInstruction(
+  {
+    created: "2026-05-16T12:45:00Z",
+    focus: "fallow signal-source validation",
+    scope: "story",
+    storyLabel: "story-001",
+    trigger: "manual",
+    staticAnalysis: "fallow audit — pass",
+    fileName: "review-20260516-124500.md",
+    filePath: path.join(cwd, ".context", "reviews", "review-20260516-124500.md"),
+  },
+  "## Static Analysis Findings (Fallow)\n- [dead-code] src/example.ts:1 — dead export",
+  cwd,
+);
+assert(reviewInstruction.includes("## Fallow Findings"), "review instruction should direct the agent to populate the Fallow Findings section");
+assert(reviewInstruction.includes("No Fallow findings"), "review instruction should tell the agent what to write when there are no fallow findings");
+assert(reviewInstruction.includes("Static Analysis Findings (Fallow) block above"), "review instruction with fallow prompt should reference the block above");
+
+const reviewInstructionNoFallow = buildReviewInstruction(
+  {
+    created: "2026-05-16T12:45:00Z",
+    focus: "fallow signal-source validation",
+    scope: "story",
+    storyLabel: "story-001",
+    trigger: "manual",
+    staticAnalysis: "not run (fallow unavailable)",
+    fileName: "review-20260516-124501.md",
+    filePath: path.join(cwd, ".context", "reviews", "review-20260516-124501.md"),
+  },
+  "",
+  cwd,
+);
+assert(reviewInstructionNoFallow.includes("## Fallow Findings"), "review instruction without fallow should still mention the Fallow Findings section");
+assert(!reviewInstructionNoFallow.includes("Static Analysis Findings (Fallow) block above"), "review instruction without fallow should NOT reference a missing block");
+assert(reviewInstructionNoFallow.includes("No Fallow findings"), "review instruction without fallow should tell the agent to write No Fallow findings");
 
 const confidenceChanged = updateRuleConfidence(cwd);
 assert(confidenceChanged, "fallow complaints-log signal should be able to influence a downstream learned-rule consumer");
