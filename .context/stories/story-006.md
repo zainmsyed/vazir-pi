@@ -43,6 +43,13 @@ Create a review file containing a `## Fallow Findings` section with two identica
 
 ## Issues
 
+### /fix — "why sint fallow running on code review?????"
+- **Reported:** 2026-05-16  
+- **Status:** resolved  
+- **Agent note:** The `node_modules/.bin/fallow` binary had been corrupted by the broken-binary test in `scripts/validate-vazir-fallow-fossil-review.mts`. The test replaced the shared symlink target with a fake shell script that output `"not json"`. Because all temp validation fixtures symlink to the real repo's `node_modules`, this broke Fallow for every subsequent `/review` run. Restored the symlink to `../fallow/bin/fallow` and fixed the validation script to use a local `node_modules` copy for the broken-binary scenario so it cannot corrupt the shared binary again.  
+- **Solution:** Restored the real `fallow` binary symlink and hardened `validate-vazir-fallow-fossil-review.mts` to isolate its broken-binary test from shared `node_modules`.
+
+
 ### /fix — reopened due to regression after story-014 VCS closeout refactor
 - **Reported:** 2026-05-15  
 - **Status:** resolved  
