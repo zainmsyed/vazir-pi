@@ -47,6 +47,12 @@ Run `/consolidate` — the consolidation instruction mentions reading story comp
 
 ## Issues
 
+### /fix — reopened due to regression after story-014 VCS closeout refactor
+- **Reported:** 2026-05-15  
+- **Status:** open  
+- **Agent note:** Story-007 consolidation enhancements (confidence scoring, subsection categorization) were merged from branch `vazir/story-task-cap-7` but later VCS closeout refactors (stories 014–015) overwrote the `parseLearnedRuleEntry`/`replaceLearnedRules`/`appendLearnedRules` implementations, stripping out `confidence`/`kind` support. The old code has been restored into helpers.ts, but the `/consolidate` handler on main still needs to be wired to call `updateRuleConfidence()` and `organizeLearnedRules()`.  
+- **Solution:** Verify `/consolidate` handler invokes confidence update and subsection organization, then run manual verification on current main.
+
 ---
 
 ## Completion Summary

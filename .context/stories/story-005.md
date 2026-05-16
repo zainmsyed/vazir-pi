@@ -1,8 +1,8 @@
 # Story 005: Story-close mini-consolidate and promotion UX
 
-**Status:** not-started  
+**Status:** in-progress  
 **Created:** 2026-05-05  
-**Last accessed:** 2026-05-15  
+**Last accessed:** 2026-05-16  
 **Completed:** —
 
 ---
@@ -45,6 +45,12 @@ Run `/complete-story` on an in-progress story that has `/fix` issues logged. Aft
 - **Status:** resolved  
 - **Agent note:** Restored red `error` tone to the issue tracker segment in `storyStatusWidgetLines`. The `⚠` glyph now renders in the red `error` ANSI color instead of the yellow `warning` tone.  
 - **Solution:** Changed `paint("⚠", "warning")` + `paint(..., "warning")` back to `paint("⚠", "error")` + `paint(..., "error")` in `.pi/extensions/vazir-tracker/chrome.ts`.
+
+### /fix — reopened due to regression after story-014 VCS closeout refactor
+- **Reported:** 2026-05-15  
+- **Status:** open  
+- **Agent note:** The story-005 closeout flow was merged into main from branch `vazir/story-task-cap-7`, but later VCS closeout work (stories 014–015) partially replaced the `/complete-story` state machine and broke the mini-consolidate trigger path. The old learned-rule closeout draft mechanism was restored, and this story is now being re-implemented properly on current main.  
+- **Solution:** Restore the proven learned-rule closeout architecture from `afa798b418` and re-validate against the updated closeout path.
 
 
 ---
