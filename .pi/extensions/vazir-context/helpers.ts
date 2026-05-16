@@ -2386,8 +2386,13 @@ export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt
     "8. Do not change story status as part of the review. A story only becomes complete when the user explicitly says so.",
     "9. Finish by writing the Completion Summary, setting `**Status:** complete`, and setting `**Completed:**` to today's date.",
     "10. Do not update .context/reviews/summary.md or .context/reviews/remembered.md manually; Vazir syncs them automatically.",
-    `11. Review scope: ${reviewScope}.`,
-    `12. Review focus: ${review.focus}.`,
+    staticAnalysisPrompt
+      ? "11. If the Static Analysis Findings (Fallow) block above contains issues, copy them verbatim into `## Fallow Findings` in the review file. If there are none, write `- No Fallow findings.` in that section."
+      : review.staticAnalysis.startsWith("fallow")
+        ? "11. Write `- No Fallow findings.` in the `## Fallow Findings` section (static analysis ran successfully and found no issues)."
+        : "11. Write `- No Fallow findings.` in the `## Fallow Findings` section (static analysis was not run for this review).",
+    `12. Review scope: ${reviewScope}.`,
+    `13. Review focus: ${review.focus}.`,
     review.storyLabel !== "—" ? `13. Story: ${review.storyLabel}.` : "13. No story is attached; keep the review manual and comprehensive within the requested scope.",
     `14. Trigger: ${review.trigger}.`,
     ...(designNotes.length > 0 ? ["", ...designNotes] : []),
@@ -2454,6 +2459,11 @@ export function reviewFileTemplate(
     "- Evidence: ",
     "- Recommendation: ",
     "- Rule candidate: —",
+    "",
+    "---",
+    "",
+    "## Fallow Findings",
+    "- No Fallow findings.",
     "",
     "---",
     "",

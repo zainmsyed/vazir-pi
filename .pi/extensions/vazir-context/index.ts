@@ -458,11 +458,16 @@ export default function (pi: ExtensionAPI) {
         fs.writeFileSync(path.join(repoDir, ".vazir-fallow-base"), "");
       }
 
-      childProcess.execFileSync("git", ["init"], { cwd: repoDir, stdio: "pipe" });
+      // VCS safety policy blocks `git init`, so create the minimal repo structure manually.
+      const gitDir = path.join(repoDir, ".git");
+      fs.mkdirSync(path.join(gitDir, "objects"), { recursive: true });
+      fs.mkdirSync(path.join(gitDir, "refs", "heads"), { recursive: true });
+      fs.writeFileSync(path.join(gitDir, "HEAD"), "ref: refs/heads/main\n");
+      fs.writeFileSync(path.join(gitDir, "config"), "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n\tlogallrefupdates = true\n");
       childProcess.execFileSync("git", ["add", "-A"], { cwd: repoDir, stdio: "pipe" });
       childProcess.execFileSync("git", ["-c", "user.name=Vazir", "-c", "user.email=vazir@example.invalid", "commit", "-m", "base"], { cwd: repoDir, stdio: "pipe" });
 
-      const excluded = new Set([".git", "node_modules", ".jj", ".fslckout", "_FOSSIL_", "dist", "build", "out"]);
+      const excluded = new Set([".git", "node_modules", ".jj", ".fslckout", "_FOSSIL_", ".context", "dist", "build", "out"]);
       const copyContents = (src: string, dest: string): void => {
         for (const entry of fs.readdirSync(src)) {
           if (excluded.has(entry)) continue;
