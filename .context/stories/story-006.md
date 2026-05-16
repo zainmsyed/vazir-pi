@@ -43,6 +43,12 @@ Create a review file containing a `## Fallow Findings` section with two identica
 
 ## Issues
 
+### /fix — reopened due to regression after story-014 VCS closeout refactor
+- **Reported:** 2026-05-15  
+- **Status:** open  
+- **Agent note:** Story-006 helpers (`reviewFallowFindingsFromFile`, `appendFallowToComplaintsLog`, `countFallowOccurrences`) were implemented on branch `vazir/story-task-cap-7` but were not present on current main after the VCS closeout refactors (stories 014–015). They have been restored into helpers.ts, but the review closeout wiring in index.ts still needs verification.  
+- **Solution:** Re-validate that review closeout scans Fallow findings and appends them to `complaints-log.md` on current main.
+
 ---
 
 ## Completion Summary
