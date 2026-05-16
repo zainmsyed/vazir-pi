@@ -10,3 +10,5 @@
 - If Vazir blocks a destructive VCS action, wait for the user to send the exact `VCS_APPROVE <token>` phrase before retrying that same action.
 
 ## Learned Rules
+- When adding new behavior to an existing state machine or closeout flow, layer it on top of the proven architecture rather than replacing the state machine inline; validate the golden path end-to-end after every integration. <!-- source: story-005 -->
+- When refactoring UI chrome or rendering logic, diff visual output against the previous state to catch unintended tone, color, or glyph regressions before merging. <!-- source: story-005 -->
