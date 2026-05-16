@@ -353,6 +353,47 @@ async function runReviewGatedScenario() {
   return { cwd, notifications, selectCalls, customCalls, reviewFiles, story };
 }
 
+async function runReviewInProgressPromptScenario() {
+  const cwd = createProject("vazir-complete-story-review-in-progress-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const customCalls: CustomCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: [
+      "Start code review before closing",
+      "Open review document",
+      "Keep story open and stay in review",
+    ],
+    selectCalls,
+    customCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+
+  const reviewDir = path.join(cwd, ".context", "reviews");
+  const reviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name)).sort();
+  assert(reviewFiles.length === 1, "review-in-progress scenario should create a review file before closing");
+
+  const reviewPath = path.join(reviewDir, reviewFiles[0]);
+  await harness.emit("agent_end", {}, ctx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "review-in-progress scenario should keep the story open while the review is still in progress");
+  assert(harness.sentInternalMessages.length === 1, "review-in-progress scenario should not queue extra internal turns before the review completes");
+  assert(customCalls.length === 1, "review-in-progress scenario should allow opening the in-progress review document");
+  assert(customCalls[0].title.includes(path.basename(reviewPath)), "in-progress review viewer should show the review file title");
+  assert(selectCalls.some(call => call.options.includes("Keep story open and stay in review")), "review-in-progress scenario should offer an explicit keep-open-and-stay option");
+  assert(selectCalls.some(call => call.prompt.includes("still marked in progress")), "review-in-progress scenario should explain why fix/close choices are not available yet");
+
+  return { cwd, notifications, selectCalls, customCalls, reviewFiles };
+}
+
 async function runRestartedReviewCloseoutScenario() {
   const cwd = createProject("vazir-complete-story-restarted-review-");
   const notifications: Notification[] = [];
@@ -815,6 +856,7 @@ async function runKeepWorkingScenario() {
 
 try {
   const reviewGated = await runReviewGatedScenario();
+  const reviewInProgressPrompt = await runReviewInProgressPromptScenario();
   const restartedReviewCloseout = await runRestartedReviewCloseoutScenario();
   const readyClose = await runReadyCloseScenario();
   const readyCloseAndCommit = await runReadyCloseAndCommitScenario();
@@ -836,6 +878,13 @@ try {
   console.log("reviewFiles:");
   for (const file of reviewGated.reviewFiles) {
     console.log(`  - ${file}`);
+  }
+
+  console.log("Review In-Progress Prompt");
+  console.log(`cwd: ${reviewInProgressPrompt.cwd}`);
+  console.log("notifications:");
+  for (const note of reviewInProgressPrompt.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
   }
 
   console.log("Restarted Review Closeout");

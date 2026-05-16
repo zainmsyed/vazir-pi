@@ -1190,6 +1190,44 @@ export default function (pi: ExtensionAPI) {
     return true;
   }
 
+  async function promptInProgressCompleteStoryReview(
+    ctx: any,
+    reviewFilePath: string,
+    storyLabel: string,
+  ): Promise<"stay" | null> {
+    const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
+
+    if (!ctx.hasUI) {
+      ctx.ui.notify(
+        `Review ${reviewLabel} for ${storyLabel} is still in progress. Re-run /complete-story in an interactive session to open the review or keep the story open while the review finishes.`,
+        "info",
+      );
+      return "stay";
+    }
+
+    while (true) {
+      const choice = await ctx.ui.select(
+        [
+          `${storyLabel} is waiting on ${reviewLabel}.`,
+          "",
+          "The review document is still marked in progress, so Vazir cannot show fix/close choices yet.",
+          "Open the review document, or keep the story open and stay in review until it is marked complete.",
+        ].join("\n"),
+        [
+          "Open review document",
+          "Keep story open and stay in review",
+        ],
+      );
+
+      if (choice == null) return null;
+      if (choice === "Open review document") {
+        await viewReviewDocument(ctx, reviewFilePath, reviewLabel);
+        continue;
+      }
+      return "stay";
+    }
+  }
+
   async function promptReviewFindingsCloseout(
     ctx: any,
     reviewFilePath: string,
@@ -1576,7 +1614,7 @@ export default function (pi: ExtensionAPI) {
       if (reviewFilePath) {
         const handledReview = await processCompleteStoryReviewCloseout(ctx, cwd, completionStoryFile, reviewFilePath);
         if (handledReview) return;
-        // Review exists but is not yet complete — wait for next agent_end rather than re-prompting.
+        await promptInProgressCompleteStoryReview(ctx, reviewFilePath, storyLabel);
         return;
       }
 
