@@ -2683,18 +2683,17 @@ export function readLearnedRuleCloseoutDraft(filePath: string): LearnedRuleClose
   if (!content) return { kind: "valid", draft: { note: "", candidates: [] } };
 
   try {
-    const parsed = JSON.parse(content) as Partial<LearnedRuleCloseoutDraft>;
+    const parsedRaw = JSON.parse(content);
+    if (!parsedRaw || typeof parsedRaw !== "object") {
+      return { kind: "invalid", error: "JSON root is not an object" };
+    }
+    const parsed = parsedRaw as Partial<LearnedRuleCloseoutDraft>;
     const note = typeof parsed.note === "string" ? parsed.note.trim() : "";
     const candidates = Array.isArray(parsed.candidates)
       ? parsed.candidates
         .map(entry => {
-          const confidence = entry && typeof entry === "object" && (entry as { confidence?: unknown }).confidence === "high"
-            ? "high"
-            : entry && typeof entry === "object" && (entry as { confidence?: unknown }).confidence === "medium"
-              ? "medium"
-              : entry && typeof entry === "object" && (entry as { confidence?: unknown }).confidence === "low"
-                ? "low"
-                : null;
+          const rawConfidence = entry && typeof entry === "object" ? String((entry as { confidence?: unknown }).confidence ?? "").toLowerCase().trim() : "";
+          const confidence = rawConfidence === "high" || rawConfidence === "medium" || rawConfidence === "low" ? rawConfidence : null;
           const text = entry && typeof entry === "object" ? String((entry as { text?: unknown }).text ?? "").trim() : "";
           if (!text || !confidence) return null;
           return {

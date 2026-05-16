@@ -119,7 +119,6 @@ import {
   type LearnedRuleCloseoutDraft,
   type LearnedRuleCloseoutDraftReadResult,
   undescribedIndexFiles,
-  updateRuleConfidence,
   userExplicitlyApprovedStatusChange,
   walkSourceFiles,
   type ReviewFindingSummary,
@@ -1038,7 +1037,7 @@ export default function (pi: ExtensionAPI) {
 
     const lines = [
       `Before closing ${storyLabel}, Vazir found these possible learned rules:`,
-      "Reply with `both` to save both rules, `skip` to save none, or enter numbers like `1` or `1,2`.",
+      "Reply with `both` to promote both rules, `skip` to promote none, or enter numbers like `1` or `1,2`.",
       ...draft.candidates.map((candidate, index) => {
         const sourceLabel = candidate.sources.length > 0 ? ` [sources: ${candidate.sources.join(", ")}]` : "";
         return `${index + 1}. (${candidate.confidence}) ${candidate.text}${sourceLabel}`;
@@ -1051,7 +1050,7 @@ export default function (pi: ExtensionAPI) {
       while (true) {
         const response = (await ctx.ui.input(
           lines.join("\n"),
-          draft.candidates.length > 1 ? "Type both, skip, or numbers like 1 or 1,2" : "Type 1 to save the rule, or skip",
+          draft.candidates.length > 1 ? "Type both, skip, or numbers like 1 or 1,2" : "Type 1 to promote the rule, or skip",
         ))?.trim().toLowerCase();
         if (response == null || response === "") return null;
         if (response === "skip" || response === "skip both") return "skip";
@@ -1101,6 +1100,7 @@ export default function (pi: ExtensionAPI) {
     const draftResult: LearnedRuleCloseoutDraftReadResult = readLearnedRuleCloseoutDraft(draftPath);
     let draft: LearnedRuleCloseoutDraft;
 
+    // TODO: Remove legacy mini-consolidate candidates-file fallback after 2026-06-15.
     if (draftResult.kind === "missing" || draftResult.kind === "invalid") {
       const legacyCandidatesPath = miniConsolidateCandidatesPath(ctx.cwd, storyLabel);
       const legacyCandidates = fs.existsSync(legacyCandidatesPath) ? parseMiniConsolidateCandidates(legacyCandidatesPath) : [];
@@ -1153,17 +1153,6 @@ export default function (pi: ExtensionAPI) {
     const storyContent = readIfExists(storyPath);
     const issuesSection = readStorySection(storyContent, "Issues");
     const storyKind: "failure" | "success" | undefined = issuesSection.trim().length > 0 ? "failure" : "success";
-    const promotion = promoteRulesToSystemMd(
-      ctx.cwd,
-      selectedCandidates.map(candidate => ({
-        text: candidate.text,
-        sourceStories: [storyLabel],
-        kind: storyKind,
-      })),
-    );
-    applyLocalRuleDedupe(ctx.cwd);
-    organizeLearnedRules(ctx.cwd);
-
     try {
       if (fs.existsSync(draftPath)) fs.rmSync(draftPath, { force: true });
     } catch {
@@ -1173,6 +1162,17 @@ export default function (pi: ExtensionAPI) {
     if (selection === "skip") {
       ctx.ui.notify(`Mini-consolidate skipped for ${storyLabel}.`, "info");
     } else {
+      const promotion = promoteRulesToSystemMd(
+        ctx.cwd,
+        selectedCandidates.map(candidate => ({
+          text: candidate.text,
+          sourceStories: [storyLabel],
+          kind: storyKind,
+        })),
+      );
+      applyLocalRuleDedupe(ctx.cwd);
+      organizeLearnedRules(ctx.cwd);
+
       const notes: string[] = [];
       if (promotion.promoted.length > 0) {
         notes.push(`Promoted ${promotion.promoted.length} rule(s) to system.md.`);
@@ -1576,6 +1576,8 @@ export default function (pi: ExtensionAPI) {
       if (reviewFilePath) {
         const handledReview = await processCompleteStoryReviewCloseout(ctx, cwd, completionStoryFile, reviewFilePath);
         if (handledReview) return;
+        // Review exists but is not yet complete — wait for next agent_end rather than re-prompting.
+        return;
       }
 
       const readiness = assessStoryCompletionReadiness(completionStoryFile);
