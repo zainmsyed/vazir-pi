@@ -12,6 +12,7 @@ const validations = [
   "validate-vazir-edits-stream.mts",
   "validate-vazir-implement-command.mts",
   "validate-vazir-fix-routing.mts",
+  "validate-vazir-fallow-review-closeout.mts",
   "validate-vazir-init.mts",
   "validate-vazir-learning-loop.mts",
   "validate-vazir-memory-review.mts",

@@ -1,8 +1,8 @@
 # Story 006: Fallow recurrence tracking in complaints-log
 
-**Status:** not-started  
+**Status:** in-progress  
 **Created:** 2026-05-05  
-**Last accessed:** 2026-05-15  
+**Last accessed:** 2026-05-16  
 **Completed:** —
 
 ---
@@ -29,15 +29,15 @@ Create a review file containing a `## Fallow Findings` section with two identica
 ---
 
 ## Checklist
-- [ ] Define Fallow finding format expected in review files (e.g. lines under `## Fallow Findings` starting with `- `)
-- [ ] Implement `appendFallowToComplaintsLog(cwd, storyLabel, fallowFindings[])` in vazir-tracker/index.ts or helpers.ts that writes entries like:
+- [x] Define Fallow finding format expected in review files (e.g. lines under `## Fallow Findings` starting with `- `)
+- [x] Implement `appendFallowToComplaintsLog(cwd, storyLabel, fallowFindings[])` in vazir-tracker/index.ts or helpers.ts that writes entries like:
   `2026-05-05T11:30:00Z | story-004 | [fallow] unused-export: src/utils/formatDate.ts:14 — toRelativeTime never imported | status: noted`
-- [ ] Implement `countFallowOccurrences(cwd, findingKey)` that returns number of distinct stories with the same finding key
-- [ ] Implement deduplication: if the same finding appears in multiple reviews for the same story, count as one occurrence
-- [ ] Update `/review` handler in vazir-context/index.ts to scan the completed review file for Fallow findings and call the appender
-- [ ] Update status transitions: `noted` (below threshold) → `promoted` (at 3+ distinct stories)
+- [x] Implement `countFallowOccurrences(cwd, findingKey)` that returns number of distinct stories with the same finding key
+- [x] Implement deduplication: if the same finding appears in multiple reviews for the same story, count as one occurrence
+- [x] Update `/review` handler in vazir-context/index.ts to scan the completed review file for Fallow findings and call the appender
+- [x] Update status transitions: `noted` (below threshold) → `promoted` (at 3+ distinct stories)
 - [ ] Ensure the complaints-log parser in `/consolidate` and mini-consolidate recognizes `[fallow]` entries as valid signal sources
-- [ ] Manual verification with mock review files containing fake Fallow findings
+- [x] Manual verification with mock review files containing fake Fallow findings
 
 ---
 
@@ -45,9 +45,9 @@ Create a review file containing a `## Fallow Findings` section with two identica
 
 ### /fix — reopened due to regression after story-014 VCS closeout refactor
 - **Reported:** 2026-05-15  
-- **Status:** open  
-- **Agent note:** Story-006 helpers (`reviewFallowFindingsFromFile`, `appendFallowToComplaintsLog`, `countFallowOccurrences`) were implemented on branch `vazir/story-task-cap-7` but were not present on current main after the VCS closeout refactors (stories 014–015). They have been restored into helpers.ts, but the review closeout wiring in index.ts still needs verification.  
-- **Solution:** Re-validate that review closeout scans Fallow findings and appends them to `complaints-log.md` on current main.
+- **Status:** resolved  
+- **Agent note:** Story-006 helpers (`reviewFallowFindingsFromFile`, `appendFallowToComplaintsLog`, `countFallowOccurrences`) were implemented on branch `vazir/story-task-cap-7` but were not present on current main after the VCS closeout refactors (stories 014–015). They were restored into helpers.ts, and the review closeout wiring in index.ts has now been re-validated on current main for both `/review` and `/complete-story` review flows.  
+- **Solution:** Added end-to-end validation coverage in `scripts/validate-vazir-fallow-review-closeout.mts` and re-ran `validate-vazir-fallow-recurrence.mts` to confirm append, dedupe, and promotion behavior.
 
 ---
 
