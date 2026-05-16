@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-16T12:48:34Z
+**Last updated:** 2026-05-16T12:56:10Z
 
 ## Findings
 - Add extension-level validation whenever new safety logic is wired into a live event interception path, not just helper-level unit checks. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
@@ -22,9 +22,11 @@
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - When a safety approval flow instructs the user to approve in one turn and retry in another, store the approval state independently from the latest natural-language prompt. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
 - When a workflow persists an active backend/mode choice, write follow-up actions against that persisted mode instead of re-probing a different backend first. | count: 1 | status: tracked | sources: review-20260515-191433.md | stories: story-018
+- When adding a new signal source to an instruction-driven workflow, validate at least one real consumer path end-to-end instead of only checking that the prompt mentions the source. | count: 1 | status: tracked | sources: review-20260516-125356.md | stories: story-006
 - When adding conditional template/instruction injection, add automated positive and negative harness tests for each branch. | count: 1 | status: tracked | sources: review-20260505-235339.md | stories: story-004
 - When adding shared policy helpers that parse commands or paths, add a checked-in validation covering representative positive and negative cases. | count: 1 | status: tracked | sources: review-20260515-125626.md | stories: story-016
 - When adding story-dependent prompt/context injection, add automated positive and negative harness tests for each story type branch. | count: 1 | status: tracked | sources: review-20260505-224448.md | stories: story-002
 - When deferring closeout across multiple `agent_end` turns, guard the intermediate closeout prompt so it does not re-fire after the user has already made a choice | count: 1 | status: tracked | sources: review-20260515-214549.md | stories: story-005
 - When fixing ambiguous regex extraction, prefer section-scoped parsing over deleting useful fallback labels. | count: 1 | status: tracked | sources: review-20260505-221730.md | stories: story-001
+- When prompt builders interpolate file paths, add one regression assertion that the final prompt contains the concrete rendered path rather than a raw `${...}` placeholder. | count: 1 | status: tracked | sources: review-20260516-125356.md | stories: story-006
 - When writing heuristic text extractors with regex, anchor capture groups to the current line to avoid swallowing downstream content. | count: 1 | status: tracked | sources: review-20260505-211824.md | stories: story-001
