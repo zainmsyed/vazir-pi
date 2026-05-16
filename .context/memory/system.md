@@ -12,3 +12,5 @@
 ## Learned Rules
 - When adding new behavior to an existing state machine or closeout flow, layer it on top of the proven architecture rather than replacing the state machine inline; validate the golden path end-to-end after every integration. <!-- source: story-005 -->
 - When refactoring UI chrome or rendering logic, diff visual output against the previous state to catch unintended tone, color, or glyph regressions before merging. <!-- source: story-005 -->
+- Add regression assertions for prompt builders that interpolate file paths so raw `${...}` placeholders cannot leak into agent instructions <!-- source: story-006 -->
+- When adding a new instruction-driven signal source, validate at least one real downstream consumer path end-to-end instead of only checking prompt text <!-- source: story-006 -->
