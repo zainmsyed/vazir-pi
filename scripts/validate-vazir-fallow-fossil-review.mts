@@ -21,7 +21,7 @@ function fallowAvailable(): boolean {
   return fs.existsSync(path.join(process.cwd(), "node_modules", ".bin", process.platform === "win32" ? "fallow.cmd" : "fallow"));
 }
 
-function createFossilProject(prefix: string): string {
+function createFossilProject(prefix: string, opts?: { noChanges?: boolean }): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const repoPath = path.join(root, "repo.fossil");
   const cwd = path.join(root, "workspace");
@@ -81,7 +81,9 @@ function createFossilProject(prefix: string): string {
 
   childProcess.execFileSync("fossil", ["add", ".context", "src"], { cwd, stdio: "pipe" });
   childProcess.execFileSync("fossil", ["commit", "-m", "initial", "--user-override", "vazir-test"], { cwd, stdio: "pipe" });
-  fs.appendFileSync(path.join(cwd, "src", "example.ts"), "export const anotherUnusedValue = 2;\n");
+  if (!opts?.noChanges) {
+    fs.appendFileSync(path.join(cwd, "src", "example.ts"), "export const anotherUnusedValue = 2;\n");
+  }
 
   return cwd;
 }
@@ -133,6 +135,7 @@ function makeCtx(cwd: string, notifications: Notification[], selectCalls: Select
 }
 
 try {
+  // ── Scenario 1: happy path with changed files ──
   const cwd = createFossilProject("vazir-fallow-fossil-review-");
   const notifications: Notification[] = [];
   const selectCalls: SelectCall[] = [];
@@ -150,6 +153,37 @@ try {
   assert(!createdReview.includes("not run (fallow unavailable)"), "fossil review should not report Fallow unavailable when it is installed");
   assert(!notifications.some(note => note.message.includes("Fallow not found")), "fossil review should not claim Fallow is missing when it is installed");
   assert(!notifications.some(note => note.message.includes("audit scope could not be resolved")), "fossil review should not fail audit scope resolution in Fossil mode");
+
+  // ── Scenario 2: no changed files ──
+  const noChangeCwd = createFossilProject("vazir-fallow-fossil-nochange-", { noChanges: true });
+  const noChangeNotifications: Notification[] = [];
+  const noChangeHarness = makeHarness();
+  const noChangeCtx = makeCtx(noChangeCwd, noChangeNotifications, []);
+  await noChangeHarness.review.handler("", noChangeCtx);
+
+  const noChangeReviewDir = path.join(noChangeCwd, ".context", "reviews");
+  const noChangeFiles = fs.readdirSync(noChangeReviewDir).filter((name: string) => /^review-.*\.md$/.test(name)).sort();
+  assert(noChangeFiles.length === 1, "no-change scenario should create one review file");
+  const noChangeReview = fs.readFileSync(path.join(noChangeReviewDir, noChangeFiles[0]), "utf-8");
+  assert(noChangeReview.includes("not run (no changed files)"), "fossil review with no changes should record not run (no changed files)");
+
+  // ── Scenario 3: bridge failure (broken binary) ──
+  const brokenCwd = createFossilProject("vazir-fallow-fossil-broken-");
+  fs.appendFileSync(path.join(brokenCwd, "src", "example.ts"), "export const broken = 3;\n");
+  const brokenBinary = path.join(brokenCwd, "node_modules", ".bin", "fallow");
+  fs.renameSync(brokenBinary, `${brokenBinary}.real`);
+  fs.writeFileSync(brokenBinary, "#!/bin/sh\necho 'not json'\nexit 1\n", { mode: 0o755 });
+
+  const brokenNotifications: Notification[] = [];
+  const brokenHarness = makeHarness();
+  const brokenCtx = makeCtx(brokenCwd, brokenNotifications, []);
+  await brokenHarness.review.handler("", brokenCtx);
+
+  const brokenReviewDir = path.join(brokenCwd, ".context", "reviews");
+  const brokenFiles = fs.readdirSync(brokenReviewDir).filter((name: string) => /^review-.*\.md$/.test(name)).sort();
+  assert(brokenFiles.length === 1, "broken-binary scenario should create one review file");
+  const brokenReview = fs.readFileSync(path.join(brokenReviewDir, brokenFiles[0]), "utf-8");
+  assert(brokenReview.includes("not run (fallow audit failed)"), "broken fallow binary should lead to fallow audit failed fallback");
 
   console.log("Fallow Fossil review validation passed");
   console.log(createdReview.match(/\*\*Static analysis:\*\* .*/)?.[0] ?? "no static analysis line found");

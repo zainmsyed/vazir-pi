@@ -501,10 +501,7 @@ export default function (pi: ExtensionAPI) {
         const parsed = parseFallowAuditOutput(stdout, fileCount);
         if (!parsed) return null;
         if (!parentHash) {
-          return {
-            summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
-            promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
-          };
+          return formatFallowInitialScanResult(parsed);
         }
         return parsed;
       } catch (error: any) {
@@ -512,10 +509,7 @@ export default function (pi: ExtensionAPI) {
         const parsed = parseFallowAuditOutput(stdout, fileCount);
         if (!parsed) throw error;
         if (!parentHash) {
-          return {
-            summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
-            promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
-          };
+          return formatFallowInitialScanResult(parsed);
         }
         return parsed;
       }
@@ -670,6 +664,13 @@ export default function (pi: ExtensionAPI) {
     };
   }
 
+  function formatFallowInitialScanResult(parsed: FallowAuditResult): FallowAuditResult {
+    return {
+      summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
+      promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
+    };
+  }
+
   function runFallowAudit(ctx: any, cwd: string): FallowAuditResult {
     const binaryPath = fallowBinaryPath(cwd);
     if (!fs.existsSync(binaryPath)) {
@@ -685,6 +686,11 @@ export default function (pi: ExtensionAPI) {
         return fallowNotRun("audit scope unavailable");
       }
       if (changedFiles.length === 0) return fallowNotRun("no changed files");
+
+      if (!commandExists("git", ["--version"]) || !commandExists("tar", ["--version"])) {
+        ctx.ui.notify("Fallow audit in Fossil mode requires git and tar binaries, which are not available on this system — running LLM-only review.", "warning");
+        return fallowNotRun("git or tar unavailable for fossil bridge");
+      }
 
       try {
         const parsed = runFallowAuditViaFossilBridge(cwd, binaryPath, changedFiles.length);
@@ -732,10 +738,7 @@ export default function (pi: ExtensionAPI) {
       const parsed = parseFallowAuditOutput(stdout, summaryFileCount);
       if (!parsed) return fallowNotRun("fallow audit failed");
       if (gitScope.mode === "initial") {
-        return {
-          summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
-          promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
-        };
+        return formatFallowInitialScanResult(parsed);
       }
       return parsed;
     } catch (error: any) {
@@ -743,10 +746,7 @@ export default function (pi: ExtensionAPI) {
       const parsed = parseFallowAuditOutput(stdout, summaryFileCount);
       if (parsed) {
         if (gitScope.mode === "initial") {
-          return {
-            summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
-            promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
-          };
+          return formatFallowInitialScanResult(parsed);
         }
         return parsed;
       }
