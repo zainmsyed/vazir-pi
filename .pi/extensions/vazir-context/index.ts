@@ -4,6 +4,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import * as childProcess from "child_process";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import {
   buildDefaultSystemRulesMarkdown,
@@ -402,6 +403,127 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  function parseFossilStatusPaths(output: string): string[] {
+    return output
+      .split("\n")
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => line.replace(/^[A-Z?]+\s+/, "").trim())
+      .filter(Boolean);
+  }
+
+  function collectFossilAuditFiles(cwd: string): string[] | null {
+    try {
+      const files = new Set<string>();
+      for (const command of ["changes", "extras"] as const) {
+        const output = childProcess.execFileSync("fossil", [command], {
+          cwd,
+          encoding: "utf-8",
+          stdio: "pipe",
+        });
+        for (const file of parseFossilStatusPaths(output)) {
+          if (fs.existsSync(path.join(cwd, file))) files.add(file);
+        }
+      }
+      return Array.from(files);
+    } catch {
+      return null;
+    }
+  }
+
+  function fossilParentHash(cwd: string): string | null {
+    try {
+      const info = childProcess.execFileSync("fossil", ["info"], { cwd, encoding: "utf-8", stdio: "pipe" });
+      return info.match(/^parent:\s+([a-f0-9]+)/im)?.[1] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  function runFallowAuditViaFossilBridge(cwd: string, binaryPath: string, fileCount: number | null): FallowAuditResult | null {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vazir-fallow-fossil-"));
+    const parentHash = fossilParentHash(cwd);
+
+    try {
+      const repoDir = path.join(tmpDir, "repo");
+      fs.mkdirSync(repoDir, { recursive: true });
+
+      if (parentHash) {
+        const tarball = path.join(tmpDir, "parent.tar.gz");
+        childProcess.execFileSync("fossil", ["tarball", parentHash, tarball, "--name", "repo"], { cwd, stdio: "pipe" });
+        childProcess.execFileSync("tar", ["xzf", tarball, "-C", tmpDir], { stdio: "pipe" });
+      }
+
+      if (fs.readdirSync(repoDir).length === 0) {
+        fs.writeFileSync(path.join(repoDir, ".vazir-fallow-base"), "");
+      }
+
+      childProcess.execFileSync("git", ["init"], { cwd: repoDir, stdio: "pipe" });
+      childProcess.execFileSync("git", ["add", "-A"], { cwd: repoDir, stdio: "pipe" });
+      childProcess.execFileSync("git", ["-c", "user.name=Vazir", "-c", "user.email=vazir@example.invalid", "commit", "-m", "base"], { cwd: repoDir, stdio: "pipe" });
+
+      const excluded = new Set([".git", "node_modules", ".jj", ".fslckout", "_FOSSIL_", "dist", "build", "out"]);
+      const copyContents = (src: string, dest: string): void => {
+        for (const entry of fs.readdirSync(src)) {
+          if (excluded.has(entry)) continue;
+          const srcPath = path.join(src, entry);
+          const destPath = path.join(dest, entry);
+          const stat = fs.statSync(srcPath);
+          if (stat.isDirectory()) {
+            fs.mkdirSync(destPath, { recursive: true });
+            copyContents(srcPath, destPath);
+          } else {
+            fs.copyFileSync(srcPath, destPath);
+          }
+        }
+      };
+
+      for (const entry of fs.readdirSync(repoDir)) {
+        if (entry === ".git") continue;
+        fs.rmSync(path.join(repoDir, entry), { recursive: true, force: true });
+      }
+      copyContents(cwd, repoDir);
+
+      childProcess.execFileSync("git", ["add", "-A"], { cwd: repoDir, stdio: "pipe" });
+      childProcess.execFileSync("git", ["-c", "user.name=Vazir", "-c", "user.email=vazir@example.invalid", "commit", "-m", "head"], { cwd: repoDir, stdio: "pipe" });
+
+      const args = parentHash
+        ? ["audit", "--base", "HEAD~1", "--format", "json"]
+        : ["audit", "--format", "json"];
+      try {
+        const stdout = childProcess.execFileSync(binaryPath, args, {
+          cwd: repoDir,
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "pipe"],
+          shell: process.platform === "win32",
+        });
+
+        const parsed = parseFallowAuditOutput(stdout, fileCount);
+        if (!parsed) return null;
+        if (!parentHash) {
+          return {
+            summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
+            promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
+          };
+        }
+        return parsed;
+      } catch (error: any) {
+        const stdout = typeof error?.stdout === "string" ? error.stdout : error?.stdout?.toString("utf-8") ?? "";
+        const parsed = parseFallowAuditOutput(stdout, fileCount);
+        if (!parsed) throw error;
+        if (!parentHash) {
+          return {
+            summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
+            promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
+          };
+        }
+        return parsed;
+      }
+    } finally {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    }
+  }
+
   function normalizeFallowRule(sectionName: string, key: string): string {
     if (sectionName === "duplication") return "duplication";
     if (sectionName === "complexity") return "complexity";
@@ -553,6 +675,27 @@ export default function (pi: ExtensionAPI) {
     if (!fs.existsSync(binaryPath)) {
       maybeNotifyMissingFallow(ctx, cwd);
       return fallowNotRun("fallow unavailable");
+    }
+
+    const activeVcsMode = readActiveVcsMode(cwd);
+    if (activeVcsMode === "fossil" && detectFossil(cwd)) {
+      const changedFiles = collectFossilAuditFiles(cwd);
+      if (changedFiles == null) {
+        ctx.ui.notify("Fallow audit scope could not be resolved for this Fossil checkout — running LLM-only review.", "warning");
+        return fallowNotRun("audit scope unavailable");
+      }
+      if (changedFiles.length === 0) return fallowNotRun("no changed files");
+
+      try {
+        const parsed = runFallowAuditViaFossilBridge(cwd, binaryPath, changedFiles.length);
+        if (parsed) return parsed;
+      } catch (error: any) {
+        ctx.ui.notify(`Fallow audit bridge failed — running LLM-only review. ${error?.message || String(error)}`, "warning");
+        return fallowNotRun("fallow audit failed");
+      }
+
+      ctx.ui.notify("Fallow audit bridge returned unusable output — running LLM-only review.", "warning");
+      return fallowNotRun("fallow audit failed");
     }
 
     const gitScope = collectGitAuditScope(cwd);
