@@ -125,6 +125,7 @@ export const PREVIEWABLE_TEXT_EXTENSIONS = new Set([
 export const GENERAL_APPROVALS = new Set(["yes", "y", "done", "approved", "looks good", "ship it"]);
 
 export type ReviewScope = "story" | "whole-codebase";
+export type FallowAuditIssue = { rule: string; location: string; summary: string };
 
 
 export type InitFileStatus = {
@@ -139,6 +140,7 @@ export interface ReviewDraft {
   storyLabel: string;
   trigger: string;
   staticAnalysis: string;
+  fallowFindings: FallowAuditIssue[];
   fileName: string;
   filePath: string;
 }
@@ -2311,7 +2313,7 @@ function designSystemHasGaps(content: string): boolean {
 
 export function createReviewDraft(
   cwd: string,
-  options: { focus: string; scope?: ReviewScope; storyLabel?: string; trigger?: string; staticAnalysis?: string },
+  options: { focus: string; scope?: ReviewScope; storyLabel?: string; trigger?: string; staticAnalysis?: string; fallowFindings?: FallowAuditIssue[] },
 ): ReviewDraft {
   ensureReviewStructure(cwd);
 
@@ -2332,12 +2334,13 @@ export function createReviewDraft(
   }
 
   const staticAnalysis = options.staticAnalysis ?? "not run (fallow unavailable)";
+  const fallowFindings = options.fallowFindings ?? [];
 
   const storyFile = storyLabel !== "—" ? path.join(storiesDir(cwd), `${storyLabel}.md`) : "";
   const isUi = storyFile ? hasUiTypeOverride(storyFile) || isUiStory(storyFile) : false;
   const dsEmpty = isUi ? designSystemHasGaps(readIfExists(designSystemPath(cwd))) : false;
 
-  fs.writeFileSync(filePath, reviewFileTemplate(created, scope, storyLabel, options.focus, trigger, staticAnalysis, isUi, dsEmpty));
+  fs.writeFileSync(filePath, reviewFileTemplate(created, scope, storyLabel, options.focus, trigger, staticAnalysis, isUi, dsEmpty, fallowFindings));
 
   return {
     created,
@@ -2346,6 +2349,7 @@ export function createReviewDraft(
     storyLabel,
     trigger,
     staticAnalysis,
+    fallowFindings,
     fileName,
     filePath,
   };
@@ -2386,11 +2390,7 @@ export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt
     "8. Do not change story status as part of the review. A story only becomes complete when the user explicitly says so.",
     "9. Finish by writing the Completion Summary, setting `**Status:** complete`, and setting `**Completed:**` to today's date.",
     "10. Do not update .context/reviews/summary.md or .context/reviews/remembered.md manually; Vazir syncs them automatically.",
-    staticAnalysisPrompt
-      ? "11. If the Static Analysis Findings (Fallow) block above contains issues, copy them verbatim into `## Fallow Findings` in the review file. If there are none, write `- No Fallow findings.` in that section."
-      : review.staticAnalysis.startsWith("fallow")
-        ? "11. Write `- No Fallow findings.` in the `## Fallow Findings` section (static analysis ran successfully and found no issues)."
-        : "11. Write `- No Fallow findings.` in the `## Fallow Findings` section (static analysis was not run for this review).",
+    "11. The `## Fallow Findings` section in the review file is pre-populated by Vazir. Preserve it as-is unless the findings are clearly unrelated to the review scope. Do not remove or reformat pre-populated Fallow findings.",
     `12. Review scope: ${reviewScope}.`,
     `13. Review focus: ${review.focus}.`,
     review.storyLabel !== "—" ? `13. Story: ${review.storyLabel}.` : "13. No story is attached; keep the review manual and comprehensive within the requested scope.",
@@ -2408,6 +2408,7 @@ export function reviewFileTemplate(
   staticAnalysis: string,
   isUiStory = false,
   designSystemEmpty = false,
+  fallowFindings: FallowAuditIssue[] = [],
 ): string {
   const designCompliance = isUiStory
     ? [
@@ -2423,6 +2424,10 @@ export function reviewFileTemplate(
         "",
       ]
     : [];
+
+  const fallowSection = fallowFindings.length === 0
+    ? ["- No Fallow findings."]
+    : fallowFindings.map(issue => `- [${issue.rule}] ${issue.location} — ${issue.summary}`);
 
   return [
     `# Code Review ${created}`,
@@ -2463,7 +2468,7 @@ export function reviewFileTemplate(
     "---",
     "",
     "## Fallow Findings",
-    "- No Fallow findings.",
+    ...fallowSection,
     "",
     "---",
     "",
@@ -2516,18 +2521,24 @@ export function buildContextMapDraftInstruction(cwd: string): string {
 export function buildConsolidationInstruction(cwd: string): string {
   const malformed = malformedStoryFiles(cwd);
   const undescribed = undescribedIndexFiles(cwd);
+  const decisionsPath = path.join(cwd, ".context", "decisions.md");
+  const hasDecisions = fs.existsSync(decisionsPath);
   return [
     "Run Vazir consolidation using the currently selected Pi model.",
     "",
     "Tasks:",
-    "1. Read .context/complaints-log.md and cluster similar complaints. Treat both `/fix` complaints and `[fallow]` complaints as valid signal sources.",
+    "1. Read .context/complaints-log.md and cluster similar complaints, including `[fallow] ... | status: noted/promoted` entries and `/fix` entries as valid recurring signals.",
     "2. Read .context/reviews/summary.md and any detailed code review files only if the summary needs clarification.",
-    "3. Update .context/memory/system.md ## Learned Rules with concise promoted rules for complaint clusters that hit threshold, and promote any reopened issue directly.",
-    "4. When you add a learned rule and the source story is knowable, append a best-effort provenance tag like `<!-- source: story-002 -->`. If the origin is unclear, do not invent one.",
-    "5. Merge duplicate or overlapping learned rules. Keep the ## Rules section intact.",
-    undescribed.length > 0 ? "6. Replace every `(undescribed)` entry in .context/memory/index.md with a concise useful description." : "6. Leave .context/memory/index.md unchanged unless a description is clearly wrong.",
-    malformed.length > 0 ? "7. Repair malformed story files so they include the required frontmatter lines and all required template sections." : "7. Leave story files unchanged unless you discover a malformed one while consolidating.",
-    "8. Preserve existing user-authored content unless it is clearly placeholder text or malformed structure.",
+    "3. Read story completion summaries in .context/stories/story-*.md for positive patterns (clean closes, repeated approaches, successful techniques).",
+    hasDecisions ? "4. Read .context/decisions.md for recurring decision types and positive patterns." : "4. If .context/decisions.md exists, read it for recurring decision types and positive patterns.",
+    "5. Update .context/memory/system.md ## Learned Rules with concise promoted rules for complaint clusters that hit threshold, and promote any reopened issue directly.",
+    "6. Organize all learned rules under `### From failures` and `### From successes` subsections within `## Learned Rules`. Place complaint-derived and fix-derived rules under `### From failures`. Place clean-completion and decision-derived patterns under `### From successes`.",
+    "7. When you add a learned rule and the source story is knowable, append a best-effort provenance tag like `<!-- source: story-002 -->`. If the origin is unclear, do not invent one.",
+    "8. Preserve existing `<!-- confidence: ... -->` annotations. Do not remove or alter them during consolidation.",
+    "9. Merge duplicate or overlapping learned rules. Keep the ## Rules section intact.",
+    undescribed.length > 0 ? "10. Replace every `(undescribed)` entry in .context/memory/index.md with a concise useful description." : "10. Leave .context/memory/index.md unchanged unless a description is clearly wrong.",
+    malformed.length > 0 ? "11. Repair malformed story files so they include the required frontmatter lines and all required template sections." : "11. Leave story files unchanged unless you discover a malformed one while consolidating.",
+    "12. Preserve existing user-authored content unless it is clearly placeholder text or malformed structure.",
     "",
     malformed.length > 0 ? `Malformed stories detected: ${malformed.map(filePath => path.basename(filePath)).join(", ")}` : "Malformed stories detected: none",
     undescribed.length > 0 ? `Undescribed index entries: ${undescribed.join(", ")}` : "Undescribed index entries: none",
@@ -2603,14 +2614,7 @@ export function parseMiniConsolidateCandidates(filePath: string): Array<{ confid
 
 const CONFIDENCE_SCAN_STORY_COUNT = 5;
 
-export function updateRuleConfidence(cwd: string): boolean {
-  const systemMdPath = systemPath(cwd);
-  if (!fs.existsSync(systemMdPath)) return false;
-
-  const systemMd = readIfExists(systemMdPath);
-  const rules = learnedRulesFromMd(systemMd);
-  if (rules.length === 0) return false;
-
+function buildCombinedSignal(cwd: string): string {
   const recentStories = listStories(cwd)
     .filter(story => story.status === "complete" || story.status === "in-progress")
     .sort(compareStoriesByRecencyDesc)
@@ -2630,8 +2634,10 @@ export function updateRuleConfidence(cwd: string): boolean {
   for (const reviewFile of reviewFiles) signalTexts.push(readIfExists(reviewFile));
   signalTexts.push(readIfExists(complaintsLogPath(cwd)));
 
-  const combinedSignal = signalTexts.join("\n").toLowerCase();
+  return signalTexts.join("\n").toLowerCase();
+}
 
+function applyConfidenceToRules(rules: LearnedRuleEntry[], combinedSignal: string, storyLabels: Set<string>): boolean {
   let changed = false;
   for (const rule of rules) {
     const ruleTextLower = normalizeRuleCandidate(rule.text);
@@ -2651,21 +2657,10 @@ export function updateRuleConfidence(cwd: string): boolean {
       }
     }
   }
-
-  if (!changed) return false;
-
-  fs.writeFileSync(systemMdPath, replaceLearnedRules(systemMd, rules));
-  return true;
+  return changed;
 }
 
-export function organizeLearnedRules(cwd: string): boolean {
-  const systemMdPath = systemPath(cwd);
-  if (!fs.existsSync(systemMdPath)) return false;
-
-  const systemMd = readIfExists(systemMdPath);
-  const rules = learnedRulesFromMd(systemMd);
-  if (rules.length === 0) return false;
-
+function applyKindToRules(rules: LearnedRuleEntry[], cwd: string): boolean {
   let changed = false;
   for (const rule of rules) {
     if (rule.kind) continue;
@@ -2680,6 +2675,65 @@ export function organizeLearnedRules(cwd: string): boolean {
     rule.kind = hasIssues ? "failure" : "success";
     changed = true;
   }
+  return changed;
+}
+
+export function updateRuleConfidence(cwd: string): boolean {
+  const systemMdPath = systemPath(cwd);
+  if (!fs.existsSync(systemMdPath)) return false;
+
+  const systemMd = readIfExists(systemMdPath);
+  const rules = learnedRulesFromMd(systemMd);
+  if (rules.length === 0) return false;
+
+  const combinedSignal = buildCombinedSignal(cwd);
+  const recentStories = listStories(cwd)
+    .filter(story => story.status === "complete" || story.status === "in-progress")
+    .sort(compareStoriesByRecencyDesc)
+    .slice(0, CONFIDENCE_SCAN_STORY_COUNT);
+  const storyLabels = new Set(recentStories.map(story => path.basename(story.file, ".md").toLowerCase()));
+  const changed = applyConfidenceToRules(rules, combinedSignal, storyLabels);
+  if (!changed) return false;
+
+  fs.writeFileSync(systemMdPath, replaceLearnedRules(systemMd, rules));
+  return true;
+}
+
+export function organizeLearnedRules(cwd: string): boolean {
+  const systemMdPath = systemPath(cwd);
+  if (!fs.existsSync(systemMdPath)) return false;
+
+  const systemMd = readIfExists(systemMdPath);
+  const rules = learnedRulesFromMd(systemMd);
+  if (rules.length === 0) return false;
+
+  const changed = applyKindToRules(rules, cwd);
+  if (!changed) return false;
+
+  fs.writeFileSync(systemMdPath, replaceLearnedRules(systemMd, rules));
+  return true;
+}
+
+export function prepareLearnedRulesForConsolidation(cwd: string): boolean {
+  const systemMdPath = systemPath(cwd);
+  if (!fs.existsSync(systemMdPath)) return false;
+
+  let systemMd = readIfExists(systemMdPath);
+  const deduped = dedupeLearnedRules(systemMd);
+  let changed = deduped !== systemMd;
+  systemMd = deduped;
+
+  const rules = learnedRulesFromMd(systemMd);
+  if (rules.length === 0) return changed;
+
+  const combinedSignal = buildCombinedSignal(cwd);
+  const recentStories = listStories(cwd)
+    .filter(story => story.status === "complete" || story.status === "in-progress")
+    .sort(compareStoriesByRecencyDesc)
+    .slice(0, CONFIDENCE_SCAN_STORY_COUNT);
+  const storyLabels = new Set(recentStories.map(story => path.basename(story.file, ".md").toLowerCase()));
+  if (applyConfidenceToRules(rules, combinedSignal, storyLabels)) changed = true;
+  if (applyKindToRules(rules, cwd)) changed = true;
 
   if (!changed) return false;
 

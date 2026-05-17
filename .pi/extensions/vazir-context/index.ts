@@ -53,8 +53,8 @@ import {
   formatReviewRecommendedFixSummary,
   hasUiTypeOverride,
   isUiStory,
-  organizeLearnedRules,
   parseMiniConsolidateCandidates,
+  prepareLearnedRulesForConsolidation,
   parseReviewFrontmatter,
   readLearnedRuleCloseoutDraft,
   readStorySection,
@@ -124,6 +124,7 @@ import {
   walkSourceFiles,
   type ReviewFindingSummary,
   type ReviewRecommendedFix,
+  type FallowAuditIssue,
   writeIndex,
 } from "./helpers.ts";
 
@@ -186,8 +187,7 @@ const FALLOW_INSTALL_COMMAND = "npm install -D fallow";
 const FALLOW_MAX_PROMPT_ISSUES = 12;
 
 type FallowAuditVerdict = "pass" | "warn" | "fail";
-type FallowAuditIssue = { rule: string; location: string; summary: string };
-type FallowAuditResult = { summaryLine: string; promptPrefix: string };
+type FallowAuditResult = { summaryLine: string; promptPrefix: string; findings: FallowAuditIssue[] };
 type GitAuditScope =
   | { mode: "base"; files: string[] }
   | { mode: "initial"; files: string[] }
@@ -236,6 +236,7 @@ export default function (pi: ExtensionAPI) {
     return {
       summaryLine: `not run (${reason})`,
       promptPrefix: "",
+      findings: [],
     };
   }
 
@@ -648,7 +649,7 @@ export default function (pi: ExtensionAPI) {
         ? `fallow audit — ${verdict}`
         : `fallow audit — ${verdict} (${fileCount} file${fileCount === 1 ? "" : "s"} scanned)`;
 
-    if (issues.length === 0) return { summaryLine, promptPrefix: "" };
+    if (issues.length === 0) return { summaryLine, promptPrefix: "", findings: [] };
 
     const visibleIssues = issues.slice(0, FALLOW_MAX_PROMPT_ISSUES);
     const scopeLine = fileCount == null ? "changed files" : `${fileCount} changed file${fileCount === 1 ? "" : "s"}`;
@@ -666,6 +667,7 @@ export default function (pi: ExtensionAPI) {
         "",
         "Treat these as verified findings. Do not re-derive them. Synthesise with your own inspection where relevant.",
       ].join("\n"),
+      findings: issues,
     };
   }
 
@@ -673,6 +675,7 @@ export default function (pi: ExtensionAPI) {
     return {
       summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
       promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
+      findings: parsed.findings,
     };
   }
 
@@ -1318,8 +1321,7 @@ export default function (pi: ExtensionAPI) {
           kind: storyKind,
         })),
       );
-      applyLocalRuleDedupe(ctx.cwd);
-      organizeLearnedRules(ctx.cwd);
+      prepareLearnedRulesForConsolidation(ctx.cwd);
 
       const notes: string[] = [];
       if (promotion.promoted.length > 0) {
@@ -1597,7 +1599,7 @@ export default function (pi: ExtensionAPI) {
     beforeDispatch?: (review: ReturnType<typeof createReviewDraft>) => void,
   ): Promise<ReturnType<typeof createReviewDraft>> {
     const fallowAudit = runFallowAudit(ctx, ctx.cwd);
-    const review = createReviewDraft(ctx.cwd, { ...options, staticAnalysis: fallowAudit.summaryLine });
+    const review = createReviewDraft(ctx.cwd, { ...options, staticAnalysis: fallowAudit.summaryLine, fallowFindings: fallowAudit.findings });
     syncReviewSummaryAndPromoteRules(ctx.cwd);
     ctx.ui.notify(`Created ${review.fileName} in .context/reviews/`, "info");
     const instruction = buildReviewInstruction(review, fallowAudit.promptPrefix, ctx.cwd);
@@ -2771,7 +2773,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      applyLocalRuleDedupe(ctx.cwd);
+      prepareLearnedRulesForConsolidation(ctx.cwd);
       await pi.sendUserMessage(buildConsolidationInstruction(ctx.cwd), { deliverAs: "followUp" });
       ctx.ui.notify("Consolidation handed to the current Pi model", "info");
     },

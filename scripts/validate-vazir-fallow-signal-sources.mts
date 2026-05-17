@@ -6,6 +6,7 @@ import {
   buildLearnedRuleCloseoutInstruction,
   buildMiniConsolidateInstruction,
   buildReviewInstruction,
+  createReviewDraft,
   reviewFileTemplate,
   updateRuleConfidence,
 } from "../.pi/extensions/vazir-context/helpers.ts";
@@ -83,6 +84,11 @@ fs.writeFileSync(
 const consolidateInstruction = buildConsolidationInstruction(cwd);
 assert(consolidateInstruction.includes("[fallow]"), "/consolidate instruction should explicitly mention [fallow] complaints as valid signals");
 assert(consolidateInstruction.includes("/fix"), "/consolidate instruction should continue to mention /fix complaints as valid signals");
+assert(consolidateInstruction.includes("story completion summaries"), "/consolidate instruction should mention reading story completion summaries");
+assert(consolidateInstruction.includes("decisions.md"), "/consolidate instruction should mention reading decisions.md");
+assert(consolidateInstruction.includes("From failures"), "/consolidate instruction should mention From failures subsection");
+assert(consolidateInstruction.includes("From successes"), "/consolidate instruction should mention From successes subsection");
+assert(consolidateInstruction.includes("confidence:"), "/consolidate instruction should mention preserving confidence annotations");
 
 const reviewPath = path.join(cwd, ".context", "reviews", "review-20260516-125356.md");
 const miniInstruction = buildMiniConsolidateInstruction(cwd, "story-001", reviewPath);
@@ -104,9 +110,25 @@ const reviewTemplate = reviewFileTemplate(
   "fallow signal-source validation",
   "manual",
   "fallow audit — pass",
+  false,
+  false,
+  [],
 );
 assert(reviewTemplate.includes("## Fallow Findings"), "review template should include a Fallow Findings section placeholder");
 assert(reviewTemplate.includes("- No Fallow findings."), "review template should include a default No Fallow findings line");
+
+const reviewTemplateWithFindings = reviewFileTemplate(
+  "2026-05-16T12:45:00Z",
+  "story",
+  "story-001",
+  "fallow signal-source validation",
+  "manual",
+  "fallow audit — warn",
+  false,
+  false,
+  [{ rule: "dead-code", location: "src/example.ts:1", summary: "dead export" }],
+);
+assert(reviewTemplateWithFindings.includes("- [dead-code] src/example.ts:1 — dead export"), "review template should pre-populate Fallow findings when provided");
 
 const reviewInstruction = buildReviewInstruction(
   {
@@ -122,9 +144,8 @@ const reviewInstruction = buildReviewInstruction(
   "## Static Analysis Findings (Fallow)\n- [dead-code] src/example.ts:1 — dead export",
   cwd,
 );
-assert(reviewInstruction.includes("## Fallow Findings"), "review instruction should direct the agent to populate the Fallow Findings section");
-assert(reviewInstruction.includes("No Fallow findings"), "review instruction should tell the agent what to write when there are no fallow findings");
-assert(reviewInstruction.includes("Static Analysis Findings (Fallow) block above"), "review instruction with fallow prompt should reference the block above");
+assert(reviewInstruction.includes("## Fallow Findings"), "review instruction should mention the Fallow Findings section");
+assert(reviewInstruction.includes("pre-populated by Vazir"), "review instruction should tell the agent that Fallow findings are pre-populated");
 
 const reviewInstructionNoFallow = buildReviewInstruction(
   {
@@ -141,13 +162,40 @@ const reviewInstructionNoFallow = buildReviewInstruction(
   cwd,
 );
 assert(reviewInstructionNoFallow.includes("## Fallow Findings"), "review instruction without fallow should still mention the Fallow Findings section");
-assert(!reviewInstructionNoFallow.includes("Static Analysis Findings (Fallow) block above"), "review instruction without fallow should NOT reference a missing block");
-assert(reviewInstructionNoFallow.includes("No Fallow findings"), "review instruction without fallow should tell the agent to write No Fallow findings");
+assert(reviewInstructionNoFallow.includes("pre-populated by Vazir"), "review instruction without fallow should still tell the agent that Fallow findings are pre-populated");
 
 const confidenceChanged = updateRuleConfidence(cwd);
 assert(confidenceChanged, "fallow complaints-log signal should be able to influence a downstream learned-rule consumer");
 const updatedSystemMd = fs.readFileSync(path.join(cwd, ".context", "memory", "system.md"), "utf-8");
 assert(updatedSystemMd.includes("normalize duplicate fallow complaints per story before promotion <!-- confidence: high -->"), "complaints-log-only fallow signal should promote matching learned-rule confidence to high");
+
+// ── Test: createReviewDraft with fallowFindings writes pre-populated findings ──
+
+const draftCwd = fs.mkdtempSync(path.join(os.tmpdir(), "vazir-draft-findings-"));
+fs.mkdirSync(path.join(draftCwd, ".context", "memory"), { recursive: true });
+fs.mkdirSync(path.join(draftCwd, ".context", "stories"), { recursive: true });
+fs.mkdirSync(path.join(draftCwd, ".context", "reviews"), { recursive: true });
+fs.writeFileSync(path.join(draftCwd, ".context", "memory", "system.md"), "# System\n");
+
+const draft = createReviewDraft(draftCwd, {
+  focus: "test",
+  scope: "story",
+  storyLabel: "story-001",
+  trigger: "manual",
+  staticAnalysis: "fallow audit — warn",
+  fallowFindings: [
+    { rule: "dead-code", location: "src/example.ts:1", summary: "dead export" },
+    { rule: "unused-import", location: "src/lib.ts:5", summary: "unused import" },
+  ],
+});
+
+const draftContent = fs.readFileSync(draft.filePath, "utf-8");
+assert(draftContent.includes("## Fallow Findings"), "createReviewDraft output should include Fallow Findings section");
+assert(draftContent.includes("- [dead-code] src/example.ts:1 — dead export"), "createReviewDraft should pre-populate first finding");
+assert(draftContent.includes("- [unused-import] src/lib.ts:5 — unused import"), "createReviewDraft should pre-populate second finding");
+assert(!draftContent.includes("- No Fallow findings."), "createReviewDraft with findings should NOT contain the default no-findings line");
+
+fs.rmSync(draftCwd, { recursive: true, force: true });
 
 fs.rmSync(cwd, { recursive: true, force: true });
 console.log("Fallow signal-source instruction validation passed");

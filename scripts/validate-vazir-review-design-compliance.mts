@@ -5,7 +5,7 @@ import { assert, loadFileModule, repoRoot } from "./lib/validation-harness.mts";
 
 const helpers = await loadFileModule<{
   createReviewDraft: (cwd: string, options: any) => any;
-  reviewFileTemplate: (created: string, scope: string, storyLabel: string, focus: string, trigger: string, staticAnalysis: string, isUiStory?: boolean, designSystemEmpty?: boolean) => string;
+  reviewFileTemplate: (created: string, scope: string, storyLabel: string, focus: string, trigger: string, staticAnalysis: string, isUiStory?: boolean, designSystemEmpty?: boolean, fallowFindings?: any[]) => string;
   buildReviewInstruction: (review: any, staticAnalysisPrompt?: string, cwd?: string) => string;
 }>(path.join(repoRoot, ".pi", "extensions", "vazir-context", "helpers.ts"), "review-design");
 
@@ -70,10 +70,10 @@ function writeDesignSystem(cwd: string, content: string): void {
 
 // ── reviewFileTemplate ─────────────────────────────────────────────────
 
-const nonUi = helpers.reviewFileTemplate("2026-05-05T12:00:00Z", "story", "story-001", "test", "manual", "pass", false, false);
+const nonUi = helpers.reviewFileTemplate("2026-05-05T12:00:00Z", "story", "story-001", "test", "manual", "pass", false, false, []);
 assert(!nonUi.includes("## Design Compliance"), "non-UI review template should not include Design Compliance");
 
-const ui = helpers.reviewFileTemplate("2026-05-05T12:00:00Z", "story", "story-001", "test", "manual", "pass", true, false);
+const ui = helpers.reviewFileTemplate("2026-05-05T12:00:00Z", "story", "story-001", "test", "manual", "pass", true, false, []);
 assert(ui.includes("## Design Compliance (UI stories only)"), "UI review template should include Design Compliance");
 assert(ui.includes("Colors reference design-system.md tokens"), "UI review template should include colors check");
 assert(ui.includes("Spacing follows the declared scale"), "UI review template should include spacing check");
@@ -81,7 +81,7 @@ assert(ui.includes("Typography uses declared families"), "UI review template sho
 assert(ui.includes("components.md was checked"), "UI review template should include components check");
 assert(!ui.includes("design compliance checks skipped"), "UI review with populated design system should not have skip note");
 
-const uiEmpty = helpers.reviewFileTemplate("2026-05-05T12:00:00Z", "story", "story-001", "test", "manual", "pass", true, true);
+const uiEmpty = helpers.reviewFileTemplate("2026-05-05T12:00:00Z", "story", "story-001", "test", "manual", "pass", true, true, []);
 assert(uiEmpty.includes("## Design Compliance (UI stories only)"), "UI empty review template should include Design Compliance");
 assert(uiEmpty.includes("`.context/design/design-system.md` is empty or incomplete"), "UI empty review template should have skip note");
 
