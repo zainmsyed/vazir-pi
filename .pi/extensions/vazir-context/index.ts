@@ -1627,7 +1627,7 @@ export default function (pi: ExtensionAPI) {
     storyFrontmatterSnapshots.set(ctx.cwd, snapshotStoryFrontmatter(ctx.cwd));
 
     const workable = findWorkableStory(ctx.cwd);
-    if (workable && workable.status === "not-started" && userExplicitlyApprovedStatusChange(lastUserPrompt, "in-progress")) {
+    if (workable && workable.status === "not-started" && userExplicitlyApprovedStatusChange(event.prompt ?? "", "in-progress")) {
       updateStoryFrontmatter(workable.file, { status: "in-progress", lastAccessed: todayDate() });
     }
 

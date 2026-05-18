@@ -191,11 +191,12 @@ async function runNoAutoStartScenario() {
   const ctx = makeCtx(cwd, notifications);
   const storyPath = writeNotStartedStory(cwd, 1, "2026-03-24");
 
-  await harness.emit("before_agent_start", { systemPrompt: "" }, ctx);
+  // No explicit start phrase in prompt — should stay not-started
+  await harness.emit("before_agent_start", { systemPrompt: "", prompt: "" }, ctx);
 
   const story = fs.readFileSync(storyPath, "utf-8");
-  assert(story.includes("**Status:** not-started"), "a not-started story should stay not-started without explicit start intent");
-  assert(story.includes("**Last accessed:** 2026-03-24"), "passive Vazir runs should not refresh last accessed for not-started stories");
+  assert(story.includes("**Status:** not-started"), "a not-started story should stay not-started without explicit user approval");
+  assert(story.includes("**Last accessed:** 2026-03-24"), "last accessed should not change when story is not promoted");
 
   return { cwd, notifications, story };
 }
@@ -207,11 +208,11 @@ async function runExplicitStartScenario() {
   const ctx = makeCtx(cwd, notifications);
   const storyPath = writeNotStartedStory(cwd, 1, "2026-03-24");
 
-  await harness.emit("input", { text: "please start this story" }, ctx);
-  await harness.emit("before_agent_start", { systemPrompt: "" }, ctx);
+  // Explicit start phrase — should promote to in-progress
+  await harness.emit("before_agent_start", { systemPrompt: "", prompt: "start this story" }, ctx);
 
   const story = fs.readFileSync(storyPath, "utf-8");
-  assert(story.includes("**Status:** in-progress"), "an explicit start request should promote the story to in-progress");
+  assert(story.includes("**Status:** in-progress"), "a not-started story should be promoted with explicit user approval");
   assert(!story.includes("**Last accessed:** 2026-03-24"), "explicit start should refresh last accessed");
   assert(/\*\*Last accessed:\*\* \d{4}-\d{2}-\d{2}/.test(story), "explicit start should keep a valid last accessed date");
 
