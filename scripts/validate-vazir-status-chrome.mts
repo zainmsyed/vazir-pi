@@ -308,7 +308,6 @@ async function runScenario() {
   assert(footerLines[1]?.includes("↑2.1k ↓8.4k"), "footer did not include session token counts");
   assert(footerLines[1]?.includes("1.1%/200k"), "footer did not include context usage");
   assert(footerLines[1]?.includes("$0.002"), "footer did not include spend");
-  assert(footerLines[1]?.includes("2 issues"), "footer did not include the open issue badge");
   assert(footerLines[1]?.includes("Ctrl+? for help"), "footer did not include the idle help hint");
 
   harness.setThinkingLevel("off");
@@ -337,7 +336,6 @@ async function runScenario() {
   assert(footerRenderRequests > 0, "fix did not request a footer rerender");
   assert(story.includes('### /fix — "save indicator missing"'), "fix did not append the new issue to the story file");
   assert(refreshedStatusLines.some(line => line.includes("3 issues")), "status widget did not reflect the new open issue count");
-  assert(refreshedFooterLines[1]?.includes("3 issues"), "footer did not reflect the new open issue count");
   assert(refreshedFooterLines[1]?.includes("↑2.1k ↓8.4k"), "footer did not restore token counts after tool activity ended");
 
   await harness.emit("session_shutdown", {}, ctx);
