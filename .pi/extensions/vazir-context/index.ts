@@ -1627,7 +1627,7 @@ export default function (pi: ExtensionAPI) {
     storyFrontmatterSnapshots.set(ctx.cwd, snapshotStoryFrontmatter(ctx.cwd));
 
     const workable = findWorkableStory(ctx.cwd);
-    if (workable && workable.status === "not-started") {
+    if (workable && workable.status === "not-started" && userExplicitlyApprovedStatusChange(event.prompt ?? "", "in-progress")) {
       updateStoryFrontmatter(workable.file, { status: "in-progress", lastAccessed: todayDate() });
     }
 
@@ -1956,126 +1956,126 @@ export default function (pi: ExtensionAPI) {
       if (!reconfigureOnly) {
         ensureDir(memoryDir(cwd));
         ensureDir(storiesDir(cwd));
-      ensureDir(settingsDir(cwd));
-      ensureIntakeStructure(cwd);
-      ensureReviewStructure(cwd);
-      ensureArchiveStructure(cwd);
-      ensureDir(path.join(cwd, ".context", "checkpoints"));
-
-      // design system stubs
-      ensureDir(designDir(cwd));
-      if (!fs.existsSync(designSystemPath(cwd))) {
-        fs.writeFileSync(designSystemPath(cwd), DESIGN_SYSTEM_TEMPLATE);
-      }
-      if (!fs.existsSync(brandPath(cwd))) {
-        fs.writeFileSync(brandPath(cwd), BRAND_TEMPLATE);
-      }
-      if (!fs.existsSync(componentsPath(cwd))) {
-        fs.writeFileSync(componentsPath(cwd), COMPONENTS_TEMPLATE);
-      }
-
-      if (!fs.existsSync(intakeReadmePath(cwd))) {
-        fs.writeFileSync(intakeReadmePath(cwd), INTAKE_README_TEMPLATE);
-        ctx.ui.notify("intake README created", "info");
-      }
-
-      if (!fs.existsSync(systemPath(cwd))) {
-        fs.writeFileSync(systemPath(cwd), SYSTEM_MD_TEMPLATE);
-        ctx.ui.notify("system.md created", "info");
-      }
-
-      // complaints-log.md
-      if (!fs.existsSync(complaintsLogPath(cwd))) {
-        fs.writeFileSync(complaintsLogPath(cwd), "# Complaints Log\n\n");
-        ctx.ui.notify("complaints-log.md created", "info");
-      }
-
-      if (!fs.existsSync(reviewSummaryPath(cwd))) {
-        fs.writeFileSync(reviewSummaryPath(cwd), REVIEW_SUMMARY_TEMPLATE);
-        ctx.ui.notify("review summary created", "info");
-      }
-
-      if (!fs.existsSync(rememberedRulesPath(cwd))) {
-        fs.writeFileSync(rememberedRulesPath(cwd), REMEMBERED_RULES_TEMPLATE);
-        ctx.ui.notify("remembered rules log created", "info");
-      }
-
-      if (!fs.existsSync(projectSettingsPath)) {
-        fs.writeFileSync(projectSettingsPath, JSON.stringify({ project_name: "", model_tier: "balanced", active_vcs_mode: "none" }, null, 2));
-        ctx.ui.notify("project.json created", "info");
-      }
-
-      const settingsReadmePath = path.join(settingsDir(cwd), "README.md");
-      if (!fs.existsSync(settingsReadmePath)) {
-        fs.writeFileSync(settingsReadmePath, SETTINGS_README_TEMPLATE);
-        ctx.ui.notify("settings README created", "info");
-      }
-
-      if (!fs.existsSync(agentsPath)) {
-        fs.writeFileSync(agentsPath, AGENTS_MD_TEMPLATE);
-        ctx.ui.notify("AGENTS.md created", "info");
-      }
-
-      const gitignorePath = path.join(cwd, ".gitignore");
-      const ensureGitignoreEntry = (entry: string): boolean => {
-        const gitignore = readIfExists(gitignorePath);
-        if (new RegExp(`^${escapeRegExp(entry)}$`, "m").test(gitignore)) return false;
-
-        const nextGitignore = `${gitignore.trimEnd()}${gitignore.trim() ? "\n" : ""}${entry}\n`;
-        fs.writeFileSync(gitignorePath, nextGitignore);
-        return true;
-      };
-
-      const ensureGitignoreEntries = (entries: string[], notification: string): void => {
-        let changed = false;
-        for (const entry of entries) {
-          changed = ensureGitignoreEntry(entry) || changed;
+        ensureDir(settingsDir(cwd));
+        ensureIntakeStructure(cwd);
+        ensureReviewStructure(cwd);
+        ensureArchiveStructure(cwd);
+        ensureDir(path.join(cwd, ".context", "checkpoints"));
+  
+        // design system stubs
+        ensureDir(designDir(cwd));
+        if (!fs.existsSync(designSystemPath(cwd))) {
+          fs.writeFileSync(designSystemPath(cwd), DESIGN_SYSTEM_TEMPLATE);
         }
-        if (changed) ctx.ui.notify(notification, "info");
-      };
-
-      ensureGitignoreEntries(
-        [
-          "node_modules/",
-          ".fallow/",
-          ".local/",
-          ".env",
-          ".env.local",
-          ".env.*.local",
-          "*.local",
-          ".DS_Store",
-          "Thumbs.db",
-          "*.log",
-          "*.tmp",
-          "*.temp",
-          "*.swp",
-        ],
-        "Added common ignore boilerplate to .gitignore",
-      );
-
-      const sourceFiles = walkSourceFiles(cwd);
-      indexSummary = writeIndex(cwd, sourceFiles);
-      ctx.ui.notify("index.md generated", "info");
-
-      let contextMapStatus = "existing";
-      const contextMapExisted = fs.existsSync(contextMapPath(cwd));
-      shouldRequestModelDraft = false;
-      if (!contextMapExisted) {
-        fs.writeFileSync(contextMapPath(cwd), CONTEXT_MAP_TEMPLATE);
-        contextMapStatus = "fill in manually";
-        const draftedContextMap = draftContextMap(cwd, sourceFiles);
-        if (draftedContextMap) {
-          fs.writeFileSync(contextMapPath(cwd), draftedContextMap);
-          contextMapStatus = "seeded";
-          shouldRequestModelDraft = true;
-          ctx.ui.notify("context-map.md seeded — Pi will refine it using the current model", "info");
+        if (!fs.existsSync(brandPath(cwd))) {
+          fs.writeFileSync(brandPath(cwd), BRAND_TEMPLATE);
         }
-      }
-
-      ctx.ui.notify(
-        `Vazir bootstrap complete • context-map.md: ${contextMapStatus} • index.md: ${indexSummary.total} files indexed • version control system (VCS) check runs now`,
-        "info",
-      );
+        if (!fs.existsSync(componentsPath(cwd))) {
+          fs.writeFileSync(componentsPath(cwd), COMPONENTS_TEMPLATE);
+        }
+  
+        if (!fs.existsSync(intakeReadmePath(cwd))) {
+          fs.writeFileSync(intakeReadmePath(cwd), INTAKE_README_TEMPLATE);
+          ctx.ui.notify("intake README created", "info");
+        }
+  
+        if (!fs.existsSync(systemPath(cwd))) {
+          fs.writeFileSync(systemPath(cwd), SYSTEM_MD_TEMPLATE);
+          ctx.ui.notify("system.md created", "info");
+        }
+  
+        // complaints-log.md
+        if (!fs.existsSync(complaintsLogPath(cwd))) {
+          fs.writeFileSync(complaintsLogPath(cwd), "# Complaints Log\n\n");
+          ctx.ui.notify("complaints-log.md created", "info");
+        }
+  
+        if (!fs.existsSync(reviewSummaryPath(cwd))) {
+          fs.writeFileSync(reviewSummaryPath(cwd), REVIEW_SUMMARY_TEMPLATE);
+          ctx.ui.notify("review summary created", "info");
+        }
+  
+        if (!fs.existsSync(rememberedRulesPath(cwd))) {
+          fs.writeFileSync(rememberedRulesPath(cwd), REMEMBERED_RULES_TEMPLATE);
+          ctx.ui.notify("remembered rules log created", "info");
+        }
+  
+        if (!fs.existsSync(projectSettingsPath)) {
+          fs.writeFileSync(projectSettingsPath, JSON.stringify({ project_name: "", model_tier: "balanced", active_vcs_mode: "none" }, null, 2));
+          ctx.ui.notify("project.json created", "info");
+        }
+  
+        const settingsReadmePath = path.join(settingsDir(cwd), "README.md");
+        if (!fs.existsSync(settingsReadmePath)) {
+          fs.writeFileSync(settingsReadmePath, SETTINGS_README_TEMPLATE);
+          ctx.ui.notify("settings README created", "info");
+        }
+  
+        if (!fs.existsSync(agentsPath)) {
+          fs.writeFileSync(agentsPath, AGENTS_MD_TEMPLATE);
+          ctx.ui.notify("AGENTS.md created", "info");
+        }
+  
+        const gitignorePath = path.join(cwd, ".gitignore");
+        const ensureGitignoreEntry = (entry: string): boolean => {
+          const gitignore = readIfExists(gitignorePath);
+          if (new RegExp(`^${escapeRegExp(entry)}$`, "m").test(gitignore)) return false;
+  
+          const nextGitignore = `${gitignore.trimEnd()}${gitignore.trim() ? "\n" : ""}${entry}\n`;
+          fs.writeFileSync(gitignorePath, nextGitignore);
+          return true;
+        };
+  
+        const ensureGitignoreEntries = (entries: string[], notification: string): void => {
+          let changed = false;
+          for (const entry of entries) {
+            changed = ensureGitignoreEntry(entry) || changed;
+          }
+          if (changed) ctx.ui.notify(notification, "info");
+        };
+  
+        ensureGitignoreEntries(
+          [
+            "node_modules/",
+            ".fallow/",
+            ".local/",
+            ".env",
+            ".env.local",
+            ".env.*.local",
+            "*.local",
+            ".DS_Store",
+            "Thumbs.db",
+            "*.log",
+            "*.tmp",
+            "*.temp",
+            "*.swp",
+          ],
+          "Added common ignore boilerplate to .gitignore",
+        );
+  
+        const sourceFiles = walkSourceFiles(cwd);
+        indexSummary = writeIndex(cwd, sourceFiles);
+        ctx.ui.notify("index.md generated", "info");
+  
+        let contextMapStatus = "existing";
+        const contextMapExisted = fs.existsSync(contextMapPath(cwd));
+        shouldRequestModelDraft = false;
+        if (!contextMapExisted) {
+          fs.writeFileSync(contextMapPath(cwd), CONTEXT_MAP_TEMPLATE);
+          contextMapStatus = "fill in manually";
+          const draftedContextMap = draftContextMap(cwd, sourceFiles);
+          if (draftedContextMap) {
+            fs.writeFileSync(contextMapPath(cwd), draftedContextMap);
+            contextMapStatus = "seeded";
+            shouldRequestModelDraft = true;
+            ctx.ui.notify("context-map.md seeded — Pi will refine it using the current model", "info");
+          }
+        }
+  
+        ctx.ui.notify(
+          `Vazir bootstrap complete • context-map.md: ${contextMapStatus} • index.md: ${indexSummary.total} files indexed • version control system (VCS) check runs now`,
+          "info",
+        );
       } // end if (!reconfigureOnly)
 
       let vcsLine = "☒ Version control system (VCS): Not configured";
@@ -2211,8 +2211,17 @@ export default function (pi: ExtensionAPI) {
             ],
           );
           shouldAttemptJjSetup = jjChoice === "Yes — enable JJ checkpoints";
+        } else if (!initialGitReady && !initialFossilReady && !jjAlreadyActive) {
+          const jjChoice = await ctx.ui.select(
+            "Git is active for this new repo. Do you want to enable JJ for checkpoints too?",
+            [
+              "Yes — enable JJ checkpoints",
+              "No — keep Git only for now",
+            ],
+          );
+          shouldAttemptJjSetup = jjChoice === "Yes — enable JJ checkpoints";
         } else {
-          shouldAttemptJjSetup = true;
+          shouldAttemptJjSetup = false;
         }
       }
 
@@ -2799,6 +2808,9 @@ export default function (pi: ExtensionAPI) {
         const inst = instruction.trim();
         if (!inst) return;
 
+        const activeStory = findActiveStory(cwd);
+        const storyLabel = activeStory ? path.basename(activeStory.file, ".md") : "—";
+
         // switch primary colour to slate-900
         const mPrimary = inst.match(/(?:switch|set)\s+primary\s+(?:colour|color)\s+to\s+(.+)$/i);
         if (mPrimary) {
@@ -2813,7 +2825,7 @@ export default function (pi: ExtensionAPI) {
             if (inColours) {
               if (/^##\s+/.test(line)) break;
               if (/^-\s*Primary:/i.test(line)) {
-                lines[i] = `- Primary: ${value} <!-- source: story-003 -->`;
+                lines[i] = `- Primary: ${value} <!-- source: ${storyLabel} -->`;
                 replaced = true;
                 break;
               }
@@ -2823,7 +2835,7 @@ export default function (pi: ExtensionAPI) {
             // inject under Colours
             for (let i = 0; i < lines.length; i++) {
               if (/^##\s+Colours/.test(lines[i])) {
-                lines.splice(i+1, 0, `- Primary: ${value} <!-- source: story-003 -->`);
+                lines.splice(i+1, 0, `- Primary: ${value} <!-- source: ${storyLabel} -->`);
                 replaced = true;
                 break;
               }
@@ -2847,7 +2859,7 @@ export default function (pi: ExtensionAPI) {
           const appended = `${comps}\n\n${compSec}\n`;
           fs.writeFileSync(compsP, appended.trim() + "\n");
           // remove section from design-system
-          const newDs = ds.replace(/\n## Component conventions[\s\S]*?(?=\n## |$)/i, "\n## Component conventions\n- See components.md <!-- source: story-003 -->\n");
+          const newDs = ds.replace(/\n## Component conventions[\s\S]*?(?=\n## |$)/i, `\n## Component conventions\n- See components.md <!-- source: ${storyLabel} -->\n`);
           fs.writeFileSync(dsPath, newDs);
           ctx.ui.notify(`Moved component conventions to ${path.relative(cwd, compsP)}`, "info");
           return;

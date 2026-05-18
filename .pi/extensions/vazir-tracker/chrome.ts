@@ -28,6 +28,7 @@ export interface EditStreamEntry {
   phase: "start" | "done";
   toolName: "write" | "edit";
   file: string;
+  callId: string;
 }
 
 interface StoryProgressSummary {
@@ -105,7 +106,8 @@ export const changedFiles = new Map<string, FileInfo>();
 // ── Private chrome state ───────────────────────────────────────────────
 
 const editStream: EditStreamEntry[] = [];
-const pendingEditCalls: Array<{ toolName: "write" | "edit"; file: string }> = [];
+let editCallCounter = 0;
+const pendingEditCalls: Array<{ callId: string; toolName: "write" | "edit"; file: string }> = [];
 let statusWidgetTui: any = null;
 let footerWidgetTui: any = null;
 let activeToolCalls = 0;
@@ -160,6 +162,8 @@ export function tearDownChromeSession(ui: any): void {
   activeToolCalls = 0;
   currentWorkingMessage = "";
   stopWorkingMessageTicker(ui);
+  commandHelpInputUnsubscribe?.();
+  commandHelpInputUnsubscribe = null;
   setFooterComponent(ui, undefined);
   statusWidgetTui = null;
   currentFooterSnapshot = null;
@@ -681,8 +685,8 @@ export async function viewSelectedStoryOrPlan(
 
 // ── Edit stream ────────────────────────────────────────────────────────
 
-export function recordEditStreamEntry(phase: "start" | "done", toolName: "write" | "edit", file: string): void {
-  editStream.push({ timestamp: nowISO(), phase, toolName, file });
+export function recordEditStreamEntry(phase: "start" | "done", toolName: "write" | "edit", file: string, callId: string): void {
+  editStream.push({ timestamp: nowISO(), phase, toolName, file, callId });
   while (editStream.length > EDIT_STREAM_LIMIT) {
     editStream.shift();
   }
@@ -693,16 +697,21 @@ export function toolPathFromInput(input: unknown): string {
   return raw?.path || raw?.filePath || "(unknown file)";
 }
 
-export function claimPendingEditCall(toolName: "write" | "edit"): string {
-  const index = pendingEditCalls.findIndex(entry => entry.toolName === toolName);
-  if (index < 0) return "(unknown file)";
-
-  const [entry] = pendingEditCalls.splice(index, 1);
-  return entry.file;
+export function claimPendingEditCall(toolName: "write" | "edit"): { file: string; callId: string } {
+  for (let i = pendingEditCalls.length - 1; i >= 0; i--) {
+    if (pendingEditCalls[i].toolName === toolName) {
+      const [entry] = pendingEditCalls.splice(i, 1);
+      return { file: entry.file, callId: entry.callId };
+    }
+  }
+  return { file: "(unknown file)", callId: "" };
 }
 
-export function pushPendingEditCall(toolName: "write" | "edit", file: string): void {
-  pendingEditCalls.push({ toolName, file });
+export function pushPendingEditCall(toolName: "write" | "edit", file: string): string {
+  editCallCounter += 1;
+  const callId = `${toolName}:${editCallCounter}`;
+  pendingEditCalls.push({ callId, toolName, file });
+  return callId;
 }
 
 export function formatEditStreamEntry(entry: EditStreamEntry): string {
@@ -744,12 +753,27 @@ function branchLabel(cwd: string): string {
     return isVazirInitialized(cwd) ? "no-git" : "run /vazir-init";
   }
 
+  let baseLabel = _vcsDisplay.refLabel || _vcsKind;
+  if (_vcsKind === "git" && (!baseLabel || baseLabel === "workspace")) {
+    try {
+      const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+      if (branch && branch !== "HEAD") {
+        baseLabel = branch;
+      } else {
+        const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        if (symRef) baseLabel = symRef;
+      }
+    } catch {
+      /* keep the published VCS label fallback */
+    }
+  }
+
   const suffix = _vcsOverridden ? "*" : "";
-  return clipInline((_vcsDisplay.refLabel || _vcsKind) + suffix, 24);
+  return clipInline(baseLabel + suffix, 24);
 }
 
-function repoNameLabel(cwd: string): string {
-  return path.basename(cwd);
+function repoNameLabel(_cwd: string): string {
+  return "vazir";
 }
 
 // ── Footer segments ────────────────────────────────────────────────────
@@ -788,12 +812,30 @@ function footerVcsStatusSegment(): string {
   ].filter(Boolean).join(separatorDot());
 }
 
+function liveGitBranchLabel(cwd: string): string | null {
+  try {
+    const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    if (symRef) return clipInline(symRef, 24);
+  } catch {
+    /* fall through */
+  }
+
+  try {
+    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    if (branch && branch !== "HEAD") return clipInline(branch, 24);
+  } catch {
+    /* fall through */
+  }
+
+  return null;
+}
+
 function footerBranchSegment(
   cwd: string,
   footerData: { getGitBranch(): string | null | undefined },
 ): string {
   const hostBranch = _vcsKind === "git" && _hasGitRepo ? footerData.getGitBranch() : null;
-  const rawBranch = hostBranch || branchLabel(cwd);
+  const rawBranch = hostBranch || (_vcsKind === "git" ? liveGitBranchLabel(cwd) : null) || branchLabel(cwd);
   const icon = vcsIcon(_vcsKind);
   const branch = clipInline(icon ? `${icon} ${rawBranch}` : rawBranch, 24);
   const branchPart = paint(branch, "branch");
@@ -938,25 +980,32 @@ function sessionFooterLine(
   const cwd = snapshot.cwd;
   if (!isVazirInitialized(cwd)) {
     const left = [
-      paint(`◈ ${repoNameLabel(cwd)}`, "accent", true),
+      paint(`  ${repoNameLabel(cwd)}`, "accent", true),
       paint("setup required", "warning"),
       paint("run /vazir-init", "text"),
     ].join(separatorDot());
     return alignFooterLine(left, footerHint(), width);
   }
 
-  const repoLabel = repoNameLabel(cwd);
+  const repoLabel = `  ${repoNameLabel(cwd)}`;
   const isWorking = activeToolCalls > 0 && currentWorkingMessage;
-
+  const summary = storyProgressSummary(cwd);
+  const storySegment = summary
+    ? paint(summary.slug, "text")
+    : _vcsKind === "none"
+      ? paint("no active story", "dim")
+      : "";
   const segments = isWorking
     ? [
         paint(repoLabel, "accent", true),
+        storySegment,
         footerTokenOrWorkSegment(snapshot),
         footerContextSegment(snapshot),
         footerSpendSegment(snapshot),
       ]
     : [
         paint(repoLabel, "accent", true),
+        storySegment,
         footerTokenOrWorkSegment(snapshot),
         footerBranchSegment(cwd, footerData),
         footerModelSegment(snapshot),
@@ -1022,14 +1071,13 @@ export function ensureSessionChromeMounted(ui: any, cwd: string): void {
  */
 export function startFooterRefreshTicker(syncFn: (cwd: string) => void): void {
   if (footerRefreshTicker || !currentFooterSnapshot) return;
+  lastChangeSyncAt = Date.now();
   footerRefreshTicker = setInterval(() => {
-    if (currentFooterSnapshot && Date.now() - lastChangeSyncAt >= CHANGE_SYNC_INTERVAL_MS) {
-      syncFn(currentFooterSnapshot.cwd);
-      lastChangeSyncAt = Date.now();
-    }
-    statusWidgetTui?.requestRender();
-    footerWidgetTui?.requestRender();
-  }, 120);
+    if (!currentFooterSnapshot) return;
+    syncFn(currentFooterSnapshot.cwd);
+    lastChangeSyncAt = Date.now();
+    refreshWidgets();
+  }, CHANGE_SYNC_INTERVAL_MS);
   (footerRefreshTicker as unknown as { unref?: () => void }).unref?.();
 }
 

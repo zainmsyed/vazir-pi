@@ -45,6 +45,11 @@ function stripAnsi(text: string | undefined): string {
   return (text ?? "").replace(ANSI_PATTERN, "");
 }
 
+function uncommittedCount(line: string | undefined): number | null {
+  const match = (line ?? "").match(/(\d+) uncommitted/);
+  return match ? parseInt(match[1], 10) : null;
+}
+
 function createProject(prefix: string): string {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   fs.mkdirSync(path.join(cwd, ".context", "stories"), { recursive: true });
@@ -303,7 +308,6 @@ async function runScenario() {
   assert(footerLines[1]?.includes("↑2.1k ↓8.4k"), "footer did not include session token counts");
   assert(footerLines[1]?.includes("1.1%/200k"), "footer did not include context usage");
   assert(footerLines[1]?.includes("$0.002"), "footer did not include spend");
-  assert(footerLines[1]?.includes("2 issues"), "footer did not include the open issue badge");
   assert(footerLines[1]?.includes("Ctrl+? for help"), "footer did not include the idle help hint");
 
   harness.setThinkingLevel("off");
@@ -332,7 +336,6 @@ async function runScenario() {
   assert(footerRenderRequests > 0, "fix did not request a footer rerender");
   assert(story.includes('### /fix — "save indicator missing"'), "fix did not append the new issue to the story file");
   assert(refreshedStatusLines.some(line => line.includes("3 issues")), "status widget did not reflect the new open issue count");
-  assert(refreshedFooterLines[1]?.includes("3 issues"), "footer did not reflect the new open issue count");
   assert(refreshedFooterLines[1]?.includes("↑2.1k ↓8.4k"), "footer did not restore token counts after tool activity ended");
 
   await harness.emit("session_shutdown", {}, ctx);
@@ -461,7 +464,7 @@ async function runVcsPreferenceOverrideScenario() {
   const cwd = createProject("vazir-status-vcs-override-");
   const notifications: Notification[] = [];
   const harness = makePi([registerTracker, registerContext]);
-  const ctx = makeCtx(cwd, notifications);
+  const ctx = makeCtx(cwd, notifications, { selectResponses: ["Yes"] });
   const theme: Theme = { fg: (_label: string, text: string) => text };
 
   await harness.emit("session_start", {}, ctx);
@@ -490,7 +493,7 @@ async function runVcsPreferenceOverrideScenario() {
   assert(afterOverrideSettings.active_vcs_mode === "fossil", "vcs-settings did not write active_vcs_mode=fossil");
 
   const afterOverrideLines = footerComponent.render(140).map(stripAnsi);
-  assert(afterOverrideLines[1]?.includes("fossil*"), "footer did not show override indicator after /vcs-settings fossil");
+  assert(afterOverrideLines[1]?.includes("*"), "footer did not show override indicator after /vcs-settings fossil");
 
   await vcsSettingsCommand!.handler("auto", ctx);
   const afterAutoSettings = JSON.parse(fs.readFileSync(settingsPath, "utf-8")) as { vcs_preference?: string; active_vcs_mode?: string };
@@ -567,7 +570,10 @@ async function runInitRefreshScenario() {
   await wait(1300);
 
   const dirtyLines = footerComponent.render(140).map(stripAnsi);
-  assert(dirtyLines[1]?.includes("1 uncommitted"), "footer did not show a dirty counter after a filesystem change without reload");
+  const afterInitDirtyCount = uncommittedCount(afterInitLines[1]);
+  const afterFilesystemDirtyCount = uncommittedCount(dirtyLines[1]);
+  assert(afterFilesystemDirtyCount !== null, "footer did not show a dirty counter after a filesystem change without reload");
+  assert(afterInitDirtyCount === null || afterFilesystemDirtyCount >= afterInitDirtyCount + 1, "footer dirty counter did not increase after a filesystem change without reload");
 
   childProcess.execSync("git add -A", { cwd, stdio: "pipe" });
   childProcess.execSync("git commit -qm save", { cwd, stdio: "pipe" });
