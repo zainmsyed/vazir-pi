@@ -160,6 +160,8 @@ export function tearDownChromeSession(ui: any): void {
   activeToolCalls = 0;
   currentWorkingMessage = "";
   stopWorkingMessageTicker(ui);
+  commandHelpInputUnsubscribe?.();
+  commandHelpInputUnsubscribe = null;
   setFooterComponent(ui, undefined);
   statusWidgetTui = null;
   currentFooterSnapshot = null;
@@ -744,12 +746,27 @@ function branchLabel(cwd: string): string {
     return isVazirInitialized(cwd) ? "no-git" : "run /vazir-init";
   }
 
+  let baseLabel = _vcsDisplay.refLabel || _vcsKind;
+  if (_vcsKind === "git" && (!baseLabel || baseLabel === "workspace")) {
+    try {
+      const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+      if (branch && branch !== "HEAD") {
+        baseLabel = branch;
+      } else {
+        const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        if (symRef) baseLabel = symRef;
+      }
+    } catch {
+      /* keep the published VCS label fallback */
+    }
+  }
+
   const suffix = _vcsOverridden ? "*" : "";
-  return clipInline((_vcsDisplay.refLabel || _vcsKind) + suffix, 24);
+  return clipInline(baseLabel + suffix, 24);
 }
 
-function repoNameLabel(cwd: string): string {
-  return path.basename(cwd);
+function repoNameLabel(_cwd: string): string {
+  return "vazir";
 }
 
 // ── Footer segments ────────────────────────────────────────────────────
@@ -788,12 +805,30 @@ function footerVcsStatusSegment(): string {
   ].filter(Boolean).join(separatorDot());
 }
 
+function liveGitBranchLabel(cwd: string): string | null {
+  try {
+    const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    if (symRef) return clipInline(symRef, 24);
+  } catch {
+    /* fall through */
+  }
+
+  try {
+    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    if (branch && branch !== "HEAD") return clipInline(branch, 24);
+  } catch {
+    /* fall through */
+  }
+
+  return null;
+}
+
 function footerBranchSegment(
   cwd: string,
   footerData: { getGitBranch(): string | null | undefined },
 ): string {
   const hostBranch = _vcsKind === "git" && _hasGitRepo ? footerData.getGitBranch() : null;
-  const rawBranch = hostBranch || branchLabel(cwd);
+  const rawBranch = hostBranch || (_vcsKind === "git" ? liveGitBranchLabel(cwd) : null) || branchLabel(cwd);
   const icon = vcsIcon(_vcsKind);
   const branch = clipInline(icon ? `${icon} ${rawBranch}` : rawBranch, 24);
   const branchPart = paint(branch, "branch");
@@ -947,16 +982,27 @@ function sessionFooterLine(
 
   const repoLabel = repoNameLabel(cwd);
   const isWorking = activeToolCalls > 0 && currentWorkingMessage;
+  const summary = storyProgressSummary(cwd);
+  const storySegment = summary
+    ? paint(summary.slug, "text")
+    : _vcsKind === "none"
+      ? paint("no active story", "dim")
+      : "";
+  const issueSegment = summary ? issueBadgeSegment(openIssueCount(readIfExists(summary.story.file)), true) : "";
 
   const segments = isWorking
     ? [
         paint(repoLabel, "accent", true),
+        storySegment,
+        issueSegment,
         footerTokenOrWorkSegment(snapshot),
         footerContextSegment(snapshot),
         footerSpendSegment(snapshot),
       ]
     : [
         paint(repoLabel, "accent", true),
+        storySegment,
+        issueSegment,
         footerTokenOrWorkSegment(snapshot),
         footerBranchSegment(cwd, footerData),
         footerModelSegment(snapshot),
@@ -1022,14 +1068,13 @@ export function ensureSessionChromeMounted(ui: any, cwd: string): void {
  */
 export function startFooterRefreshTicker(syncFn: (cwd: string) => void): void {
   if (footerRefreshTicker || !currentFooterSnapshot) return;
+  lastChangeSyncAt = Date.now();
   footerRefreshTicker = setInterval(() => {
-    if (currentFooterSnapshot && Date.now() - lastChangeSyncAt >= CHANGE_SYNC_INTERVAL_MS) {
-      syncFn(currentFooterSnapshot.cwd);
-      lastChangeSyncAt = Date.now();
-    }
-    statusWidgetTui?.requestRender();
-    footerWidgetTui?.requestRender();
-  }, 120);
+    if (!currentFooterSnapshot) return;
+    syncFn(currentFooterSnapshot.cwd);
+    lastChangeSyncAt = Date.now();
+    refreshWidgets();
+  }, CHANGE_SYNC_INTERVAL_MS);
   (footerRefreshTicker as unknown as { unref?: () => void }).unref?.();
 }
 
