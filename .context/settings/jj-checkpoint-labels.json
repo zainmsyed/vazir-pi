@@ -1,5 +1,11 @@
 {
   "labels": {
+    "44165894": "please commit and push the gitignore file? also check it to see if there is anyt",
+    "56994553": "Implement the in-progress story in .context/stories/story-016.md.\\n\\nYour job:\\n1. ",
+    "63415714": "No — based on the /plan instructions I found, I was not explicitly required to c",
+    "78411812": "yes please",
+    "83739706": "so that means we did this work already then right can you check the commit befor",
+    "98744084": "oh ok. we need to show that when in progress bc the user needs to see right that",
     "0139bb3f": "so why is this happening now it was working perfectly before?",
     "014397c5": "is fossil install updaten the index and context map?",
     "01e2036d": "we just need to figure oout how this happned and how do we not re invent the whe",
@@ -102,7 +108,6 @@
     "41fc064c": "no that does not make fucking sense. why are you going around the pipleine when ",
     "42e88ca2": "can we create a story based on the vazir template to update the infor bars that ",
     "43f63a19": "yes update story and then impliment it",
-    "44165894": "please commit and push the gitignore file? also check it to see if there is anyt",
     "44adc22b": "but before the last eits is was working fine what changed?",
     "479ed530": "jsut chatting no editing needed. for teh tasks per stories. how many is too many",
     "47cae857": "it was literally wotrking before story006. yes fix this but why does this keep h",
@@ -119,7 +124,6 @@
     "54ed3c4f": "we dont have the vcs-setting command?",
     "55ceba8d": "lets update story 007 and mark it \\",
     "5672a762": "for stories 16-18 how can i manually very they work?",
-    "56994553": "Implement the in-progress story in .context/stories/story-016.md.\\n\\nYour job:\\n1. ",
     "574c3770": "please go back to the last commit bc i wanted to have a discussion not make chan",
     "588be17f": "Run a code review and write the results to .context/reviews/review-20260511-1304",
     "58a23383": "yes please",
@@ -140,7 +144,6 @@
     "61ffe844": "no what i am saying is that the mini-consolodate that runs after /complete story",
     "6265eac6": "Complete the Vazir bootstrap context drafting using the currently selected Pi mo",
     "62828d2c": "8a4c3cd go back to this commit",
-    "63415714": "No — based on the /plan instructions I found, I was not explicitly required to c",
     "63a916a0": "how would you accuratly pull that info?",
     "64cb5e35": "Implement the in-progress story in .context/stories/story-001.md.\\n\\nYour job:\\n1. ",
     "64f1b40e": "yes",
@@ -171,7 +174,6 @@
     "75cfc5a7": "The user reported an issue via /fix: \\",
     "775cd108": "yes please. the repo was clean. everything was deleted",
     "7773e817": "fif you get the old code for story 6 and 7?",
-    "78411812": "yes please",
     "7988031b": "sounds good",
     "7a3621d5": "update the story and dont commit yet",
     "7a5234ae": "can you explain to me all the items in this story bc im a little confused",
@@ -190,7 +192,6 @@
     "81e14b1e": "it should always run when code reviews run. even in the /complete stry review is",
     "8351c9fa": "please commit all to fossil repo",
     "836cb1a6": "The user reported an issue via /fix: \\",
-    "83739706": "so that means we did this work already then right can you check the commit befor",
     "83916f24": "so once we impliment vcs-settings in the next story that should fix this?\\n\\nbut t",
     "84d228be": "yes please. liek wtf are we doing here",
     "84eff57d": "lets rebase and merge with main and delete this branch once youre done",
@@ -215,7 +216,6 @@
     "96f5b159": "vazir/story-task-cap-7 look at the last 5 commits on that branch i think all the",
     "970b0f19": "thats literally what i did!",
     "9756559c": "were still instructing it to ask one question at a time as well right. not dont ",
-    "98744084": "oh ok. we need to show that when in progress bc the user needs to see right that",
     "9907b39b": "yes please. liek wtf are we doing here",
     "999cb658": "update the story and dont commit yet",
     "9a82fc58": "can we make sure we have a roust ignore file for fossil please for the technical",
@@ -352,6 +352,10 @@
     "fa51f9e5": "lets create a new branch and commit and push to that. did you already push?",
     "fc7d2412": "what should we do....shouldnt that work have been in the code here?",
     "ff0d5a83": "Run Vazir consolidation using the currently selected Pi model.\\n\\nTasks:\\n1. Read .",
-    "ffa6ac4e": "how do we create new branches"
+    "ffa6ac4e": "how do we create new branches",
+    "1882f2db": "VCS_APPROVE vcs-1sqxypn",
+    "85ab599d": "ok so im haivng issues the the /resume, /new, /reset commands. the terminal does",
+    "658297f7": "Run a code review and write the results to .context/reviews/review-20260518-1242",
+    "6b1fc64a": "please fix"
   }
 }

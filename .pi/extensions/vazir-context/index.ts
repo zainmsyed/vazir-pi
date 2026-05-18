@@ -2211,8 +2211,17 @@ export default function (pi: ExtensionAPI) {
             ],
           );
           shouldAttemptJjSetup = jjChoice === "Yes — enable JJ checkpoints";
+        } else if (!initialGitReady && !initialFossilReady && !jjAlreadyActive) {
+          const jjChoice = await ctx.ui.select(
+            "Git is active for this new repo. Do you want to enable JJ for checkpoints too?",
+            [
+              "Yes — enable JJ checkpoints",
+              "No — keep Git only for now",
+            ],
+          );
+          shouldAttemptJjSetup = jjChoice === "Yes — enable JJ checkpoints";
         } else {
-          shouldAttemptJjSetup = true;
+          shouldAttemptJjSetup = false;
         }
       }
 

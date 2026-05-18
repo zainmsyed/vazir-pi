@@ -93,14 +93,19 @@ function normalizeRepoRoot(candidatePath: string): string {
   }
 }
 
-function isCurrentDirectoryRepoRoot(cwd: string, repoRoot: string): boolean {
-  return normalizeRepoRoot(cwd) === normalizeRepoRoot(repoRoot);
+function isCurrentDirectoryInsideRepo(cwd: string, repoRoot: string): boolean {
+  const normalizedCwd = normalizeRepoRoot(cwd);
+  const normalizedRepoRoot = normalizeRepoRoot(repoRoot);
+  if (normalizedCwd === normalizedRepoRoot) return true;
+
+  const relative = path.relative(normalizedRepoRoot, normalizedCwd);
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
 export function detectGitRepo(cwd: string): boolean {
   try {
     const topLevel = childProcess.execSync("git rev-parse --show-toplevel", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-    return topLevel ? isCurrentDirectoryRepoRoot(cwd, topLevel) : false;
+    return topLevel ? isCurrentDirectoryInsideRepo(cwd, topLevel) : false;
   } catch {
     return false;
   }
@@ -109,7 +114,7 @@ export function detectGitRepo(cwd: string): boolean {
 export function detectJJ(cwd: string): boolean {
   try {
     const root = childProcess.execSync("jj root", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-    return root ? isCurrentDirectoryRepoRoot(cwd, root) : false;
+    return root ? isCurrentDirectoryInsideRepo(cwd, root) : false;
   } catch {
     return false;
   }
@@ -270,7 +275,7 @@ export function detectFossil(cwd: string): boolean {
     if (jsonInfo) {
       const parsed = JSON.parse(jsonInfo) as { checkout?: { root?: string } };
       const checkoutRoot = parsed.checkout?.root?.trim();
-      if (checkoutRoot) return isCurrentDirectoryRepoRoot(cwd, checkoutRoot);
+      if (checkoutRoot) return isCurrentDirectoryInsideRepo(cwd, checkoutRoot);
     }
   } catch {
     // Fall through to plain-text parsing for older Fossil versions.
@@ -279,7 +284,7 @@ export function detectFossil(cwd: string): boolean {
   try {
     const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe" });
     const checkoutRoot = info.match(/^local-root:\s+(.+)$/m)?.[1]?.trim();
-    return checkoutRoot ? isCurrentDirectoryRepoRoot(cwd, checkoutRoot) : false;
+    return checkoutRoot ? isCurrentDirectoryInsideRepo(cwd, checkoutRoot) : false;
   } catch {
     return false;
   }
