@@ -72,3 +72,15 @@ __pycache__/*
 .local
 .local/*
 *.local
+.context/
+node_modules/
+.git/
+.jj/
+.fallow/
+.env.*
+.local/
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt

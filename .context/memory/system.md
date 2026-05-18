@@ -4,19 +4,18 @@
 - Follow existing project conventions.
 - Write directly to real project files.
 - Ask before changing ambiguous areas.
+- Commit `.context` changes whenever they are part of the work, unless the user explicitly says not to commit them.
+- Treat `.git/`, `.jj/`, `.fslckout`, and `.fossil-settings/` as protected VCS metadata targets.
+- Never delete, reset, clean, reinitialize, or overwrite VCS metadata without explicit user approval for that exact action.
+- If Vazir blocks a destructive VCS action, wait for the user to send the exact `VCS_APPROVE <token>` phrase before retrying that same action.
 
 ## Learned Rules
 ### From failures
-- When parsing structured comment annotations in free text, match each annotation independently so reordering does not corrupt the primary content. <!-- source: story-007 -->
-- When a workflow adds generated handoff artifacts or scoring heuristics, add an automated fixture that proves the happy path and edge cases before relying on it for closeout. <!-- source: story-007 -->
-- When extending a structured data format with new optional fields, update the parser, formatter, and deduplicator together in one change to preserve backwards compatibility and ensure round-trip integrity. <!-- source: story-007 -->
-- When a batch command and a per-item closeout both write to the same artifact, apply identical formatting and categorization in both paths so the output is always consistent. <!-- source: story-007 -->
-- Use draft-based handoff files for multi-step agent workflows, and distinguish missing or invalid drafts from empty-success cases with clear user warnings. <!-- source: story-005 -->
-- When a pre-existing bug outside the current story scope blocks verification, file a separate `/fix` issue rather than modifying out-of-scope files inline. <!-- source: story-008 -->
-- When refactoring divergent conditional code paths into a unified layout, build a single segment array, `filter(Boolean)` to drop empties, then `join(separator)` instead of using inline ternary spaghetti. <!-- source: story-008 -->
-### From successes
-- When injecting context or templates based on story type, detect the type from both explicit frontmatter overrides and inferred scope-path extensions. <!-- source: story-002 -->
-- When a project-wide reference file is empty or contains placeholder markers, pause implementation to ask concise gap questions, then fill the file with source-story provenance tags before proceeding. <!-- source: story-002 -->
-- Provide both an interactive wizard flow and a direct-instruction shortcut for commands that support multiple usage modes. <!-- source: story-003 -->
-- When validation checks depend on a reference file being populated, skip the check and note the skip in the output rather than flagging false violations. <!-- source: story-004 -->
-- Sanitize delimiter characters in any text persisted into a delimiter-based log, even when the text comes from tool output rather than direct user input. <!-- source: story-006 -->
+- When adding new behavior to an existing state machine or closeout flow, layer it on top of the proven architecture rather than replacing the state machine inline; validate the golden path end-to-end after every integration. <!-- source: story-005 --> <!-- confidence: high -->
+- When refactoring UI chrome or rendering logic, diff visual output against the previous state to catch unintended tone, color, or glyph regressions before merging. <!-- source: story-005 --> <!-- confidence: high -->
+- Add regression assertions for prompt builders that interpolate file paths so raw `${...}` placeholders cannot leak into agent instructions <!-- source: story-006 --> <!-- confidence: high -->
+- When adding a new instruction-driven signal source, validate at least one real downstream consumer path end-to-end instead of only checking prompt text <!-- source: story-006 --> <!-- confidence: high -->
+- Tests that modify shared binaries or runtime dependencies must use isolated temporary copies rather than mutating the shared originals directly <!-- source: story-006 --> <!-- confidence: high -->
+- When an instruction conditionally references a backend service, the fallback message must accurately reflect whether the service executed or was bypassed <!-- source: story-006 --> <!-- confidence: high -->
+- When a previously shipped feature regresses because shared helpers were later refactored, restore from the last known working commit instead of reimplementing from scratch. <!-- source: story-007 --> <!-- confidence: high -->
+- When extracting a combined helper that merges multiple previously separate operations, add a direct unit test that exercises all constituent operations together, not just the end-to-end consumer. <!-- source: story-007 --> <!-- confidence: high -->

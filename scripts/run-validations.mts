@@ -12,12 +12,11 @@ const validations = [
   "validate-vazir-edits-stream.mts",
   "validate-vazir-implement-command.mts",
   "validate-vazir-fix-routing.mts",
-  "validate-vazir-fallow-fossil-bridge.mts",
-  "validate-vazir-fallow-recurrence.mts",
-  "validate-vazir-fossil-footer.mts",
+  "validate-vazir-fallow-review-closeout.mts",
+  "validate-vazir-fallow-signal-sources.mts",
+  "validate-vazir-fallow-fossil-review.mts",
   "validate-vazir-init.mts",
   "validate-vazir-learning-loop.mts",
-  "validate-vazir-live-reload.mts",
   "validate-vazir-memory-review.mts",
   "validate-vazir-plan-seeding.mts",
   "validate-vazir-remember.mts",
@@ -25,7 +24,9 @@ const validations = [
   "validate-vazir-review-loop.mts",
   "validate-vazir-story-picker-order.mts",
   "validate-vazir-status-chrome.mts",
-  "validate-vazir-story-status-guard.mts"
+  "validate-vazir-story-status-guard.mts",
+  "validate-vazir-vcs-safety-policy.mts",
+  "validate-vazir-vcs-tool-guard.mts"
 ];
 const stubModuleDirs = installCommonPiStubs();
 

@@ -49,6 +49,8 @@ appendFallowToComplaintsLog(cwd, "story-003", reviewFallowFindingsFromFile(revie
 log = fs.readFileSync(path.join(cwd, ".context", "complaints-log.md"), "utf-8");
 assert(countFallowOccurrences(cwd, finding) === 3, "three distinct stories should be counted");
 assert((log.match(/status: promoted/g) || []).length === 3, "third occurrence should promote the whole fallow cluster");
+assert(log.includes("| story-001 | [fallow] unused-export: src/utils/formatDate.ts:14 / toRelativeTime never imported | status: promoted"), "third occurrence should rewrite the first story entry to promoted");
+assert(log.includes("| story-002 | [fallow] unused-export: src/utils/formatDate.ts:14 / toRelativeTime never imported | status: promoted"), "third occurrence should rewrite the second story entry to promoted");
 
 console.log("Fallow recurrence validation");
 console.log(`cwd: ${cwd}`);

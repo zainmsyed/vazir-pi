@@ -12,6 +12,7 @@ const helpers = await loadFileModule<typeof import("../../.pi/extensions/vazir-c
 const {
   updateRuleConfidence,
   organizeLearnedRules,
+  prepareLearnedRulesForConsolidation,
   learnedRulesFromMd,
   parseLearnedRuleEntry,
   formatLearnedRuleEntry,
@@ -495,5 +496,50 @@ assert(
 );
 
 console.log("✓ promoteRulesToSystemMd with kind produces subsections immediately");
+
+// ── Test 7: prepareLearnedRulesForConsolidation combines dedupe + confidence + kind ──
+
+const cwdCombined = createProject("vazir-combined-");
+
+fs.writeFileSync(
+  path.join(cwdCombined, ".context", "memory", "system.md"),
+  [
+    "# System Rules",
+    "",
+    "## Rules",
+    "- Follow existing project conventions.",
+    "",
+    "## Learned Rules",
+    "- Duplicate rule <!-- source: story-001 -->",
+    "- Duplicate rule <!-- source: story-001 -->",
+    "- Rule needing confidence <!-- source: story-001 -->",
+    "- Rule needing kind <!-- source: story-002 -->",
+    "",
+  ].join("\n"),
+);
+
+prepareLearnedRulesForConsolidation(cwdCombined);
+
+const combinedSystemMd = readSystemMd(cwdCombined);
+const combinedRules = learnedRulesFromMd(combinedSystemMd);
+
+// Assert dedupe happened
+const duplicateCount = combinedRules.filter(r => r.text === "Duplicate rule").length;
+assert(duplicateCount === 1, `Duplicate rules should be merged into one, found ${duplicateCount}`);
+
+// Assert confidence was assigned
+const confidenceRule = combinedRules.find(r => r.text === "Rule needing confidence");
+assert(confidenceRule !== undefined, "Rule needing confidence should exist");
+assert(confidenceRule.confidence === "high", `Rule needing confidence should have 'high' confidence, got '${confidenceRule.confidence}'`);
+
+// Assert kind was assigned
+const kindRule = combinedRules.find(r => r.text === "Rule needing kind");
+assert(kindRule !== undefined, "Rule needing kind should exist");
+assert(kindRule.kind === "success", `Rule needing kind should be 'success' (story-002 has no issues), got '${kindRule.kind}'`);
+
+// Assert subsection structure exists
+assert(combinedSystemMd.includes("### From failures") || combinedSystemMd.includes("### From successes"), "system.md should contain at least one subsection after prepareLearnedRulesForConsolidation");
+
+console.log("✓ prepareLearnedRulesForConsolidation applies dedupe + confidence + kind in a single I/O pass");
 
 console.log("\nAll confidence and subsection validations passed.");

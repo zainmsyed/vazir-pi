@@ -33,6 +33,7 @@ export interface EditStreamEntry {
 interface StoryProgressSummary {
   story: StoryFrontmatter;
   slug: string;
+  title: string | null;
   checklistDone: number;
   checklistTotal: number;
 }
@@ -66,6 +67,7 @@ const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/unlearn", description: "remove a promoted rule from system memory" },
   { command: "/consolidate", description: "cluster complaints and promote repeated rule candidates" },
   { command: "/design", description: "review and edit design system, brand, components" },
+  { command: "/vcs-settings", description: "pick or set the preferred VCS mode for Vazir" },
   { command: "/diff", description: "show the diff for one changed file" },
   { command: "/edits", description: "show the recent file edit stream" },
   { command: "/checkpoint", description: "pick a JJ checkpoint to restore" },
@@ -122,8 +124,10 @@ let storyProgressCache: StoryProgressSummary | null | undefined = undefined;
 // Mirrors of VCS flags — synced from index.ts via setVcsFlags().
 let _hasGitRepo = false;
 let _useJJ = false;
+let _hasFossilRepo = false;
 let _vcsKind: "none" | "git" | "jj" | "fossil" = "none";
 let _vcsDisplay = { refLabel: "workspace", workingLabel: "", syncLabel: "" };
+let _vcsOverridden = false;
 
 // ── Lifecycle setters (called from index.ts) ───────────────────────────
 
@@ -132,11 +136,14 @@ export function setVcsFlags(
   useJJ: boolean,
   vcsKind: "none" | "git" | "jj" | "fossil" = useJJ ? "jj" : hasGitRepo ? "git" : "none",
   display: { refLabel: string; workingLabel: string; syncLabel: string } = { refLabel: "workspace", workingLabel: "", syncLabel: "" },
+  isOverridden: boolean = false,
 ): void {
   _hasGitRepo = hasGitRepo;
   _useJJ = useJJ;
   _vcsKind = vcsKind;
+  _hasFossilRepo = vcsKind === "fossil";
   _vcsDisplay = display;
+  _vcsOverridden = isOverridden;
 }
 
 export function setChromeSession(
@@ -544,6 +551,7 @@ function storyProgressSummary(cwd: string): StoryProgressSummary | null {
   const summary = {
     story,
     slug: path.basename(story.file, ".md"),
+    title: storyPickerTitle(story),
     checklistDone: checklist.done,
     checklistTotal: checklist.total,
   };
@@ -722,12 +730,22 @@ export function clipInline(text: string, max = 40): string {
   return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
+function vcsIcon(kind: typeof _vcsKind): string {
+  switch (kind) {
+    case "git": return "";
+    case "jj": return "⧉";
+    case "fossil": return "";
+    default: return "";
+  }
+}
+
 function branchLabel(cwd: string): string {
   if (_vcsKind === "none") {
     return isVazirInitialized(cwd) ? "no-git" : "run /vazir-init";
   }
 
-  return clipInline(_vcsDisplay.refLabel || _vcsKind, 24);
+  const suffix = _vcsOverridden ? "*" : "";
+  return clipInline((_vcsDisplay.refLabel || _vcsKind) + suffix, 24);
 }
 
 function repoNameLabel(cwd: string): string {
@@ -746,21 +764,15 @@ function storySavedLabel(summary: StoryProgressSummary): string | null {
   return `last saved ${formatRelativeAge(modifiedAt)}`;
 }
 
-function storyLastAccessedLabel(story: StoryFrontmatter): string {
-  if (!story.lastAccessed) return "";
-
-  // Date-only values like "2026-05-13" are written by the context layer.
-  // Parsing them as UTC midnight makes them appear ~N hours old during the
-  // same calendar day, so treat them as calendar dates.
-  if (/^\d{4}-\d{2}-\d{2}$/.test(story.lastAccessed)) {
-    const today = new Date().toISOString().slice(0, 10);
-    if (story.lastAccessed === today) {
-      return "today";
-    }
-    return formatRelativeAge(new Date(`${story.lastAccessed}T00:00:00Z`).getTime());
+function issueBadgeSegment(openIssues: number, compact = false): string {
+  if (openIssues === 0) {
+    return `${paint("✓", "success")} ${paint("no open issues", "dim")}`;
   }
 
-  return formatRelativeAge(new Date(story.lastAccessed).getTime());
+  const label = compact
+    ? `${openIssues} issue${openIssues === 1 ? "" : "s"}`
+    : `${openIssues} issue${openIssues === 1 ? "" : "s"} open`;
+  return `${paint("⚠", "error")} ${paint(label, "error")}`;
 }
 
 function footerVcsStatusSegment(): string {
@@ -781,7 +793,9 @@ function footerBranchSegment(
   footerData: { getGitBranch(): string | null | undefined },
 ): string {
   const hostBranch = _vcsKind === "git" && _hasGitRepo ? footerData.getGitBranch() : null;
-  const branch = clipInline(hostBranch || branchLabel(cwd), 24);
+  const rawBranch = hostBranch || branchLabel(cwd);
+  const icon = vcsIcon(_vcsKind);
+  const branch = clipInline(icon ? `${icon} ${rawBranch}` : rawBranch, 24);
   const branchPart = paint(branch, "branch");
   const vcsPart = footerVcsStatusSegment();
   return vcsPart ? `${branchPart}${separatorDot()}${vcsPart}` : branchPart;
@@ -857,19 +871,16 @@ function storyStatusWidgetLines(
     ];
   }
 
-  const title = storyPickerTitle(summary.story);
-  const slugWithTitle = title
-    ? `${paint(summary.slug, "text")}: ${paint(clipInline(title, 40), "dim")}`
-    : paint(summary.slug, "text");
   const progressSegment = `${paint(progressBar(summary.checklistDone, summary.checklistTotal), storyProgressTone(summary))} ${paint(`${summary.checklistDone}/${summary.checklistTotal} ${summary.checklistTotal === 1 ? "task" : "tasks"}`, "dim")}`;
   const openIssues = openIssueCount(readIfExists(summary.story.file));
-  const issueSegment = openIssues === 0
-    ? `${paint("✓", "success")} ${paint("no open issues", "dim")}`
-    : `${paint("⚠", "error")} ${paint(`${openIssues} open issue${openIssues === 1 ? "" : "s"}`, "error")}`;
-  const accessedLabel = storyLastAccessedLabel(summary.story);
+  const issueSegment = issueBadgeSegment(openIssues);
+
+  const storyLabel = summary.title
+    ? `${summary.slug} — ${clipInline(summary.title, 48)}`
+    : summary.slug;
 
   const segments = [
-    `${paint("▸", "accent", true)} ${slugWithTitle}`,
+    `${paint("▸", "accent", true)} ${paint(storyLabel, "text")}`,
     paint(summary.story.status, storyStatusTone(summary.story.status)),
     progressSegment,
     issueSegment,
@@ -878,9 +889,6 @@ function storyStatusWidgetLines(
   const savedLabel = activeToolCalls > 0 ? null : storySavedLabel(summary);
   if (savedLabel) {
     segments.push(paint(savedLabel, "dim"));
-  }
-  if (accessedLabel) {
-    segments.push(accessedLabel);
   }
 
   return [
@@ -937,21 +945,26 @@ function sessionFooterLine(
     return alignFooterLine(left, footerHint(), width);
   }
 
-  const summary = storyProgressSummary(cwd);
-  const storyLabel = summary?.slug ?? "no active story";
-  const repoLabel = clipInline(repoNameLabel(cwd).replace(/-pi$/, ""), 12);
+  const repoLabel = repoNameLabel(cwd);
+  const isWorking = activeToolCalls > 0 && currentWorkingMessage;
 
-  const segments = [
-    paint(repoLabel, "accent", true),
-    paint(storyLabel, "text"),
-    footerBranchSegment(cwd, footerData),
-    footerModelSegment(snapshot),
-    footerContextSegment(snapshot),
-    footerSpendSegment(snapshot),
-    footerTokenOrWorkSegment(snapshot),
-  ].filter(Boolean);
+  const segments = isWorking
+    ? [
+        paint(repoLabel, "accent", true),
+        footerTokenOrWorkSegment(snapshot),
+        footerContextSegment(snapshot),
+        footerSpendSegment(snapshot),
+      ]
+    : [
+        paint(repoLabel, "accent", true),
+        footerTokenOrWorkSegment(snapshot),
+        footerBranchSegment(cwd, footerData),
+        footerModelSegment(snapshot),
+        footerContextSegment(snapshot),
+        footerSpendSegment(snapshot),
+      ];
 
-  const left = segments.join(separatorDot());
+  const left = segments.filter(Boolean).join(separatorDot());
   return alignFooterLine(left, footerHint(), width);
 }
 

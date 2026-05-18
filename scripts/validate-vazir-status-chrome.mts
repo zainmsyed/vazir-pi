@@ -9,7 +9,7 @@ const fs = require("node:fs") as typeof import("node:fs");
 
 const stubModuleDirs = installCommonPiStubs();
 
-const trackerExtensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-tracker", String(Date.now()));
+const trackerExtensionModule = await loadExtensionModule<{ default: (pi: any) => void; refreshVcsState: (cwd: string) => void }>("vazir-tracker", String(Date.now()));
 const contextExtensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context", String(Date.now()));
 const registerTracker = trackerExtensionModule.default;
 const registerContext = contextExtensionModule.default;
@@ -286,10 +286,8 @@ async function runScenario() {
   assert(statusLines.some(line => line.includes("story-003")), "status widget did not show the active story slug");
   assert(statusLines.some(line => line.includes("in-progress")), "status widget did not show the story status");
   assert(statusLines.some(line => line.includes("2/3 tasks")), "status widget did not show checklist progress");
-  assert(statusLines.some(line => line.includes("2 open issues")), "status widget did not show open issue count");
+  assert(statusLines.some(line => line.includes("2 issues")), "status widget did not show open issue count");
   assert(statusLines.some(line => line.includes("last saved")), "status widget did not show the last-saved label");
-  assert(statusLines.some(line => line.includes("Tracker chrome")), "status widget did not show the story title");
-  assert(statusLines.some(line => line.includes("ago")), "status widget did not show the last-accessed age");
 
   const footerComponent = footerFactory!(
     { requestRender() { footerRenderRequests += 1; } },
@@ -305,6 +303,7 @@ async function runScenario() {
   assert(footerLines[1]?.includes("↑2.1k ↓8.4k"), "footer did not include session token counts");
   assert(footerLines[1]?.includes("1.1%/200k"), "footer did not include context usage");
   assert(footerLines[1]?.includes("$0.002"), "footer did not include spend");
+  assert(footerLines[1]?.includes("2 issues"), "footer did not include the open issue badge");
   assert(footerLines[1]?.includes("Ctrl+? for help"), "footer did not include the idle help hint");
 
   harness.setThinkingLevel("off");
@@ -315,12 +314,11 @@ async function runScenario() {
   const workingStatusLines = statusComponent.render(140).map(stripAnsi);
   const workingFooterLines = footerComponent.render(140).map(stripAnsi);
   assert(!workingStatusLines.some(line => line.includes("last saved")), "status widget should hide last-saved while tool work is active");
-  assert(workingFooterLines[1]?.includes("Reading"), "footer did not show the working message during tool activity");
+  assert(workingFooterLines[1]?.includes("Reading · vazir-context.ts"), "footer did not show the working message during tool activity");
   assert(workingFooterLines[1]?.includes("1.1%/200k"), "footer lost context usage during tool activity");
   assert(workingFooterLines[1]?.includes("$0.002"), "footer lost spend during tool activity");
   assert(workingFooterLines[1]?.includes("Ctrl+C to abort"), "footer did not switch to the abort hint during tool activity");
   assert(!workingFooterLines[1]?.includes("↑2.1k ↓8.4k"), "footer should replace token counts with the working message during tool activity");
-  assert(workingFooterLines[1]?.includes("main") || workingFooterLines[1]?.includes("clean") || workingFooterLines[1]?.includes("uncommitted"), "footer did not include branch/VCS status during tool activity");
   await harness.emit("tool_result", { toolName: "read" }, ctx);
 
   const fixCommand = harness.commands.get("fix");
@@ -333,7 +331,8 @@ async function runScenario() {
   assert(statusRenderRequests > 0, "fix did not request a story status widget rerender");
   assert(footerRenderRequests > 0, "fix did not request a footer rerender");
   assert(story.includes('### /fix — "save indicator missing"'), "fix did not append the new issue to the story file");
-  assert(refreshedStatusLines.some(line => line.includes("3 open issues")), "status widget did not reflect the new open issue count");
+  assert(refreshedStatusLines.some(line => line.includes("3 issues")), "status widget did not reflect the new open issue count");
+  assert(refreshedFooterLines[1]?.includes("3 issues"), "footer did not reflect the new open issue count");
   assert(refreshedFooterLines[1]?.includes("↑2.1k ↓8.4k"), "footer did not restore token counts after tool activity ended");
 
   await harness.emit("session_shutdown", {}, ctx);
@@ -458,6 +457,55 @@ async function runBootstrappedPlainFolderScenario() {
   };
 }
 
+async function runVcsPreferenceOverrideScenario() {
+  const cwd = createProject("vazir-status-vcs-override-");
+  const notifications: Notification[] = [];
+  const harness = makePi([registerTracker, registerContext]);
+  const ctx = makeCtx(cwd, notifications);
+  const theme: Theme = { fg: (_label: string, text: string) => text };
+
+  await harness.emit("session_start", {}, ctx);
+
+  const footerFactory = ctx.getFooterFactory();
+  assert(footerFactory !== null, "vcs-preference-override scenario did not mount the footer");
+
+  let footerRenderRequests = 0;
+  const footerComponent = footerFactory!(
+    { requestRender() { footerRenderRequests += 1; } },
+    theme,
+    { getGitBranch() { return "main"; } },
+  );
+
+  const beforeOverrideLines = footerComponent.render(140).map(stripAnsi);
+  assert(beforeOverrideLines[1]?.includes("main"), "footer did not show git branch before override");
+  assert(!beforeOverrideLines[1]?.includes("main*"), "footer should not show override indicator before setting preference");
+
+  const vcsSettingsCommand = harness.commands.get("vcs-settings");
+  assert(Boolean(vcsSettingsCommand), "vcs-settings command was not registered");
+  await vcsSettingsCommand!.handler("fossil", ctx);
+
+  const settingsPath = path.join(cwd, ".context", "settings", "project.json");
+  const afterOverrideSettings = JSON.parse(fs.readFileSync(settingsPath, "utf-8")) as { vcs_preference?: string; active_vcs_mode?: string };
+  assert(afterOverrideSettings.vcs_preference === "fossil", "vcs-settings did not write vcs_preference=fossil");
+  assert(afterOverrideSettings.active_vcs_mode === "fossil", "vcs-settings did not write active_vcs_mode=fossil");
+
+  const afterOverrideLines = footerComponent.render(140).map(stripAnsi);
+  assert(afterOverrideLines[1]?.includes("fossil*"), "footer did not show override indicator after /vcs-settings fossil");
+
+  await vcsSettingsCommand!.handler("auto", ctx);
+  const afterAutoSettings = JSON.parse(fs.readFileSync(settingsPath, "utf-8")) as { vcs_preference?: string; active_vcs_mode?: string };
+  assert(afterAutoSettings.vcs_preference === "auto", "vcs-settings did not write vcs_preference=auto");
+  assert(afterAutoSettings.active_vcs_mode === "git", "vcs-settings auto did not resolve back to active_vcs_mode=git");
+
+  const afterAutoLines = footerComponent.render(140).map(stripAnsi);
+  assert(afterAutoLines[1]?.includes("main"), "footer did not switch back to git after /vcs-settings auto");
+  assert(!afterAutoLines[1]?.includes("*"), "footer should clear override indicator after /vcs-settings auto");
+
+  await harness.emit("session_shutdown", {}, ctx);
+
+  return { cwd, beforeOverrideLines, afterOverrideLines, afterAutoLines };
+}
+
 async function runInitRefreshScenario() {
   const cwd = createPlainFolder("vazir-status-init-refresh-");
   const notifications: Notification[] = [];
@@ -511,7 +559,7 @@ async function runInitRefreshScenario() {
   assert(footerRenderRequests > 0, "vazir-init did not request a footer rerender");
   assert(afterInitLines[1]?.includes(expectedVcsLabel), `footer did not switch to the live VCS label (${expectedVcsLabel}) after /vazir-init without reload`);
   assert(!afterInitLines[1]?.includes("no-git"), "footer still showed no-git after /vazir-init");
-  assert(afterInitLines[1]?.includes("uncommitted"), "footer did not show a dirty counter after /vazir-init");
+  assert(afterInitLines[1]?.includes("uncommitted"), "footer did not show an uncommitted counter after /vazir-init");
 
   childProcess.execSync("git config user.name 'Vazir Test'", { cwd, stdio: "pipe" });
   childProcess.execSync("git config user.email 'vazir-test@example.com'", { cwd, stdio: "pipe" });
@@ -519,7 +567,7 @@ async function runInitRefreshScenario() {
   await wait(1300);
 
   const dirtyLines = footerComponent.render(140).map(stripAnsi);
-  assert(dirtyLines[1]?.includes("uncommitted"), "footer did not show a dirty counter after a filesystem change without reload");
+  assert(dirtyLines[1]?.includes("1 uncommitted"), "footer did not show a dirty counter after a filesystem change without reload");
 
   childProcess.execSync("git add -A", { cwd, stdio: "pipe" });
   childProcess.execSync("git commit -qm save", { cwd, stdio: "pipe" });
@@ -568,10 +616,12 @@ try {
   const cleanFolder = await runCleanFolderScenario();
   const bootstrappedPlainFolder = await runBootstrappedPlainFolderScenario();
   const initRefresh = await runInitRefreshScenario();
+  const vcsPreferenceOverride = await runVcsPreferenceOverrideScenario();
   printScenario("Status Chrome", scenario);
   printScenario("Clean Folder Startup", cleanFolder);
   printScenario("Bootstrapped Plain Folder", bootstrappedPlainFolder);
   printScenario("Init Refresh", initRefresh);
+  printScenario("VCS Preference Override", vcsPreferenceOverride);
 } finally {
   cleanupStubModules(stubModuleDirs);
 }

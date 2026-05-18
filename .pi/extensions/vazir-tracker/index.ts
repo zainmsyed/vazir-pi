@@ -13,8 +13,9 @@ import {
   findActiveStory,
   nonTerminalStories,
   nowISO,
+  readActiveVcsMode,
   readIfExists,
-  readProjectVcsPreference,
+  readProjectSettings,
   todayDate,
   type StoryFrontmatter,
   updateStoryFrontmatter,
@@ -49,18 +50,17 @@ import {
   designSystemPath,
   hasUiTypeOverride,
   isUiStory,
-  sanitizeComplaintsLogText,
 } from "../vazir-context/helpers.ts";
 import {
   autoDescribeCurrentJjChange,
+  clearPendingVcsApproval,
   type CheckpointMeta,
   checkpointLabel,
   detectGitRepo,
   findOrphanedGitSessions,
-  fossilDiffFile,
   gitRestoreCheckpoint,
   gitSnapshotFile,
-  isFossilClean,
+  inspectVcsToolGuard,
   isGitClean,
   jjCheckpointChoices,
   jjDiffFile,
@@ -68,6 +68,7 @@ import {
   jjRestoreCheckpoint,
   listGitCheckpoints,
   loadJjCheckpointLabels,
+  noteUserVcsApproval,
   persistCurrentJjCheckpointLabel,
   sessionCheckpointDir,
   syncChanges,
@@ -113,7 +114,10 @@ function appendToStoryIssues(storyPath: string, description: string): void {
 }
 
 function sanitizeComplaintDescription(description: string): string {
-  return sanitizeComplaintsLogText(description);
+  return description
+    .replace(/\|/g, "/")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function appendToComplaintsLog(cwd: string, storyName: string, description: string): void {
@@ -307,13 +311,47 @@ async function resolveStoryForImplementation(
 }
 
 function resolvePreferredVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" {
-  const preference = readProjectVcsPreference(cwd);
-  if (preference === "fossil" && hasFossilRepo) return "fossil";
-  if (preference === "jj" && useJJ) return "jj";
-  if (preference === "git" && hasGitRepo) return "git";
-  if (hasFossilRepo) return "fossil";
+  const settings = readProjectSettings(cwd);
+  const vcsPreference = typeof settings.vcs_preference === "string" ? settings.vcs_preference.trim().toLowerCase() : "";
+  const hasExplicitMode = "active_vcs_mode" in settings;
+  const activeMode = readActiveVcsMode(cwd);
+
+  // vcs_preference acts as an override when explicitly set to a non-auto value
+  if (vcsPreference && vcsPreference !== "auto") {
+    if (vcsPreference === "fossil" && hasFossilRepo) return "fossil";
+    if (vcsPreference === "jj" && useJJ) return "jj";
+    if (vcsPreference === "git" && hasGitRepo) return "git";
+    // If preference doesn't match detected repos, still honor it for explicit user choice
+    if (vcsPreference === "fossil") return "fossil";
+    if (vcsPreference === "jj" && hasGitRepo) return "jj"; // jj requires git
+    if (vcsPreference === "git") return "git";
+  }
+
+  if (hasExplicitMode) {
+    // Settings are the source of truth
+    if (activeMode === "fossil") return hasFossilRepo ? "fossil" : "none";
+    if (activeMode === "git") {
+      if (useJJ) return "jj";
+      return hasGitRepo ? "git" : "none";
+    }
+    return "none"; // activeMode === "none"
+  }
+
+  // Legacy fallback for pre-story-014 projects without active_vcs_mode
+  // Prefer Git over Fossil when both are present
   if (useJJ) return "jj";
   if (hasGitRepo) return "git";
+  if (hasFossilRepo) return "fossil";
+  return "none";
+}
+
+function computeAutoDetectedVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" {
+  const git = detectGitRepo(cwd);
+  const jj = git ? detectJJ(cwd) : false;
+  const fossil = detectFossil(cwd);
+  if (jj) return "jj";
+  if (git) return "git";
+  if (fossil) return "fossil";
   return "none";
 }
 
@@ -327,7 +365,9 @@ function refreshDetectedVcs(cwd: string): void {
 
 function syncAndPublishVcs(cwd: string): void {
   const display = syncChanges(cwd, vcsKind);
-  setVcsFlags(hasGitRepo, useJJ, vcsKind, display);
+  const autoKind = computeAutoDetectedVcsKind(cwd);
+  const isOverridden = vcsKind !== autoKind;
+  setVcsFlags(hasGitRepo, useJJ, vcsKind, display, isOverridden);
 }
 
 export function refreshVcsState(cwd: string): void {
@@ -336,16 +376,21 @@ export function refreshVcsState(cwd: string): void {
   refreshWidgets();
 }
 
+export function getResolvedVcsKind(): "none" | "git" | "jj" | "fossil" {
+  return vcsKind;
+}
+
 // ── Extension ──────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-  pi.on("input", async (event: { text?: string }) => {
+  pi.on("input", async (event: { text?: string }, ctx: { cwd: string }) => {
     if (event.text?.trim() === "/impliment") {
       event.text = normalizeTrackerInputText(event.text);
     }
 
     if (event.text?.trim() && !event.text.startsWith("/")) {
       lastUserPrompt = event.text.trim();
+      noteUserVcsApproval(ctx.cwd, event.text);
     }
     return { action: "continue" as const };
   });
@@ -380,8 +425,7 @@ export default function (pi: ExtensionAPI) {
       },
     ) => {
       const cwd = ctx.cwd;
-      refreshDetectedVcs(cwd);
-      setVcsFlags(hasGitRepo, useJJ, vcsKind, syncChanges(cwd, vcsKind));
+      refreshVcsState(cwd);
 
       const sessionManager = {
         getBranch: ctx.sessionManager?.getBranch ?? (() => []),
@@ -414,14 +458,7 @@ export default function (pi: ExtensionAPI) {
           );
         }
         startFooterRefreshTicker(cwd => {
-          // Re-detect VCS when git was not present at session start (e.g. /vazir-init ran mid-session).
-          const previousKind = vcsKind;
-          refreshDetectedVcs(cwd);
-          if (vcsKind !== previousKind || vcsKind === "none" || vcsKind === "fossil") {
-            syncAndPublishVcs(cwd);
-            return;
-          }
-          syncAndPublishVcs(cwd);
+          refreshVcsState(cwd);
         });
         registerCommandHelpShortcut(ctx);
       }
@@ -449,13 +486,6 @@ export default function (pi: ExtensionAPI) {
             }
           }
         }
-      } else if (vcsKind === "fossil") {
-        if (!isFossilClean(cwd)) {
-          ctx.ui.notify(
-            "Work in progress from previous session detected. Commit or stash changes before starting a new session.",
-            "warning",
-          );
-        }
       }
 
       if (!ctx.hasUI) return;
@@ -466,7 +496,8 @@ export default function (pi: ExtensionAPI) {
     },
   );
 
-  pi.on("session_shutdown", async (_event: unknown, ctx: { ui?: any }) => {
+  pi.on("session_shutdown", async (_event: unknown, ctx: { cwd?: string; ui?: any }) => {
+    if (ctx.cwd) clearPendingVcsApproval(ctx.cwd);
     hasGitRepo = false;
     hasFossilRepo = false;
     useJJ = false;
@@ -501,7 +532,13 @@ export default function (pi: ExtensionAPI) {
 
   pi.on(
     "tool_call",
-    async (event: { toolName?: string; input?: { path?: string } }, ctx: { cwd: string; ui?: any }) => {
+    async (event: { toolName?: string; input?: { path?: string; command?: string } }, ctx: { cwd: string; ui?: any }) => {
+      const guard = inspectVcsToolGuard(ctx.cwd, event.toolName, event.input, lastUserPrompt);
+      if (guard.block) {
+        ctx.ui?.notify?.(guard.reason, "warning");
+        return { block: true, reason: guard.reason };
+      }
+
       beginToolActivity(ctx.ui, event.toolName, event.input);
 
       if (event.toolName === "write" || event.toolName === "edit") {
@@ -587,7 +624,7 @@ export default function (pi: ExtensionAPI) {
 
       let diffText: string;
       try {
-        if (vcsKind === "jj") {
+        if (useJJ) {
           diffText = jjDiffFile(ctx.cwd, chosen.file);
         } else if (chosen.status === "?") {
           const content = fs.readFileSync(path.join(ctx.cwd, chosen.file), "utf-8");
@@ -595,8 +632,6 @@ export default function (pi: ExtensionAPI) {
             .split("\n")
             .map((l: string) => `+ ${l}`)
             .join("\n");
-        } else if (vcsKind === "fossil") {
-          diffText = fossilDiffFile(ctx.cwd, chosen.file);
         } else {
           const { execFileSync } = await import("child_process");
           diffText = execFileSync("git", ["diff", "--no-color", "HEAD", "--", chosen.file], {
