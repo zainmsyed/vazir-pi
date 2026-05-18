@@ -936,6 +936,35 @@ export function userExplicitlyApprovedStatusChange(prompt: string, nextStatus: s
     ].some(phrase => normalized.includes(phrase));
   }
 
+  if (nextStatus === "in-progress") {
+    return [
+      "start this story",
+      "start the story",
+      "begin this story",
+      "begin the story",
+      "work on this story",
+      "work on the story",
+      "start working on this story",
+      "start working on the story",
+      "resume this story",
+      "resume the story",
+      "continue this story",
+      "continue the story",
+      "implement this story",
+      "implement the story",
+      "let's implement this story",
+      "lets implement this story",
+      "let's work on this story",
+      "lets work on this story",
+      "mark this in progress",
+      "mark this in-progress",
+      "mark the story in progress",
+      "mark the story in-progress",
+      "move this story to in progress",
+      "move this story to in-progress",
+    ].some(phrase => normalized.includes(phrase));
+  }
+
   return false;
 }
 

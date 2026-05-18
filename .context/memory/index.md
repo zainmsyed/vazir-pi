@@ -14,3 +14,7 @@ package.json — package.json configuration file
 test_exec.js — Tiny Node child-process smoke test that runs `node -e` and prints the captured output.
 types/node-runtime-ambient.d.ts — Minimal ambient Node typings for child_process, fs, path, os, module, url, and process used by stripped-TypeScript runtime loading.
 types/pi-runtime-ambient.d.ts — Minimal ambient Pi SDK and pi-tui module typings for extension compilation without full upstream type packages.
+
+.pi/extensions/vazir-review/index.ts — (undescribed)
+.pi/extensions/vazir-story/index.ts — (undescribed)
+.pi/extensions/vazir-vcs/index.ts — (undescribed)
