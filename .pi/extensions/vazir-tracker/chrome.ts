@@ -988,13 +988,10 @@ function sessionFooterLine(
     : _vcsKind === "none"
       ? paint("no active story", "dim")
       : "";
-  const issueSegment = summary ? issueBadgeSegment(openIssueCount(readIfExists(summary.story.file)), true) : "";
-
   const segments = isWorking
     ? [
         paint(repoLabel, "accent", true),
         storySegment,
-        issueSegment,
         footerTokenOrWorkSegment(snapshot),
         footerContextSegment(snapshot),
         footerSpendSegment(snapshot),
@@ -1002,7 +999,6 @@ function sessionFooterLine(
     : [
         paint(repoLabel, "accent", true),
         storySegment,
-        issueSegment,
         footerTokenOrWorkSegment(snapshot),
         footerBranchSegment(cwd, footerData),
         footerModelSegment(snapshot),
