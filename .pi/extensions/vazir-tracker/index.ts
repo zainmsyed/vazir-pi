@@ -147,20 +147,12 @@ async function resolveStoryForFix(
   }
 
   if (candidates.length === 1) {
-    const selected = candidates[0];
-    if (selected.status === "not-started") {
-      updateStoryFrontmatter(selected.file, { status: "in-progress", lastAccessed: todayDate() });
-      return {
-        story: { ...selected, status: "in-progress", lastAccessed: todayDate() },
-        reason: "resolved",
-      };
-    }
-    return { story: selected, reason: "resolved" };
+    return { story: candidates[0], reason: "resolved" };
   }
 
   const options = candidates.map(story => `${path.basename(story.file, ".md")} — ${story.status}`);
   const choice = await ui.select(
-    "No in-progress story found. Which story should /fix log to? Selecting a not-started story will mark it in-progress.",
+    "No in-progress story found. Which story should /fix log to? This only logs the issue — it does not start the story.",
     [...options, "Cancel"],
   );
 
@@ -171,16 +163,7 @@ async function resolveStoryForFix(
   const index = options.indexOf(choice);
   if (index < 0) return { story: null, reason: "cancelled" };
 
-  const selected = candidates[index];
-  if (selected.status === "not-started") {
-    updateStoryFrontmatter(selected.file, { status: "in-progress", lastAccessed: todayDate() });
-    return {
-      story: { ...selected, status: "in-progress", lastAccessed: todayDate() },
-      reason: "resolved",
-    };
-  }
-
-  return { story: selected, reason: "resolved" };
+  return { story: candidates[index], reason: "resolved" };
 }
 
 function cwdFromStoryPath(storyPath: string): string {
@@ -323,7 +306,7 @@ function resolvePreferredVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" 
     if (vcsPreference === "git" && hasGitRepo) return "git";
     // If preference doesn't match detected repos, still honor it for explicit user choice
     if (vcsPreference === "fossil") return "fossil";
-    if (vcsPreference === "jj" && hasGitRepo) return "jj"; // jj requires git
+    if (vcsPreference === "jj" && useJJ) return "jj";
     if (vcsPreference === "git") return "git";
   }
 
@@ -544,8 +527,8 @@ export default function (pi: ExtensionAPI) {
       if (event.toolName === "write" || event.toolName === "edit") {
         const toolName = event.toolName;
         const file = toolPathFromInput(event.input);
-        pushPendingEditCall(toolName, file);
-        recordEditStreamEntry("start", toolName, file);
+        const callId = pushPendingEditCall(toolName, file);
+        recordEditStreamEntry("start", toolName, file, callId);
         refreshWidgets();
       }
 
@@ -570,7 +553,8 @@ export default function (pi: ExtensionAPI) {
 
     if (event.toolName === "write" || event.toolName === "edit") {
       const toolName = event.toolName;
-      recordEditStreamEntry("done", toolName, claimPendingEditCall(toolName));
+      const { file, callId } = claimPendingEditCall(toolName);
+      recordEditStreamEntry("done", toolName, file, callId);
     }
 
     if (event.toolName === "write" || event.toolName === "edit" || event.toolName === "bash") {

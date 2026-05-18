@@ -184,19 +184,37 @@ async function runAllowedScenario() {
   return { cwd, notifications, story };
 }
 
-async function runAutoStartScenario() {
-  const cwd = createProject("vazir-story-guard-autostart-");
+async function runNoAutoStartScenario() {
+  const cwd = createProject("vazir-story-guard-no-autostart-");
   const notifications: Notification[] = [];
   const harness = makePi();
   const ctx = makeCtx(cwd, notifications);
   const storyPath = writeNotStartedStory(cwd, 1, "2026-03-24");
 
-  await harness.emit("before_agent_start", { systemPrompt: "" }, ctx);
+  // No explicit start phrase in prompt — should stay not-started
+  await harness.emit("before_agent_start", { systemPrompt: "", prompt: "" }, ctx);
 
   const story = fs.readFileSync(storyPath, "utf-8");
-  assert(story.includes("**Status:** in-progress"), "a not-started story should be promoted when work begins");
-  assert(!story.includes("**Last accessed:** 2026-03-24"), "auto-start should refresh last accessed");
-  assert(/\*\*Last accessed:\*\* \d{4}-\d{2}-\d{2}/.test(story), "auto-start should keep a valid last accessed date");
+  assert(story.includes("**Status:** not-started"), "a not-started story should stay not-started without explicit user approval");
+  assert(story.includes("**Last accessed:** 2026-03-24"), "last accessed should not change when story is not promoted");
+
+  return { cwd, notifications, story };
+}
+
+async function runExplicitStartScenario() {
+  const cwd = createProject("vazir-story-guard-explicit-start-");
+  const notifications: Notification[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications);
+  const storyPath = writeNotStartedStory(cwd, 1, "2026-03-24");
+
+  // Explicit start phrase — should promote to in-progress
+  await harness.emit("before_agent_start", { systemPrompt: "", prompt: "start this story" }, ctx);
+
+  const story = fs.readFileSync(storyPath, "utf-8");
+  assert(story.includes("**Status:** in-progress"), "a not-started story should be promoted with explicit user approval");
+  assert(!story.includes("**Last accessed:** 2026-03-24"), "explicit start should refresh last accessed");
+  assert(/\*\*Last accessed:\*\* \d{4}-\d{2}-\d{2}/.test(story), "explicit start should keep a valid last accessed date");
 
   return { cwd, notifications, story };
 }
@@ -307,13 +325,15 @@ function printScenario(title: string, details: Record<string, unknown>) {
 try {
   const blocked = await runBlockedScenario();
   const allowed = await runAllowedScenario();
-  const autoStart = await runAutoStartScenario();
+  const noAutoStart = await runNoAutoStartScenario();
+  const explicitStart = await runExplicitStartScenario();
   const designContext = await runDesignContextInjectionScenario();
   const reviewPrompt = await runCompletionReviewPromptScenario();
 
   printScenario("Blocked Unauthorized Completion", blocked);
   printScenario("Allowed Explicit Completion", allowed);
-  printScenario("Auto-Start Not-Started Story", autoStart);
+  printScenario("No Auto-Start For Not-Started Story", noAutoStart);
+  printScenario("Explicit Start Promotion", explicitStart);
   printScenario("Design Context Injection", designContext);
   printScenario("Completion Review Prompt", reviewPrompt);
 } finally {

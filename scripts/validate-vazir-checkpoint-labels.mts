@@ -24,7 +24,12 @@ function createProject(prefix: string): string {
   return cwd;
 }
 
-function installJjStub(logLines: string[], currentOpId: string, onDescribe?: (message: string) => void) {
+function installJjStub(
+  logLines: string[],
+  currentOpId: string,
+  repoRoot: string,
+  onDescribe?: (message: string) => void,
+) {
   let currentOp = currentOpId;
 
   childProcess.execSync = ((command: string, options?: { encoding?: BufferEncoding }) => {
@@ -32,8 +37,12 @@ function installJjStub(logLines: string[], currentOpId: string, onDescribe?: (me
       return options?.encoding ? ".git\n" : Buffer.from(".git\n");
     }
 
+    if (command.startsWith("git rev-parse --show-toplevel")) {
+      return options?.encoding ? `${repoRoot}\n` : Buffer.from(`${repoRoot}\n`);
+    }
+
     if (command.startsWith("jj root")) {
-      return options?.encoding ? "/tmp/fake-jj-root\n" : Buffer.from("/tmp/fake-jj-root\n");
+      return options?.encoding ? `${repoRoot}\n` : Buffer.from(`${repoRoot}\n`);
     }
 
     if (command.includes("jj op log --no-graph --limit 1 --template 'id.short(8)'")) {
@@ -182,7 +191,7 @@ async function runPersistedLabelScenario() {
     "aaaaaaaa||snapshot working copy||1 hour ago",
     "dddddddd||import git head||1 hour ago",
     "cccccccc||restore to operation||2 hours ago",
-  ], "bbbbbbbb");
+  ], "bbbbbbbb", cwd);
 
   try {
     const harness = await loadHarness();
@@ -227,7 +236,7 @@ async function runDescribeBackfillScenario() {
     "cccccccc||describe commit abcdef12||1 minute ago",
     "bbbbbbbb||snapshot working copy||1 minute ago",
     "aaaaaaaa||snapshot working copy||2 minutes ago",
-  ], "dddddddd");
+  ], "dddddddd", cwd);
 
   try {
     const harness = await loadHarness();
@@ -263,7 +272,7 @@ async function runUnlabeledFallbackScenario() {
     "dddddddd||import git head||90 minutes ago",
     "cccccccc||restore to operation||2 hours ago",
     "eeeeeeee||import git refs||3 hours ago",
-  ], "bbbbbbbb");
+  ], "bbbbbbbb", cwd);
 
   try {
     const harness = await loadHarness();
@@ -301,7 +310,7 @@ async function runLongHistoryScenario() {
     logLines.push(`${opId}||snapshot working copy||${index} hour${index === 1 ? "" : "s"} ago`);
   }
 
-  installJjStub(logLines, "bbbbbbbb");
+  installJjStub(logLines, "bbbbbbbb", cwd);
 
   try {
     const harness = await loadHarness();
@@ -350,7 +359,7 @@ async function runRecencyOrderingScenario() {
     "dddddddd||snapshot working copy||2 minutes ago",
     "bbbbbbbb||restore to operation||3 minutes ago",
     "aaaaaaaa||snapshot working copy||4 minutes ago",
-  ], "ffffffff");
+  ], "ffffffff", cwd);
 
   try {
     const harness = await loadHarness();
@@ -397,7 +406,7 @@ async function runSkipCurrentSnapshotScenario() {
     "cccccccc||snapshot working copy||now",
     "bbbbbbbb||restore to operation||2 minutes ago",
     "aaaaaaaa||snapshot working copy||4 minutes ago",
-  ], "dddddddd");
+  ], "dddddddd", cwd);
 
   try {
     const harness = await loadHarness();
@@ -431,7 +440,7 @@ async function runPersistenceScenario() {
   installJjStub([
     "cccccccc||describe commit 12345678||now",
     "bbbbbbbb||snapshot working copy||1 minute ago",
-  ], "bbbbbbbb", message => {
+  ], "bbbbbbbb", cwd, message => {
     describedMessages.push(message);
   });
 
@@ -456,6 +465,41 @@ async function runPersistenceScenario() {
   }
 }
 
+async function runNestedCwdScenario() {
+  const cwd = createProject("vazir-checkpoint-nested-cwd-");
+  const nestedCwd = path.join(cwd, "src", "features");
+  fs.mkdirSync(nestedCwd, { recursive: true });
+
+  installJjStub([
+    "bbbbbbbb||snapshot working copy||now",
+    "aaaaaaaa||snapshot working copy||1 hour ago",
+  ], "bbbbbbbb", cwd);
+
+  try {
+    const harness = await loadHarness();
+    assert(Boolean(harness.checkpointCommand), "checkpoint command was not registered");
+
+    const { ctx, prompts } = makeCtx(nestedCwd, [
+      "Choose checkpoint — pick from history",
+      "1 hour ago · Checkpoint",
+    ]);
+
+    await harness.emit("session_start", {}, ctx);
+    await harness.checkpointCommand!.handler("", ctx);
+
+    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which checkpoint?");
+    assert(Boolean(historyPrompt), "nested-cwd checkpoint prompt was not shown");
+    assert(historyPrompt!.options[0] === "1 hour ago · Checkpoint", "nested-cwd checkpoint history did not remain available");
+
+    return {
+      cwd: nestedCwd,
+      options: historyPrompt!.options,
+    };
+  } finally {
+    restoreExecSync();
+  }
+}
+
 const scenarioName = process.env.VAZIR_CHECKPOINT_SCENARIO;
 
 if (scenarioName) {
@@ -467,6 +511,7 @@ if (scenarioName) {
     recencyOrdering: runRecencyOrderingScenario,
     skipCurrentSnapshot: runSkipCurrentSnapshotScenario,
     saved: runPersistenceScenario,
+    nestedCwd: runNestedCwdScenario,
   };
 
   const run = scenarios[scenarioName];
@@ -492,6 +537,7 @@ if (scenarioName) {
   const recencyOrdering = runScenarioInSubprocess("recencyOrdering") as Awaited<ReturnType<typeof runRecencyOrderingScenario>>;
   const skipCurrentSnapshot = runScenarioInSubprocess("skipCurrentSnapshot") as Awaited<ReturnType<typeof runSkipCurrentSnapshotScenario>>;
   const saved = runScenarioInSubprocess("saved") as Awaited<ReturnType<typeof runPersistenceScenario>>;
+  const nestedCwd = runScenarioInSubprocess("nestedCwd") as Awaited<ReturnType<typeof runNestedCwdScenario>>;
 
   console.log("Persisted JJ Labels");
   console.log(`cwd: ${persisted.cwd}`);
@@ -543,6 +589,14 @@ if (scenarioName) {
   console.log("Saved JJ Label");
   console.log(`cwd: ${saved.cwd}`);
   console.log(`savedLabel: ${saved.savedLabel}`);
+  console.log("");
+
+  console.log("Nested CWD JJ Checkpoint");
+  console.log(`cwd: ${nestedCwd.cwd}`);
+  console.log("options:");
+  for (const option of nestedCwd.options) {
+    console.log(`  - ${option}`);
+  }
 }
 
 cleanupStubModules(stubModuleDirs);

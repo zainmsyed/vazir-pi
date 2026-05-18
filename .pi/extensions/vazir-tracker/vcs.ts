@@ -13,7 +13,7 @@ import {
   type PendingVcsApproval,
   userInputHasVcsApproval,
 } from "../../lib/vazir-helpers.ts";
-import { changedFiles, invalidateStoryProgressCache } from "./chrome.ts";
+import { changedFiles, invalidateStoryProgressCache, toolPathFromInput } from "./chrome.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -57,8 +57,8 @@ export function noteUserVcsApproval(cwd: string, text: string): boolean {
 
 function directToolApprovalRequirement(toolName: string, input: unknown): PendingVcsApproval | null {
   if ((toolName !== "write" && toolName !== "edit") || !input || typeof input !== "object") return null;
-  const rawPath = (input as { path?: unknown }).path;
-  if (typeof rawPath !== "string" || !isProtectedVcsTarget(rawPath)) return null;
+  const rawPath = toolPathFromInput(input);
+  if (rawPath === "(unknown file)" || !isProtectedVcsTarget(rawPath)) return null;
 
   const fingerprint = `${toolName}:${normalizeCommandFingerprint(rawPath)}`;
   return {
@@ -480,6 +480,7 @@ function syncFromFossil(cwd: string): void {
       const missingMatch = line.match(/^\s*MISSING\s+(.+)$/);
       const addedMatch = line.match(/^\s*ADDED\s+(.+)$/);
       const deletedMatch = line.match(/^\s*DELETED\s+(.+)$/);
+      const renamedMatch = line.match(/^\s*RENAMED\s+(.+)$/);
 
       if (editedMatch) {
         statusMap.set(editedMatch[1].trim(), "M");
@@ -491,6 +492,8 @@ function syncFromFossil(cwd: string): void {
         statusMap.set(addedMatch[1].trim(), "A");
       } else if (deletedMatch) {
         statusMap.set(deletedMatch[1].trim(), "D");
+      } else if (renamedMatch) {
+        statusMap.set(renamedMatch[1].trim(), "R");
       }
     }
   } catch {

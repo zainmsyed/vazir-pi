@@ -131,7 +131,7 @@ async function runSingleStoryScenario() {
   const complaints = fs.readFileSync(path.join(cwd, ".context", "complaints-log.md"), "utf-8");
 
   assert(story.includes('### /fix — "signup button broken"'), "story issues section did not receive the /fix entry");
-  assert(story.includes("**Status:** in-progress"), "single not-started story was not promoted to in-progress");
+  assert(story.includes("**Status:** not-started"), "/fix should not promote a not-started story to in-progress");
   assert(story.includes(`**Last accessed:** ${new Date().toISOString().slice(0, 10)}`), "last accessed was not updated");
   assert(complaints.includes('| story-001 | "signup button broken" | status: pending'), "complaints log did not reference story-001");
   assert(harness.sentMessages.length === 1, "agent follow-up was not sent after logging to a story");
@@ -166,8 +166,10 @@ async function runChooserScenario() {
   const unselectedStory = unselectedStoryNumber === "001" ? storyOne : storyTwo;
 
   assert(selectCalls.length === 1, "story chooser was not shown when multiple candidate stories existed");
+  assert(selectCalls[0]?.prompt.includes("does not start the story"), "/fix chooser prompt should clarify that it will not mark a story in-progress");
   assert(!unselectedStory.includes('### /fix — "refresh still logs me out"'), "unchosen story should not receive the issue entry");
   assert(selectedStory.includes('### /fix — "refresh still logs me out"'), "chosen story did not receive the issue entry");
+  assert(selectedStory.includes("**Status:** not-started"), "/fix chooser should not promote the selected story to in-progress");
   assert(complaints.includes(`| story-${selectedStoryNumber} | "refresh still logs me out" | status: pending`), "complaints log did not reference the chosen story");
 
   return { cwd, notifications, selectCalls };
