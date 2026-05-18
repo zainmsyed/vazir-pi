@@ -28,6 +28,7 @@ export interface EditStreamEntry {
   phase: "start" | "done";
   toolName: "write" | "edit";
   file: string;
+  callId: string;
 }
 
 interface StoryProgressSummary {
@@ -105,7 +106,8 @@ export const changedFiles = new Map<string, FileInfo>();
 // ── Private chrome state ───────────────────────────────────────────────
 
 const editStream: EditStreamEntry[] = [];
-const pendingEditCalls: Array<{ toolName: "write" | "edit"; file: string }> = [];
+let editCallCounter = 0;
+const pendingEditCalls: Array<{ callId: string; toolName: "write" | "edit"; file: string }> = [];
 let statusWidgetTui: any = null;
 let footerWidgetTui: any = null;
 let activeToolCalls = 0;
@@ -683,8 +685,8 @@ export async function viewSelectedStoryOrPlan(
 
 // ── Edit stream ────────────────────────────────────────────────────────
 
-export function recordEditStreamEntry(phase: "start" | "done", toolName: "write" | "edit", file: string): void {
-  editStream.push({ timestamp: nowISO(), phase, toolName, file });
+export function recordEditStreamEntry(phase: "start" | "done", toolName: "write" | "edit", file: string, callId: string): void {
+  editStream.push({ timestamp: nowISO(), phase, toolName, file, callId });
   while (editStream.length > EDIT_STREAM_LIMIT) {
     editStream.shift();
   }
@@ -695,16 +697,21 @@ export function toolPathFromInput(input: unknown): string {
   return raw?.path || raw?.filePath || "(unknown file)";
 }
 
-export function claimPendingEditCall(toolName: "write" | "edit"): string {
-  const index = pendingEditCalls.findIndex(entry => entry.toolName === toolName);
-  if (index < 0) return "(unknown file)";
-
-  const [entry] = pendingEditCalls.splice(index, 1);
-  return entry.file;
+export function claimPendingEditCall(toolName: "write" | "edit"): { file: string; callId: string } {
+  for (let i = pendingEditCalls.length - 1; i >= 0; i--) {
+    if (pendingEditCalls[i].toolName === toolName) {
+      const [entry] = pendingEditCalls.splice(i, 1);
+      return { file: entry.file, callId: entry.callId };
+    }
+  }
+  return { file: "(unknown file)", callId: "" };
 }
 
-export function pushPendingEditCall(toolName: "write" | "edit", file: string): void {
-  pendingEditCalls.push({ toolName, file });
+export function pushPendingEditCall(toolName: "write" | "edit", file: string): string {
+  editCallCounter += 1;
+  const callId = `${toolName}:${editCallCounter}`;
+  pendingEditCalls.push({ callId, toolName, file });
+  return callId;
 }
 
 export function formatEditStreamEntry(entry: EditStreamEntry): string {

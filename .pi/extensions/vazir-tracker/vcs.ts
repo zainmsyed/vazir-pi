@@ -480,6 +480,7 @@ function syncFromFossil(cwd: string): void {
       const missingMatch = line.match(/^\s*MISSING\s+(.+)$/);
       const addedMatch = line.match(/^\s*ADDED\s+(.+)$/);
       const deletedMatch = line.match(/^\s*DELETED\s+(.+)$/);
+      const renamedMatch = line.match(/^\s*RENAMED\s+(.+)$/);
 
       if (editedMatch) {
         statusMap.set(editedMatch[1].trim(), "M");
@@ -491,6 +492,8 @@ function syncFromFossil(cwd: string): void {
         statusMap.set(addedMatch[1].trim(), "A");
       } else if (deletedMatch) {
         statusMap.set(deletedMatch[1].trim(), "D");
+      } else if (renamedMatch) {
+        statusMap.set(renamedMatch[1].trim(), "R");
       }
     }
   } catch {
