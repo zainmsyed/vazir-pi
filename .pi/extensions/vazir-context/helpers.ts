@@ -889,6 +889,13 @@ export function snapshotStoryFrontmatter(cwd: string): Map<string, { status: str
   );
 }
 
+function phraseMatches(normalized: string, phrase: string): boolean {
+  const index = normalized.indexOf(phrase);
+  if (index < 0) return false;
+  const prefix = normalized.slice(0, index);
+  return !/\b(not|don't|never|won't|shouldn't|can't|cannot)\b/.test(prefix);
+}
+
 export function userExplicitlyApprovedStatusChange(prompt: string, nextStatus: string): boolean {
   const normalized = prompt.trim().toLowerCase();
   if (!normalized) return false;
@@ -918,7 +925,7 @@ export function userExplicitlyApprovedStatusChange(prompt: string, nextStatus: s
       "wrap this story",
       "finish the story",
       "finish this story",
-    ].some(phrase => normalized.includes(phrase));
+    ].some(phrase => phraseMatches(normalized, phrase));
   }
 
   if (nextStatus === "retired") {
@@ -933,7 +940,7 @@ export function userExplicitlyApprovedStatusChange(prompt: string, nextStatus: s
       "cancel the story",
       "drop this story",
       "drop the story",
-    ].some(phrase => normalized.includes(phrase));
+    ].some(phrase => phraseMatches(normalized, phrase));
   }
 
   if (nextStatus === "in-progress") {
@@ -962,7 +969,7 @@ export function userExplicitlyApprovedStatusChange(prompt: string, nextStatus: s
       "mark the story in-progress",
       "move this story to in progress",
       "move this story to in-progress",
-    ].some(phrase => normalized.includes(phrase));
+    ].some(phrase => phraseMatches(normalized, phrase));
   }
 
   return false;
@@ -2422,8 +2429,8 @@ export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt
     "11. The `## Fallow Findings` section in the review file is pre-populated by Vazir. Preserve it as-is unless the findings are clearly unrelated to the review scope. Do not remove or reformat pre-populated Fallow findings.",
     `12. Review scope: ${reviewScope}.`,
     `13. Review focus: ${review.focus}.`,
-    review.storyLabel !== "—" ? `13. Story: ${review.storyLabel}.` : "13. No story is attached; keep the review manual and comprehensive within the requested scope.",
-    `14. Trigger: ${review.trigger}.`,
+    review.storyLabel !== "—" ? `14. Story: ${review.storyLabel}.` : "14. No story is attached; keep the review manual and comprehensive within the requested scope.",
+    `15. Trigger: ${review.trigger}.`,
     ...(designNotes.length > 0 ? ["", ...designNotes] : []),
   ].join("\n");
 }

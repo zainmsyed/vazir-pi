@@ -185,6 +185,31 @@ function scenarioApprovalBasic() {
   const unknownStatus = userExplicitlyApprovedStatusChange("mark this complete", "unknown-status");
   assert(unknownStatus === false, "expected unknown status to be rejected");
 
+  // Negation guards
+  const notComplete = userExplicitlyApprovedStatusChange(
+    "do not mark this complete",
+    "complete",
+  );
+  assert(notComplete === false, "expected 'do not mark this complete' to be rejected");
+
+  const dontClose = userExplicitlyApprovedStatusChange(
+    "don't close story yet",
+    "complete",
+  );
+  assert(dontClose === false, "expected 'don't close story yet' to be rejected");
+
+  const neverRetire = userExplicitlyApprovedStatusChange(
+    "never retire this story",
+    "retired",
+  );
+  assert(neverRetire === false, "expected 'never retire this story' to be rejected");
+
+  const notStart = userExplicitlyApprovedStatusChange(
+    "do not start this story",
+    "in-progress",
+  );
+  assert(notStart === false, "expected 'do not start this story' to be rejected");
+
   console.log("  approval basic paths: ok");
 }
 

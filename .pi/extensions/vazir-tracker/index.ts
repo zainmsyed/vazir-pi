@@ -306,7 +306,7 @@ function resolvePreferredVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" 
     if (vcsPreference === "git" && hasGitRepo) return "git";
     // If preference doesn't match detected repos, still honor it for explicit user choice
     if (vcsPreference === "fossil") return "fossil";
-    if (vcsPreference === "jj" && hasGitRepo) return "jj"; // jj requires git
+    if (vcsPreference === "jj" && useJJ) return "jj";
     if (vcsPreference === "git") return "git";
   }
 
@@ -527,8 +527,8 @@ export default function (pi: ExtensionAPI) {
       if (event.toolName === "write" || event.toolName === "edit") {
         const toolName = event.toolName;
         const file = toolPathFromInput(event.input);
-        pushPendingEditCall(toolName, file);
-        recordEditStreamEntry("start", toolName, file);
+        const callId = pushPendingEditCall(toolName, file);
+        recordEditStreamEntry("start", toolName, file, callId);
         refreshWidgets();
       }
 
@@ -553,7 +553,8 @@ export default function (pi: ExtensionAPI) {
 
     if (event.toolName === "write" || event.toolName === "edit") {
       const toolName = event.toolName;
-      recordEditStreamEntry("done", toolName, claimPendingEditCall(toolName));
+      const { file, callId } = claimPendingEditCall(toolName);
+      recordEditStreamEntry("done", toolName, file, callId);
     }
 
     if (event.toolName === "write" || event.toolName === "edit" || event.toolName === "bash") {
