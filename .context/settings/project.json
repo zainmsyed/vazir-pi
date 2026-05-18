@@ -1,4 +1,6 @@
 {
   "project_name": "",
-  "model_tier": "balanced"
+  "model_tier": "balanced",
+  "active_vcs_mode": "fossil",
+  "vcs_preference": "fossil"
 }

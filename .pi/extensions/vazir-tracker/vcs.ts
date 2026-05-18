@@ -3,7 +3,16 @@
 import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-export { detectGitRepo, detectFossil, type VcsPreference } from "../../lib/vazir-helpers.ts";
+export { detectGitRepo } from "../../lib/vazir-helpers.ts";
+import {
+  approvalGatedVcsOperation,
+  approvalTokenForFingerprint,
+  buildBlockedVcsActionGuidance,
+  isProtectedVcsTarget,
+  normalizeCommandFingerprint,
+  type PendingVcsApproval,
+  userInputHasVcsApproval,
+} from "../../lib/vazir-helpers.ts";
 import { changedFiles, invalidateStoryProgressCache } from "./chrome.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -15,6 +24,13 @@ export interface CheckpointMeta {
   newFiles: string[];
 }
 
+interface JjCheckpointLabelStore {
+  labels: Record<string, string>;
+}
+
+const pendingVcsApprovals = new Map<string, PendingVcsApproval>();
+const acknowledgedVcsApprovals = new Map<string, Set<string>>();
+
 export type VcsKind = "none" | "git" | "jj" | "fossil";
 
 export interface VcsDisplayInfo {
@@ -24,23 +40,81 @@ export interface VcsDisplayInfo {
   syncLabel: string;
 }
 
-interface JjCheckpointLabelStore {
-  labels: Record<string, string>;
+export function clearPendingVcsApproval(cwd: string): void {
+  pendingVcsApprovals.delete(cwd);
+  acknowledgedVcsApprovals.delete(cwd);
+}
+
+export function noteUserVcsApproval(cwd: string, text: string): boolean {
+  const pending = pendingVcsApprovals.get(cwd);
+  if (!pending || !userInputHasVcsApproval(text, pending.token)) return false;
+
+  const approved = acknowledgedVcsApprovals.get(cwd) ?? new Set<string>();
+  approved.add(pending.fingerprint);
+  acknowledgedVcsApprovals.set(cwd, approved);
+  return true;
+}
+
+function directToolApprovalRequirement(toolName: string, input: unknown): PendingVcsApproval | null {
+  if ((toolName !== "write" && toolName !== "edit") || !input || typeof input !== "object") return null;
+  const rawPath = (input as { path?: unknown }).path;
+  if (typeof rawPath !== "string" || !isProtectedVcsTarget(rawPath)) return null;
+
+  const fingerprint = `${toolName}:${normalizeCommandFingerprint(rawPath)}`;
+  return {
+    token: approvalTokenForFingerprint(fingerprint),
+    fingerprint,
+    commandText: rawPath,
+    reason: `Direct ${toolName} against protected VCS metadata requires approval.`,
+    protectedTargets: [rawPath],
+  };
+}
+
+function bashApprovalRequirement(cwd: string, input: unknown): PendingVcsApproval | null {
+  if (!input || typeof input !== "object") return null;
+  const rawCommand = (input as { command?: unknown }).command;
+  if (typeof rawCommand !== "string" || !rawCommand.trim()) return null;
+
+  const requirement = approvalGatedVcsOperation(rawCommand, cwd);
+  if (!requirement.needsApproval || !requirement.reason) return null;
+
+  const fingerprint = `bash:${normalizeCommandFingerprint(rawCommand)}`;
+  return {
+    token: approvalTokenForFingerprint(fingerprint),
+    fingerprint,
+    commandText: rawCommand.trim(),
+    reason: requirement.reason,
+    protectedTargets: requirement.protectedTargets,
+  };
+}
+
+export function inspectVcsToolGuard(
+  cwd: string,
+  toolName: string | undefined,
+  input: unknown,
+  _lastUserPrompt: string,
+): { block: false } | { block: true; reason: string } {
+  const pending = toolName === "bash"
+    ? bashApprovalRequirement(cwd, input)
+    : directToolApprovalRequirement(toolName ?? "", input);
+
+  if (!pending) return { block: false };
+
+  const approved = acknowledgedVcsApprovals.get(cwd);
+  if (approved?.has(pending.fingerprint)) {
+    approved.delete(pending.fingerprint);
+    if (approved.size === 0) acknowledgedVcsApprovals.delete(cwd);
+    pendingVcsApprovals.delete(cwd);
+    return { block: false };
+  }
+
+  pendingVcsApprovals.set(cwd, pending);
+  return { block: true, reason: buildBlockedVcsActionGuidance(pending) };
 }
 
 export function isGitClean(cwd: string): boolean {
   try {
     return childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim() === "";
-  } catch {
-    return true;
-  }
-}
-
-export function isFossilClean(cwd: string): boolean {
-  try {
-    const changes = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-    const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-    return changes === "" && extras === "";
   } catch {
     return true;
   }
@@ -283,14 +357,6 @@ export function jjDiffFile(cwd: string, file: string): string {
   }
 }
 
-export function fossilDiffFile(cwd: string, file: string): string {
-  try {
-    return childProcess.execFileSync("fossil", ["diff", "--", file], { cwd, encoding: "utf-8", stdio: "pipe" });
-  } catch {
-    return "";
-  }
-}
-
 export function jjHasChanges(cwd: string): boolean {
   try {
     return childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8" }).trim() !== "";
@@ -431,7 +497,6 @@ function syncFromFossil(cwd: string): void {
     // Ignore if there are no modified tracked files.
   }
 
-  // Compute per-file line counts
   for (const [file, status] of statusMap) {
     let added = 0;
     let removed = 0;

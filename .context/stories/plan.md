@@ -31,7 +31,14 @@ Story-close mini-consolidate runs automatically at `/complete-story`. Fallow rec
 | story-005 | Story-close mini-consolidate and promotion UX | not-started | — |
 | story-006 | Fallow recurrence tracking in complaints-log | not-started | story-005 |
 | story-007 | Enhanced manual `/consolidate` with positive patterns and confidence scoring | not-started | story-005 |
-| story-008 | Refactor tracker chrome footer and status widget | not-started | — |
+| story-016 | VCS safety policy and protected-target detection | not-started | — |
+| story-017 | Runtime guardrails for destructive VCS operations | not-started | story-016 |
+| story-018 | `.context` persistence enforcement in closeout flows | not-started | story-016, story-017 |
+| story-019 | Extension split scaffolding and ownership boundaries | not-started | story-016, story-018 |
+| story-020 | Extract review lifecycle into `vazir-review` | not-started | story-019 |
+| story-021 | Extract story lifecycle into `vazir-story` | not-started | story-019, story-020 |
+| story-022 | Extract VCS workflow into `vazir-vcs` | not-started | story-019, story-018 |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
+- **2026-05-15** — Replanned to add hard VCS safety rules, `.context` commit enforcement, and an incremental extension decomposition path. Preserved existing Addenda C/D queue and appended new follow-on stories starting at story-016.

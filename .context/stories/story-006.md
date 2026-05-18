@@ -2,8 +2,8 @@
 
 **Status:** complete  
 **Created:** 2026-05-05  
-**Last accessed:** 2026-05-13  
-**Completed:** 2026-05-13
+**Last accessed:** 2026-05-16  
+**Completed:** 2026-05-16
 
 ---
 
@@ -43,8 +43,33 @@ Create a review file containing a `## Fallow Findings` section with two identica
 
 ## Issues
 
+### /fix — "why sint fallow running on code review?????"
+- **Reported:** 2026-05-16  
+- **Status:** resolved  
+- **Agent note:** The `node_modules/.bin/fallow` binary had been corrupted by the broken-binary test in `scripts/validate-vazir-fallow-fossil-review.mts`. The test replaced the shared symlink target with a fake shell script that output `"not json"`. Because all temp validation fixtures symlink to the real repo's `node_modules`, this broke Fallow for every subsequent `/review` run. Restored the symlink to `../fallow/bin/fallow` and fixed the validation script to use a local `node_modules` copy for the broken-binary scenario so it cannot corrupt the shared binary again.  
+- **Solution:** Restored the real `fallow` binary symlink and hardened `validate-vazir-fallow-fossil-review.mts` to isolate its broken-binary test from shared `node_modules`.
+
+
+### /fix — reopened due to regression after story-014 VCS closeout refactor
+- **Reported:** 2026-05-15  
+- **Status:** resolved  
+- **Agent note:** Story-006 helpers (`reviewFallowFindingsFromFile`, `appendFallowToComplaintsLog`, `countFallowOccurrences`) were implemented on branch `vazir/story-task-cap-7` but were not present on current main after the VCS closeout refactors (stories 014–015). They were restored into helpers.ts, and the review closeout wiring in index.ts has now been re-validated on current main for both `/review` and `/complete-story` review flows.  
+- **Solution:** Added end-to-end validation coverage in `scripts/validate-vazir-fallow-review-closeout.mts` and re-ran `validate-vazir-fallow-recurrence.mts` to confirm append, dedupe, and promotion behavior.
+
 ---
 
 ## Completion Summary
-Added structured `## Fallow Findings` support to review files using `- rule: location — summary` lines, plus helper functions to parse those findings, normalize recurrence keys, count distinct-story occurrences, and append `[fallow]` entries into `complaints-log.md`. Completed review closeout now records story-scoped Fallow findings automatically and deduplicates repeats from the same story. Once a finding appears in 3 distinct stories, all matching complaints-log entries are promoted from `status: noted` to `status: promoted`. Consolidation instructions now explicitly treat `[fallow]` complaints-log entries as valid recurring signals. Manual verification with mock review files confirmed: two stories stay `noted`, a third story promotes the cluster, and duplicate findings inside the same story review do not create extra occurrences.
+
+Restored and revalidated the story-006 Fallow recurrence flow on current main.
+
+Validated pieces:
+- `reviewFallowFindingsFromFile()` parses `## Fallow Findings` blocks from completed review files.
+- `appendFallowToComplaintsLog()` appends sanitized `[fallow]` entries to `.context/complaints-log.md`, dedupes repeated findings within the same story, and promotes all matching entries after the third distinct-story occurrence.
+- Review closeout now records Fallow findings during both manual `/review` closeout and `/complete-story` review closeout.
+- Consolidation/mini-consolidate instructions now explicitly treat `[fallow]` complaints-log entries as valid signal sources so future promotion passes and story-close closeouts can use them consistently.
+
+Validation coverage:
+- `scripts/validate-vazir-fallow-recurrence.mts`
+- `scripts/validate-vazir-fallow-review-closeout.mts`
+- `scripts/validate-vazir-fallow-signal-sources.mts`
 

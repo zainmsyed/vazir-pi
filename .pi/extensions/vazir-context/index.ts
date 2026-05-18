@@ -7,16 +7,21 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import {
+  buildDefaultSystemRulesMarkdown,
+  buildVcsSafetyGuidanceText,
   compareStoriesByRecencyDesc,
   complaintsLogPath,
   detectFossil,
   detectJJ,
   findActiveStory,
+  hasVcsSafetyPolicyText,
   listStories,
   nowISO,
+  readActiveVcsMode,
   readIfExists,
   storiesDir,
   todayDate,
+  writeProjectSettings,
   updateStoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
 import { showScrollableText } from "../vazir-tracker/chrome.ts";
@@ -38,7 +43,9 @@ import {
   buildReviewInstruction,
   clearLegacyPendingLearnings,
   componentsPath,
+  commitStoryCloseChanges,
   contextMapPath,
+  contextPersistenceStatus,
   createReviewDraft,
   designDir,
   designSystemPath,
@@ -46,7 +53,11 @@ import {
   formatReviewRecommendedFixSummary,
   hasUiTypeOverride,
   isUiStory,
+  parseMiniConsolidateCandidates,
+  prepareLearnedRulesForConsolidation,
   parseReviewFrontmatter,
+  readLearnedRuleCloseoutDraft,
+  readStorySection,
   reviewFallowFindingsFromFile,
   reviewFindingsFromFile,
   reviewRecommendedFixesFromFile,
@@ -77,18 +88,17 @@ import {
   memoryReviewArchiveCandidates,
   memoryReviewDeleteCandidates,
   learnedRuleCloseoutDraftPath,
+  miniConsolidateCandidatesPath,
   nextStoryNumber,
   normalizeProjectBrief,
-  organizeLearnedRules,
   planTemplate,
+  promoteRulesToSystemMd,
   replaceLearnedRules,
   rememberEntry,
   rememberedRulesPath,
   restoreStoryFrontmatter,
   reviewsDir,
   reviewSummaryPath,
-  readLearnedRuleCloseoutDraft,
-  readStorySection,
   REMEMBERED_RULES_TEMPLATE,
   REVIEW_SUMMARY_TEMPLATE,
   seedDesignFromIntake,
@@ -101,20 +111,20 @@ import {
   settingsDir,
   snapshotStoryFrontmatter,
   staleRuleCandidates,
-  promoteRulesToSystemMd,
+  shouldEnforceContextCommit,
   storyFileName,
   strip,
   syncReviewSummaryAndPromoteRules,
   systemPath,
   type ArchiveCandidate,
-  undescribedIndexFiles,
-  updateRuleConfidence,
-  userExplicitlyApprovedStatusChange,
-  walkSourceFiles,
   type LearnedRuleCloseoutDraft,
   type LearnedRuleCloseoutDraftReadResult,
+  undescribedIndexFiles,
+  userExplicitlyApprovedStatusChange,
+  walkSourceFiles,
   type ReviewFindingSummary,
   type ReviewRecommendedFix,
+  type FallowAuditIssue,
   writeIndex,
 } from "./helpers.ts";
 
@@ -131,17 +141,7 @@ const CONTEXT_MAP_TEMPLATE = [
   "",
 ].join("\n");
 
-const SYSTEM_MD_TEMPLATE = [
-  "# System Rules",
-  "",
-  "## Rules",
-  "- Follow existing project conventions.",
-  "- Write directly to real project files.",
-  "- Ask before changing ambiguous areas.",
-  "",
-  "## Learned Rules",
-  "",
-].join("\n");
+const SYSTEM_MD_TEMPLATE = buildDefaultSystemRulesMarkdown();
 
 const AGENTS_MD_TEMPLATE = [
   "# AGENTS.md",
@@ -162,15 +162,32 @@ const AGENTS_MD_TEMPLATE = [
   "",
 ].join("\n");
 
+const SETTINGS_README_TEMPLATE = [
+  "# Vazir Settings",
+  "",
+  "This folder contains per-project configuration for Vazir.",
+  "",
+  "## Tunables",
+  "",
+  "- `active_vcs_mode` — Current active version control system: `git`, `fossil`, or `none`. Set by `/vazir-init` or `/vcs-settings`.",
+  "- `vcs_preference` — Explicit VCS override: `auto`, `git`, `jj`, or `fossil`. Use `/vcs-settings` to change without hand-editing.",
+  "- `project_name` — Display name used in plan scaffolding.",
+  "- `model_tier` — Default model tier: `fast`, `balanced`, or `quality`.",
+  "",
+  "## Changing settings",
+  "",
+  "Run `/vcs-settings` to open a picker, or `/vcs-settings <auto|git|jj|fossil>` to set the preference directly.",
+  "If you choose Git/JJ or Fossil and the required tool is missing, Vazir will prompt before helping you install it.",
+  "",
+].join("\n");
+
 const JJ_DOCS_URL = "https://www.jj-vcs.dev/latest/install-and-setup/";
 const JJ_OVERVIEW_URL = "https://www.jj-vcs.dev/latest/";
 const FALLOW_INSTALL_COMMAND = "npm install -D fallow";
 const FALLOW_MAX_PROMPT_ISSUES = 12;
 
 type FallowAuditVerdict = "pass" | "warn" | "fail";
-type FallowAuditIssue = { rule: string; location: string; summary: string };
-type FallowAuditResult = { summaryLine: string; promptPrefix: string };
-type FallowBridgeResult = { ok: true; result: FallowAuditResult } | { ok: false; error: string };
+type FallowAuditResult = { summaryLine: string; promptPrefix: string; findings: FallowAuditIssue[] };
 type GitAuditScope =
   | { mode: "base"; files: string[] }
   | { mode: "initial"; files: string[] }
@@ -184,6 +201,7 @@ type PendingCompleteStoryRequest = {
   storyFile: string;
   reviewFile?: string;
   reviewCloseoutReady?: boolean;
+  closeIntent?: "close" | "close-commit";
   learnedRuleCloseoutFile?: string;
 };
 type PendingManualReviewRequest = { reviewFile: string; reviewCloseoutReady?: boolean };
@@ -218,6 +236,7 @@ export default function (pi: ExtensionAPI) {
     return {
       summaryLine: `not run (${reason})`,
       promptPrefix: "",
+      findings: [],
     };
   }
 
@@ -265,6 +284,69 @@ export default function (pi: ExtensionAPI) {
     } catch (error: any) {
       ctx.ui.notify(`Fallow install failed: ${error?.message || String(error)}. /review will continue without it.`, "warning");
     }
+  }
+
+  function commandExists(command: string, args: string[] = ["--version"]): boolean {
+    try {
+      childProcess.execFileSync(command, args, { stdio: "pipe" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function ensureFossilIgnoreGlob(cwd: string): boolean {
+    const ignorePath = path.join(cwd, ".fossil-settings", "ignore-glob");
+    const required = [
+      ".context/",
+      "node_modules/",
+      ".git/",
+      ".jj/",
+      ".fallow/",
+      ".env",
+      ".env.*",
+      "*.local",
+      ".local/",
+      "*.log",
+      "*.tmp",
+      "*.temp",
+      "*.swp",
+      ".DS_Store",
+      "Thumbs.db",
+      "*.pem",
+      "*.key",
+      "*.p12",
+      "*.pfx",
+      "*.crt",
+    ];
+    const existing = readIfExists(ignorePath)
+      .split("\n")
+      .map(line => line.trim())
+      .filter(Boolean);
+    const next = [...existing];
+    let changed = !fs.existsSync(ignorePath);
+
+    for (const entry of required) {
+      if (next.includes(entry)) continue;
+      next.push(entry);
+      changed = true;
+    }
+
+    if (!changed) return false;
+    fs.mkdirSync(path.dirname(ignorePath), { recursive: true });
+    fs.writeFileSync(ignorePath, `${next.join("\n")}\n`);
+    return true;
+  }
+
+  function buildVcsSettingsGuidance(cwd: string): string {
+    const activeMode = readActiveVcsMode(cwd);
+    return [
+      "[Version Control System (VCS) Mode]",
+      `- Active mode from settings: ${activeMode}`,
+      "- Check project settings for the current active version control system (VCS) before doing VCS-specific work.",
+      "- The active mode can change over time, so do not assume the /vazir-init choice is still current.",
+      "- If repository guidance depends on version control, double-check settings instead of assuming Git/JJ or Fossil.",
+    ].join("\n");
   }
 
   function listGitVisibleFiles(cwd: string): string[] {
@@ -322,25 +404,46 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  function getFossilParentHash(cwd: string): string | null {
+  function parseFossilStatusPaths(output: string): string[] {
+    return output
+      .split("\n")
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => line.replace(/^[A-Z?]+\s+/, "").trim())
+      .filter(Boolean);
+  }
+
+  function collectFossilAuditFiles(cwd: string): string[] | null {
     try {
-      const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe" });
-      const match = info.match(/^parent:\s+([a-f0-9]+)/im);
-      return match?.[1] ?? null;
+      const files = new Set<string>();
+      for (const command of ["changes", "extras"] as const) {
+        const output = childProcess.execFileSync("fossil", [command], {
+          cwd,
+          encoding: "utf-8",
+          stdio: "pipe",
+        });
+        for (const file of parseFossilStatusPaths(output)) {
+          if (fs.existsSync(path.join(cwd, file))) files.add(file);
+        }
+      }
+      return Array.from(files);
     } catch {
       return null;
     }
   }
 
-  function runFallowFossilBridge(cwd: string, binaryPath: string): FallowBridgeResult {
+  function fossilParentHash(cwd: string): string | null {
     try {
-      childProcess.execSync("git --version", { stdio: "pipe" });
+      const info = childProcess.execFileSync("fossil", ["info"], { cwd, encoding: "utf-8", stdio: "pipe" });
+      return info.match(/^parent:\s+([a-f0-9]+)/im)?.[1] ?? null;
     } catch {
-      return { ok: false, error: "git not installed" };
+      return null;
     }
+  }
 
-    const parentHash = getFossilParentHash(cwd);
+  function runFallowAuditViaFossilBridge(cwd: string, binaryPath: string, fileCount: number | null): FallowAuditResult | null {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vazir-fallow-fossil-"));
+    const parentHash = fossilParentHash(cwd);
 
     try {
       const repoDir = path.join(tmpDir, "repo");
@@ -348,37 +451,38 @@ export default function (pi: ExtensionAPI) {
 
       if (parentHash) {
         const tarball = path.join(tmpDir, "parent.tar.gz");
-        childProcess.execFileSync("fossil", ["tarball", parentHash, tarball, "--name", "repo"], { cwd, encoding: "utf-8", stdio: "pipe" });
-        childProcess.execFileSync("tar", ["xzf", tarball, "-C", tmpDir], { encoding: "utf-8", stdio: "pipe" });
+        childProcess.execFileSync("fossil", ["tarball", parentHash, tarball, "--name", "repo"], { cwd, stdio: "pipe" });
+        childProcess.execFileSync("tar", ["xzf", tarball, "-C", tmpDir], { stdio: "pipe" });
       }
 
-      // Fossil empty-root parents produce an empty directory; git needs at least one file to commit.
       if (fs.readdirSync(repoDir).length === 0) {
         fs.writeFileSync(path.join(repoDir, ".vazir-fallow-base"), "");
       }
 
-      childProcess.execSync("git init && git add -A && git commit -m base", {
-        cwd: repoDir,
-        encoding: "utf-8",
-        stdio: "pipe",
-        shell: process.platform === "win32",
-      });
+      // VCS safety policy blocks `git init`, so create the minimal repo structure manually.
+      const gitDir = path.join(repoDir, ".git");
+      fs.mkdirSync(path.join(gitDir, "objects"), { recursive: true });
+      fs.mkdirSync(path.join(gitDir, "refs", "heads"), { recursive: true });
+      fs.writeFileSync(path.join(gitDir, "HEAD"), "ref: refs/heads/main\n");
+      fs.writeFileSync(path.join(gitDir, "config"), "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n\tlogallrefupdates = true\n");
+      childProcess.execFileSync("git", ["add", "-A"], { cwd: repoDir, stdio: "pipe" });
+      childProcess.execFileSync("git", ["-c", "user.name=Vazir", "-c", "user.email=vazir@example.invalid", "commit", "-m", "base"], { cwd: repoDir, stdio: "pipe" });
 
-      const exclude = new Set([".git", "node_modules", ".jj", ".fslckout", "_FOSSIL_", "dist", "build", "out"]);
-      function copyContents(src: string, dest: string): void {
+      const excluded = new Set([".git", "node_modules", ".jj", ".fslckout", "_FOSSIL_", ".context", "dist", "build", "out"]);
+      const copyContents = (src: string, dest: string): void => {
         for (const entry of fs.readdirSync(src)) {
-          if (exclude.has(entry)) continue;
+          if (excluded.has(entry)) continue;
           const srcPath = path.join(src, entry);
           const destPath = path.join(dest, entry);
           const stat = fs.statSync(srcPath);
           if (stat.isDirectory()) {
-            if (!fs.existsSync(destPath)) fs.mkdirSync(destPath, { recursive: true });
+            fs.mkdirSync(destPath, { recursive: true });
             copyContents(srcPath, destPath);
           } else {
             fs.copyFileSync(srcPath, destPath);
           }
         }
-      }
+      };
 
       for (const entry of fs.readdirSync(repoDir)) {
         if (entry === ".git") continue;
@@ -386,43 +490,37 @@ export default function (pi: ExtensionAPI) {
       }
       copyContents(cwd, repoDir);
 
-      childProcess.execSync("git add -A && git commit -m head", {
-        cwd: repoDir,
-        encoding: "utf-8",
-        stdio: "pipe",
-        shell: process.platform === "win32",
-      });
+      childProcess.execFileSync("git", ["add", "-A"], { cwd: repoDir, stdio: "pipe" });
+      childProcess.execFileSync("git", ["-c", "user.name=Vazir", "-c", "user.email=vazir@example.invalid", "commit", "-m", "head"], { cwd: repoDir, stdio: "pipe" });
 
       const args = parentHash
         ? ["audit", "--base", "HEAD~1", "--format", "json"]
         : ["audit", "--format", "json"];
-      const stdout = childProcess.execFileSync(binaryPath, args, {
-        cwd: repoDir,
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-        shell: process.platform === "win32",
-      });
+      try {
+        const stdout = childProcess.execFileSync(binaryPath, args, {
+          cwd: repoDir,
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "pipe"],
+          shell: process.platform === "win32",
+        });
 
-      const parsed = parseFallowAuditOutput(stdout, null);
-      if (!parsed) {
-        return { ok: false, error: "fallow audit produced empty or unparseable output" };
+        const parsed = parseFallowAuditOutput(stdout, fileCount);
+        if (!parsed) return null;
+        if (!parentHash) {
+          return formatFallowInitialScanResult(parsed);
+        }
+        return parsed;
+      } catch (error: any) {
+        const stdout = typeof error?.stdout === "string" ? error.stdout : error?.stdout?.toString("utf-8") ?? "";
+        const parsed = parseFallowAuditOutput(stdout, fileCount);
+        if (!parsed) throw error;
+        if (!parentHash) {
+          return formatFallowInitialScanResult(parsed);
+        }
+        return parsed;
       }
-
-      if (!parentHash) {
-        return {
-          ok: true,
-          result: {
-            summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial fossil scan)",
-            promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
-          },
-        };
-      }
-      return { ok: true, result: parsed };
-    } catch (error: any) {
-      const message = error?.message || String(error);
-      return { ok: false, error: message };
     } finally {
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore cleanup errors */ }
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
     }
   }
 
@@ -543,20 +641,18 @@ export default function (pi: ExtensionAPI) {
         ? "warn"
         : "pass";
 
-    const changedFilesCount = fileCount ?? (typeof parsed.changed_files_count === "number" ? parsed.changed_files_count : null);
-
     const summaryLine = issues.length === 0
-      ? changedFilesCount == null
+      ? fileCount == null
         ? `fallow audit — ${verdict} (no issues found)`
-        : `fallow audit — ${verdict} (${changedFilesCount} file${changedFilesCount === 1 ? "" : "s"} scanned, no issues found)`
-      : changedFilesCount == null
+        : `fallow audit — ${verdict} (${fileCount} file${fileCount === 1 ? "" : "s"} scanned, no issues found)`
+      : fileCount == null
         ? `fallow audit — ${verdict}`
-        : `fallow audit — ${verdict} (${changedFilesCount} file${changedFilesCount === 1 ? "" : "s"} scanned)`;
+        : `fallow audit — ${verdict} (${fileCount} file${fileCount === 1 ? "" : "s"} scanned)`;
 
-    if (issues.length === 0) return { summaryLine, promptPrefix: "" };
+    if (issues.length === 0) return { summaryLine, promptPrefix: "", findings: [] };
 
     const visibleIssues = issues.slice(0, FALLOW_MAX_PROMPT_ISSUES);
-    const scopeLine = changedFilesCount == null ? "changed files" : `${changedFilesCount} changed file${changedFilesCount === 1 ? "" : "s"}`;
+    const scopeLine = fileCount == null ? "changed files" : `${fileCount} changed file${fileCount === 1 ? "" : "s"}`;
     const extraIssues = issues.length - visibleIssues.length;
     return {
       summaryLine,
@@ -571,6 +667,15 @@ export default function (pi: ExtensionAPI) {
         "",
         "Treat these as verified findings. Do not re-derive them. Synthesise with your own inspection where relevant.",
       ].join("\n"),
+      findings: issues,
+    };
+  }
+
+  function formatFallowInitialScanResult(parsed: FallowAuditResult): FallowAuditResult {
+    return {
+      summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
+      promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
+      findings: parsed.findings,
     };
   }
 
@@ -581,20 +686,38 @@ export default function (pi: ExtensionAPI) {
       return fallowNotRun("fallow unavailable");
     }
 
+    const activeVcsMode = readActiveVcsMode(cwd);
+    if (activeVcsMode === "fossil" && detectFossil(cwd)) {
+      const changedFiles = collectFossilAuditFiles(cwd);
+      if (changedFiles == null) {
+        ctx.ui.notify("Fallow audit scope could not be resolved for this Fossil checkout — running LLM-only review.", "warning");
+        return fallowNotRun("audit scope unavailable");
+      }
+      if (changedFiles.length === 0) return fallowNotRun("no changed files");
+
+      if (!commandExists("git", ["--version"]) || !commandExists("tar", ["--version"])) {
+        ctx.ui.notify("Fallow audit in Fossil mode requires git and tar binaries, which are not available on this system — running LLM-only review.", "warning");
+        return fallowNotRun("git or tar unavailable for fossil bridge");
+      }
+
+      try {
+        const parsed = runFallowAuditViaFossilBridge(cwd, binaryPath, changedFiles.length);
+        if (parsed) return parsed;
+      } catch (error: any) {
+        ctx.ui.notify(`Fallow audit bridge failed — running LLM-only review. ${error?.message || String(error)}`, "warning");
+        return fallowNotRun("fallow audit failed");
+      }
+
+      ctx.ui.notify("Fallow audit bridge returned unusable output — running LLM-only review.", "warning");
+      return fallowNotRun("fallow audit failed");
+    }
+
     const gitScope = collectGitAuditScope(cwd);
     const changedFiles = gitScope.mode !== "unavailable"
       ? gitScope.files
       : detectJJ(cwd)
         ? collectJjAuditFiles(cwd)
         : null;
-
-    // Fossil: bridge to git so fallow audit can compute a base comparison
-    if (changedFiles == null && detectFossil(cwd)) {
-      const bridge = runFallowFossilBridge(cwd, binaryPath);
-      if (bridge.ok) return bridge.result;
-      ctx.ui.notify(`Fallow audit bridge failed: ${bridge.error} — running LLM-only review.`, "warning");
-      return fallowNotRun("audit scope unavailable");
-    }
 
     if (changedFiles == null) {
       ctx.ui.notify("Fallow audit scope could not be resolved — running LLM-only review.", "warning");
@@ -604,7 +727,7 @@ export default function (pi: ExtensionAPI) {
     if (changedFiles.length === 0) return fallowNotRun("no changed files");
 
     if (gitScope.mode === "unavailable") {
-      ctx.ui.notify("Fallow audit is unavailable for this checkout — running LLM-only review.", "warning");
+      ctx.ui.notify("Fallow audit is unavailable for this JJ-only checkout — running LLM-only review.", "warning");
       return fallowNotRun("audit scope unavailable");
     }
 
@@ -623,10 +746,7 @@ export default function (pi: ExtensionAPI) {
       const parsed = parseFallowAuditOutput(stdout, summaryFileCount);
       if (!parsed) return fallowNotRun("fallow audit failed");
       if (gitScope.mode === "initial") {
-        return {
-          summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
-          promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
-        };
+        return formatFallowInitialScanResult(parsed);
       }
       return parsed;
     } catch (error: any) {
@@ -634,10 +754,7 @@ export default function (pi: ExtensionAPI) {
       const parsed = parseFallowAuditOutput(stdout, summaryFileCount);
       if (parsed) {
         if (gitScope.mode === "initial") {
-          return {
-            summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
-            promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
-          };
+          return formatFallowInitialScanResult(parsed);
         }
         return parsed;
       }
@@ -893,9 +1010,12 @@ export default function (pi: ExtensionAPI) {
       return true;
     }
 
-    if (decision === "close") {
-      startLearnedRuleCloseout(ctx, storyPath, reviewFilePath);
-    }
+    if (decision === "not-yet") return true;
+
+    const closeChoice = await resolveContextPersistenceChoice(ctx, storyPath, decision);
+    if (closeChoice == null) return true;
+
+    startLearnedRuleCloseout(ctx, storyPath, closeChoice, reviewFilePath);
     return true;
   }
 
@@ -957,7 +1077,86 @@ export default function (pi: ExtensionAPI) {
     return blockers;
   }
 
-  function startLearnedRuleCloseout(ctx: any, storyPath: string, reviewFilePath?: string): void {
+  function completeStoryNow(ctx: any, storyPath: string): void {
+    const storyLabel = path.basename(storyPath, ".md");
+    updateStoryFrontmatter(storyPath, {
+      status: "complete",
+      lastAccessed: todayDate(),
+      completed: todayDate(),
+    });
+    ctx.ui.notify(`${storyLabel} marked complete`, "info");
+  }
+
+  function completeStoryAndCommitNow(ctx: any, storyPath: string): void {
+    const storyLabel = path.basename(storyPath, ".md");
+    completeStoryNow(ctx, storyPath);
+    const commitResult = commitStoryCloseChanges(ctx.cwd, storyLabel);
+    ctx.ui.notify(commitResult.summary, commitResult.ok ? "info" : "warning");
+    refreshVcsState(ctx.cwd);
+  }
+
+  async function resolveContextPersistenceChoice(
+    ctx: any,
+    storyPath: string,
+    closeIntent: "close" | "close-commit",
+  ): Promise<"close" | "close-commit" | null> {
+    if (closeIntent === "close-commit") return "close-commit";
+
+    const persistence = contextPersistenceStatus(ctx.cwd);
+    if (!shouldEnforceContextCommit(ctx.cwd)) {
+      ctx.ui.notify(`${path.basename(storyPath, ".md")} closeout: ${persistence.summary}`, "info");
+      return "close";
+    }
+
+    if (!ctx.hasUI) {
+      ctx.ui.notify(`${path.basename(storyPath, ".md")} closeout paused: ${persistence.summary} Re-run interactively to commit now or explicitly close without committing .context.`, "warning");
+      return null;
+    }
+
+    const choice = await ctx.ui.select(
+      `${path.basename(storyPath, ".md")} has pending project-brain updates. ${persistence.summary}`,
+      [
+        "Commit .context changes and close story",
+        "Close story without committing .context changes",
+        "Cancel",
+      ],
+    );
+
+    if (choice == null || choice === "Cancel") return null;
+    if (choice === "Commit .context changes and close story") return "close-commit";
+
+    ctx.ui.notify(`${path.basename(storyPath, ".md")} closeout: user explicitly declined the pending .context commit.`, "warning");
+    return "close";
+  }
+
+  async function promptReadyCloseout(ctx: any, storyPath: string): Promise<"review" | "close-commit" | "close" | "not-yet" | null> {
+    const storyLabel = path.basename(storyPath, ".md");
+
+    if (!ctx.hasUI) {
+      ctx.ui.notify(`${storyLabel} is ready to complete. Re-run /complete-story in an interactive session to close it out.`, "info");
+      return null;
+    }
+
+    const choice = await ctx.ui.select(`${storyLabel} is ready. What would you like to do?`, [
+      "Start code review before closing",
+      "Close story now",
+      "Close story and commit all",
+      "Not yet, keep working",
+    ]);
+
+    if (choice == null) return null;
+    if (choice === "Start code review before closing") return "review";
+    if (choice === "Close story now") return "close";
+    if (choice === "Close story and commit all") return "close-commit";
+    return "not-yet";
+  }
+
+  function startLearnedRuleCloseout(
+    ctx: any,
+    storyPath: string,
+    closeIntent: "close" | "close-commit",
+    reviewFilePath?: string,
+  ): void {
     const storyLabel = path.basename(storyPath, ".md");
     const draftPath = learnedRuleCloseoutDraftPath(ctx.cwd, storyLabel);
     try {
@@ -970,6 +1169,7 @@ export default function (pi: ExtensionAPI) {
       storyFile: storyPath,
       reviewFile: reviewFilePath,
       reviewCloseoutReady: true,
+      closeIntent,
       learnedRuleCloseoutFile: draftPath,
     });
     sendInternalAgentMessage(ctx, buildLearnedRuleCloseoutInstruction(ctx.cwd, storyLabel, reviewFilePath), {
@@ -988,7 +1188,7 @@ export default function (pi: ExtensionAPI) {
 
     const lines = [
       `Before closing ${storyLabel}, Vazir found these possible learned rules:`,
-      "Reply with `both` to save both rules, `skip` to save none, or enter numbers like `1` or `1,2`.",
+      "Reply with `both` to promote both rules, `skip` to promote none, or enter numbers like `1` or `1,2`.",
       ...draft.candidates.map((candidate, index) => {
         const sourceLabel = candidate.sources.length > 0 ? ` [sources: ${candidate.sources.join(", ")}]` : "";
         return `${index + 1}. (${candidate.confidence}) ${candidate.text}${sourceLabel}`;
@@ -1001,7 +1201,7 @@ export default function (pi: ExtensionAPI) {
       while (true) {
         const response = (await ctx.ui.input(
           lines.join("\n"),
-          draft.candidates.length > 1 ? "Type both, skip, or numbers like 1 or 1,2" : "Type 1 to save the rule, or skip",
+          draft.candidates.length > 1 ? "Type both, skip, or numbers like 1 or 1,2" : "Type 1 to promote the rule, or skip",
         ))?.trim().toLowerCase();
         if (response == null || response === "") return null;
         if (response === "skip" || response === "skip both") return "skip";
@@ -1021,48 +1221,79 @@ export default function (pi: ExtensionAPI) {
     }
 
     const options = [
-      ...(draft.candidates.length > 1 ? ["Promote both"] : []),
+      "Promote all",
       ...draft.candidates.map((candidate, index) => `Promote ${index + 1} — ${candidate.text}`),
-      "Skip both",
+      "Skip all",
     ];
     const choice = await ctx.ui.select(lines.join("\n"), options);
     if (choice == null) return null;
-    if (choice === "Promote both") return draft.candidates.map((_candidate, index) => index);
-    if (choice === "Skip both") return "skip";
+    if (choice === "Promote all") return draft.candidates.map((_candidate, index) => index);
+    if (choice === "Skip all") return "skip";
 
-    const pickedIndex = options.indexOf(choice) - (draft.candidates.length > 1 ? 1 : 0);
+    const pickedIndex = options.indexOf(choice) - 1;
     return pickedIndex >= 0 ? [pickedIndex] : null;
+  }
+
+  function finalizeStoryCloseout(ctx: any, storyPath: string, closeIntent: "close" | "close-commit"): void {
+    pendingCompleteStoryRequests.delete(ctx.cwd);
+    if (closeIntent === "close-commit") {
+      completeStoryAndCommitNow(ctx, storyPath);
+    } else {
+      completeStoryNow(ctx, storyPath);
+    }
   }
 
   async function finishLearnedRuleCloseout(ctx: any, pendingCompleteStory: PendingCompleteStoryRequest): Promise<boolean> {
     const storyPath = pendingCompleteStory.storyFile;
     const storyLabel = path.basename(storyPath, ".md");
+    const closeIntent = pendingCompleteStory.closeIntent ?? "close";
     const draftPath = pendingCompleteStory.learnedRuleCloseoutFile ?? learnedRuleCloseoutDraftPath(ctx.cwd, storyLabel);
     const draftResult: LearnedRuleCloseoutDraftReadResult = readLearnedRuleCloseoutDraft(draftPath);
+    let draft: LearnedRuleCloseoutDraft;
 
+    // TODO: Remove legacy mini-consolidate candidates-file fallback after 2026-06-15.
     if (draftResult.kind === "missing" || draftResult.kind === "invalid") {
-      const reason = draftResult.kind === "missing"
-        ? "no learned-rule draft was written"
-        : `the learned-rule draft was invalid (${draftResult.error})`;
-      ctx.ui.notify(`Could not finish learned-rule closeout for ${storyLabel}: ${reason}. The story is still open. Re-run /complete-story to try again.`, "warning");
-      try {
-        if (fs.existsSync(draftPath)) fs.rmSync(draftPath, { force: true });
-      } catch {
-        /* ignore cleanup errors */
+      const legacyCandidatesPath = miniConsolidateCandidatesPath(ctx.cwd, storyLabel);
+      const legacyCandidates = fs.existsSync(legacyCandidatesPath) ? parseMiniConsolidateCandidates(legacyCandidatesPath) : [];
+      if (fs.existsSync(legacyCandidatesPath)) {
+        try {
+          fs.rmSync(legacyCandidatesPath, { force: true });
+        } catch {
+          /* ignore cleanup errors */
+        }
       }
-      return true;
-    }
 
-    const draft = draftResult.draft;
+      if (legacyCandidates.length > 0 || draftResult.kind === "missing") {
+        draft = {
+          note: legacyCandidates.length === 0 ? "No candidates found." : "",
+          candidates: legacyCandidates.map(candidate => ({
+            text: candidate.text,
+            confidence: candidate.confidence,
+            sources: [],
+            rationale: "",
+          })),
+        };
+      } else {
+        const reason = `the learned-rule draft was invalid (${draftResult.error})`;
+        ctx.ui.notify(`Could not finish learned-rule closeout for ${storyLabel}: ${reason}. The story is still open. Re-run /complete-story to try again.`, "warning");
+        try {
+          if (fs.existsSync(draftPath)) fs.rmSync(draftPath, { force: true });
+        } catch {
+          /* ignore cleanup errors */
+        }
+        return true;
+      }
+    } else {
+      draft = draftResult.draft;
+    }
     if (draft.candidates.length === 0) {
-      pendingCompleteStoryRequests.delete(ctx.cwd);
       try {
         if (fs.existsSync(draftPath)) fs.rmSync(draftPath, { force: true });
       } catch {
         /* ignore cleanup errors */
       }
       ctx.ui.notify(draft.note || `No rule suggestions were found for ${storyLabel}.`, "info");
-      completeStoryNow(ctx, storyPath);
+      finalizeStoryCloseout(ctx, storyPath, closeIntent);
       return true;
     }
 
@@ -1070,26 +1301,9 @@ export default function (pi: ExtensionAPI) {
     if (selection == null) return true;
 
     const selectedCandidates = selection === "skip" ? [] : selection.map(index => draft.candidates[index]).filter(Boolean);
-
     const storyContent = readIfExists(storyPath);
     const issuesSection = readStorySection(storyContent, "Issues");
     const storyKind: "failure" | "success" | undefined = issuesSection.trim().length > 0 ? "failure" : "success";
-
-    // Tag newly promoted rules with the closing story's kind so they land in the
-    // correct subsection immediately. organizeLearnedRules() is also called below
-    // to catch any older uncategorized rules and keep the entire section consistent.
-    const promotion = promoteRulesToSystemMd(
-      ctx.cwd,
-      selectedCandidates.map(candidate => ({
-        text: candidate.text,
-        sourceStories: [storyLabel],
-        kind: storyKind,
-      })),
-    );
-    applyLocalRuleDedupe(ctx.cwd);
-    organizeLearnedRules(ctx.cwd);
-
-    pendingCompleteStoryRequests.delete(ctx.cwd);
     try {
       if (fs.existsSync(draftPath)) fs.rmSync(draftPath, { force: true });
     } catch {
@@ -1097,51 +1311,71 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (selection === "skip") {
-      ctx.ui.notify(`Skipped rule promotion for ${storyLabel}.`, "info");
+      ctx.ui.notify(`Mini-consolidate skipped for ${storyLabel}.`, "info");
     } else {
+      const promotion = promoteRulesToSystemMd(
+        ctx.cwd,
+        selectedCandidates.map(candidate => ({
+          text: candidate.text,
+          sourceStories: [storyLabel],
+          kind: storyKind,
+        })),
+      );
+      prepareLearnedRulesForConsolidation(ctx.cwd);
+
+      const notes: string[] = [];
       if (promotion.promoted.length > 0) {
-        ctx.ui.notify(`Promoted rule${promotion.promoted.length === 1 ? "" : "s"}: ${promotion.promoted.join(", ")}`, "info");
+        notes.push(`Promoted ${promotion.promoted.length} rule(s) to system.md.`);
       }
       if (promotion.skipped.length > 0) {
-        ctx.ui.notify(`Skipped overlapping rule${promotion.skipped.length === 1 ? "" : "s"}: ${promotion.skipped.map(entry => entry.text).join(", ")}`, "info");
+        notes.push(`Skipped ${promotion.skipped.length} duplicate rule(s).`);
       }
-      if (promotion.promoted.length === 0 && promotion.skipped.length === 0) {
-        ctx.ui.notify(`No new rules were saved for ${storyLabel}.`, "info");
+      if (notes.length === 0) {
+        notes.push(`No new rules were saved for ${storyLabel}.`);
       }
+      ctx.ui.notify(notes.join(" "), "info");
     }
 
-    completeStoryNow(ctx, storyPath);
+    finalizeStoryCloseout(ctx, storyPath, closeIntent);
     return true;
   }
 
-  function completeStoryNow(ctx: any, storyPath: string): void {
-    const storyLabel = path.basename(storyPath, ".md");
-    updateStoryFrontmatter(storyPath, {
-      status: "complete",
-      lastAccessed: todayDate(),
-      completed: todayDate(),
-    });
-    ctx.ui.notify(`${storyLabel} marked complete`, "info");
-  }
-
-  async function promptReadyCloseout(ctx: any, storyPath: string): Promise<"review" | "close" | "not-yet" | null> {
-    const storyLabel = path.basename(storyPath, ".md");
+  async function promptInProgressCompleteStoryReview(
+    ctx: any,
+    reviewFilePath: string,
+    storyLabel: string,
+  ): Promise<"stay" | null> {
+    const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
 
     if (!ctx.hasUI) {
-      ctx.ui.notify(`${storyLabel} is ready to complete. Re-run /complete-story in an interactive session to close it out.`, "info");
-      return null;
+      ctx.ui.notify(
+        `Review ${reviewLabel} for ${storyLabel} is still in progress. Re-run /complete-story in an interactive session to open the review or keep the story open while the review finishes.`,
+        "info",
+      );
+      return "stay";
     }
 
-    const choice = await ctx.ui.select(`${storyLabel} is ready. What would you like to do?`, [
-      "Start code review before closing",
-      "Close story now",
-      "Not yet, keep working",
-    ]);
+    while (true) {
+      const choice = await ctx.ui.select(
+        [
+          `${storyLabel} is waiting on ${reviewLabel}.`,
+          "",
+          "The review document is still marked in progress, so Vazir cannot show fix/close choices yet.",
+          "Open the review document, or keep the story open and stay in review until it is marked complete.",
+        ].join("\n"),
+        [
+          "Open review document",
+          "Keep story open and stay in review",
+        ],
+      );
 
-    if (choice == null) return null;
-    if (choice === "Start code review before closing") return "review";
-    if (choice === "Close story now") return "close";
-    return "not-yet";
+      if (choice == null) return null;
+      if (choice === "Open review document") {
+        await viewReviewDocument(ctx, reviewFilePath, reviewLabel);
+        continue;
+      }
+      return "stay";
+    }
   }
 
   async function promptReviewFindingsCloseout(
@@ -1149,7 +1383,7 @@ export default function (pi: ExtensionAPI) {
     reviewFilePath: string,
     findings: ReviewFindingSummary[],
     targetNoun: ReviewCloseoutTarget = "story",
-  ): Promise<"fix-high" | "fix-all" | "close" | "not-yet" | null> {
+  ): Promise<"fix-high" | "fix-all" | "close-commit" | "close" | "not-yet" | null> {
     const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
     const recommendedFixes = reviewRecommendedFixesFromFile(reviewFilePath);
     const otherFixes = reviewOtherFixesFromFile(reviewFilePath);
@@ -1195,6 +1429,7 @@ export default function (pi: ExtensionAPI) {
         return "fix-all";
       }
 
+      if (choice === `Close ${targetNoun} and commit all`) return "close-commit";
       if (choice.includes(`Close ${targetNoun} now`)) return "close";
       return "not-yet";
     }
@@ -1279,6 +1514,9 @@ export default function (pi: ExtensionAPI) {
     }
     choices.push("Open review document");
     choices.push(pendingFixCount > 0 ? `Close ${targetNoun} now (remaining items noted)` : `Close ${targetNoun} now`);
+    if (targetNoun === "story") {
+      choices.push(`Close ${targetNoun} and commit all`);
+    }
     choices.push("Not yet, keep working");
     return choices;
   }
@@ -1361,7 +1599,7 @@ export default function (pi: ExtensionAPI) {
     beforeDispatch?: (review: ReturnType<typeof createReviewDraft>) => void,
   ): Promise<ReturnType<typeof createReviewDraft>> {
     const fallowAudit = runFallowAudit(ctx, ctx.cwd);
-    const review = createReviewDraft(ctx.cwd, { ...options, staticAnalysis: fallowAudit.summaryLine });
+    const review = createReviewDraft(ctx.cwd, { ...options, staticAnalysis: fallowAudit.summaryLine, fallowFindings: fallowAudit.findings });
     syncReviewSummaryAndPromoteRules(ctx.cwd);
     ctx.ui.notify(`Created ${review.fileName} in .context/reviews/`, "info");
     const instruction = buildReviewInstruction(review, fallowAudit.promptPrefix, ctx.cwd);
@@ -1405,10 +1643,14 @@ export default function (pi: ExtensionAPI) {
     const active = findActiveStory(ctx.cwd);
     const activeIsUiStory = active ? hasUiTypeOverride(active.file) || isUiStory(active.file) : false;
     const designSystem = activeIsUiStory ? strip(readIfExists(designSystemPath(ctx.cwd))) : "";
+    const vcsGuidance = buildVcsSettingsGuidance(ctx.cwd);
+    const vcsSafetyGuidance = hasVcsSafetyPolicyText(systemMd) ? "" : buildVcsSafetyGuidanceText();
 
     if (contextMap) parts.push(contextMap);
     else if (agents) parts.push(agents);
     if (systemMd) parts.push(systemMd);
+    if (vcsGuidance) parts.push(vcsGuidance);
+    if (vcsSafetyGuidance) parts.push(vcsSafetyGuidance);
     if (designSystem) parts.push(`[Design System]\n${designSystem}`);
     if (indexMd) parts.push(indexMd);
 
@@ -1512,20 +1754,22 @@ export default function (pi: ExtensionAPI) {
     if (pendingCompleteStory) {
       const completionStoryFile = pendingCompleteStory.storyFile;
       const storyLabel = path.basename(completionStoryFile, ".md");
-      const readiness = assessStoryCompletionReadiness(completionStoryFile);
-      const blockers = listCompletionBlockers(readiness);
 
       if (pendingCompleteStory.learnedRuleCloseoutFile) {
-        const handledLearnedRuleCloseout = await finishLearnedRuleCloseout(ctx, pendingCompleteStory);
-        if (handledLearnedRuleCloseout) return;
+        await finishLearnedRuleCloseout(ctx, pendingCompleteStory);
+        return;
       }
 
       const reviewFilePath = pendingCompleteStory.reviewFile;
       if (reviewFilePath) {
         const handledReview = await processCompleteStoryReviewCloseout(ctx, cwd, completionStoryFile, reviewFilePath);
         if (handledReview) return;
+        await promptInProgressCompleteStoryReview(ctx, reviewFilePath, storyLabel);
         return;
       }
+
+      const readiness = assessStoryCompletionReadiness(completionStoryFile);
+      const blockers = listCompletionBlockers(readiness);
 
       if (blockers.length > 0) {
         return;
@@ -1549,9 +1793,12 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      if (decision === "close") {
-        startLearnedRuleCloseout(ctx, pendingCompleteStory.storyFile);
-      }
+      if (decision === "not-yet") return;
+
+      const closeChoice = await resolveContextPersistenceChoice(ctx, completionStoryFile, decision);
+      if (closeChoice == null) return;
+
+      startLearnedRuleCloseout(ctx, completionStoryFile, closeChoice);
     }
 
     const pendingManualReview = pendingManualReviewRequests.get(cwd);
@@ -1599,8 +1846,18 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      if (decision === "not-yet") return;
+
+      let closeChoice: "close" | "close-commit" | null = decision === "close" || decision === "close-commit" ? decision : null;
+      if (targetNoun === "story" && attachedStoryPath && closeChoice) {
+        closeChoice = await resolveContextPersistenceChoice(ctx, attachedStoryPath, closeChoice);
+        if (closeChoice == null) return;
+      }
+
       pendingManualReviewRequests.delete(cwd);
-      if (decision === "close" && targetNoun === "story" && attachedStoryPath) {
+      if (closeChoice === "close-commit" && targetNoun === "story" && attachedStoryPath) {
+        completeStoryAndCommitNow(ctx, attachedStoryPath);
+      } else if (closeChoice === "close" && targetNoun === "story" && attachedStoryPath) {
         completeStoryNow(ctx, attachedStoryPath);
       } else if (decision === "close") {
         ctx.ui.notify(`${path.basename(pendingManualReview.reviewFile)} closeout finished`, "info");
@@ -1672,12 +1929,33 @@ export default function (pi: ExtensionAPI) {
   // ── /vazir-init ──────────────────────────────────────────────────────
 
   pi.registerCommand("vazir-init", {
-    description: "Bootstrap Vazir context files, then set up git and JJ when available",
+    description: "Bootstrap Vazir context files, then set up Git/JJ or Fossil", 
     handler: async (_args: string, ctx: any) => {
       const cwd = ctx.cwd;
 
-      ensureDir(memoryDir(cwd));
-      ensureDir(storiesDir(cwd));
+      const isAlreadyInitialized = fs.existsSync(path.join(cwd, ".context", "settings", "project.json"));
+      let reconfigureOnly = false;
+      if (isAlreadyInitialized && typeof ctx.ui?.select === "function") {
+        const choice = await ctx.ui.select(
+          "Vazir is already initialized. What would you like to do?",
+          [
+            "Reconfigure VCS preference",
+            "Full re-bootstrap",
+            "Cancel",
+          ],
+        );
+        if (choice === "Cancel" || choice == null) return;
+        reconfigureOnly = choice === "Reconfigure VCS preference";
+      }
+
+      const projectSettingsPath = path.join(settingsDir(cwd), "project.json");
+      const agentsPath = path.join(cwd, "AGENTS.md");
+      let indexSummary = { total: 0, undescribed: 0 };
+      let shouldRequestModelDraft = false;
+
+      if (!reconfigureOnly) {
+        ensureDir(memoryDir(cwd));
+        ensureDir(storiesDir(cwd));
       ensureDir(settingsDir(cwd));
       ensureIntakeStructure(cwd);
       ensureReviewStructure(cwd);
@@ -1722,13 +2000,17 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("remembered rules log created", "info");
       }
 
-      const projectSettingsPath = path.join(settingsDir(cwd), "project.json");
       if (!fs.existsSync(projectSettingsPath)) {
-        fs.writeFileSync(projectSettingsPath, JSON.stringify({ project_name: "", model_tier: "balanced" }, null, 2));
+        fs.writeFileSync(projectSettingsPath, JSON.stringify({ project_name: "", model_tier: "balanced", active_vcs_mode: "none" }, null, 2));
         ctx.ui.notify("project.json created", "info");
       }
 
-      const agentsPath = path.join(cwd, "AGENTS.md");
+      const settingsReadmePath = path.join(settingsDir(cwd), "README.md");
+      if (!fs.existsSync(settingsReadmePath)) {
+        fs.writeFileSync(settingsReadmePath, SETTINGS_README_TEMPLATE);
+        ctx.ui.notify("settings README created", "info");
+      }
+
       if (!fs.existsSync(agentsPath)) {
         fs.writeFileSync(agentsPath, AGENTS_MD_TEMPLATE);
         ctx.ui.notify("AGENTS.md created", "info");
@@ -1771,15 +2053,13 @@ export default function (pi: ExtensionAPI) {
         "Added common ignore boilerplate to .gitignore",
       );
 
-      await maybePromptForFallowInstall(ctx, cwd);
-
       const sourceFiles = walkSourceFiles(cwd);
-      const indexSummary = writeIndex(cwd, sourceFiles);
+      indexSummary = writeIndex(cwd, sourceFiles);
       ctx.ui.notify("index.md generated", "info");
 
       let contextMapStatus = "existing";
       const contextMapExisted = fs.existsSync(contextMapPath(cwd));
-      let shouldRequestModelDraft = false;
+      shouldRequestModelDraft = false;
       if (!contextMapExisted) {
         fs.writeFileSync(contextMapPath(cwd), CONTEXT_MAP_TEMPLATE);
         contextMapStatus = "fill in manually";
@@ -1793,40 +2073,25 @@ export default function (pi: ExtensionAPI) {
       }
 
       ctx.ui.notify(
-        `Vazir bootstrap complete • context-map.md: ${contextMapStatus} • index.md: ${indexSummary.total} files indexed • Git check runs now`,
+        `Vazir bootstrap complete • context-map.md: ${contextMapStatus} • index.md: ${indexSummary.total} files indexed • version control system (VCS) check runs now`,
         "info",
       );
+      } // end if (!reconfigureOnly)
 
-      let jjLine = "☒ JJ (Jujutsu): Not started";
-      let jjDetailLine = `  ↳ Go here to install directions ${JJ_DOCS_URL}`;
-      let gitReady = detectGitRepo(cwd);
+      let vcsLine = "☒ Version control system (VCS): Not configured";
+      let vcsDetailLine = "  ↳ The active mode can change later in settings.";
+      const initialGitReady = detectGitRepo(cwd);
+      const initialFossilReady = detectFossil(cwd);
+      let gitReady = initialGitReady;
+      let fossilReady = initialFossilReady;
+      let selectedMode: "git" | "fossil" | "none" = "none";
+      let shouldAttemptJjSetup = false;
 
-      if (!gitReady) {
-        const choice = await ctx.ui.select(
-          "This folder has no git repo. Git is required for version control and JJ checkpoint support. Initialise git here?",
-          [
-            "Yes — initialise git",
-            "No — I understand, skip git and JJ",
-          ],
-        );
+      const gitAndJjSetupFlow = async (): Promise<{ jjLine: string; jjDetailLine: string }> => {
+        let nextJjLine = "☒ JJ (Jujutsu): Not started";
+        let nextJjDetailLine = `  ↳ Install JJ here ${JJ_DOCS_URL}`;
+        let jjAvailable = false;
 
-        if (choice === "Yes — initialise git") {
-          try {
-            childProcess.execSync("git init", { cwd, stdio: "pipe" });
-            gitReady = true;
-            ctx.ui.notify("✓ git initialised\nRemember to add a remote:\ngit remote add origin <url>", "info");
-          } catch (error: any) {
-            ctx.ui.notify(`Git init failed: ${error?.message || String(error)} — JJ skipped`, "warning");
-            jjDetailLine = "  ↳ Git initialisation failed, so JJ was skipped";
-          }
-        } else {
-          ctx.ui.notify("No git — JJ skipped, checkpoints unavailable", "warning");
-          jjDetailLine = "  ↳ Git is not initialised here, so JJ was skipped";
-        }
-      }
-
-      let jjAvailable = false;
-      if (gitReady) {
         try {
           childProcess.execFileSync("jj", ["--version"], { cwd, stdio: "pipe" });
           jjAvailable = true;
@@ -1836,37 +2101,163 @@ export default function (pi: ExtensionAPI) {
             "info",
           );
         }
-      }
 
-      try {
-        if (jjAvailable) {
-          try {
-            childProcess.execFileSync("jj", ["root"], { cwd, stdio: "pipe" });
-            ctx.ui.notify("JJ already initialised", "info");
-            jjLine = "☑ JJ (Jujutsu): active";
-            jjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
-          } catch {
-            childProcess.execFileSync("jj", ["git", "init", "--colocate"], { cwd, stdio: "pipe" });
-            for (const branch of ["main", "master"]) {
-              try {
-                childProcess.execFileSync("jj", ["bookmark", "track", `${branch}@origin`], { cwd, stdio: "pipe" });
-                break;
-              } catch {
-                // Try the next common default branch.
+        try {
+          if (jjAvailable) {
+            try {
+              childProcess.execFileSync("jj", ["root"], { cwd, stdio: "pipe" });
+              ctx.ui.notify("JJ already initialised", "info");
+              nextJjLine = "☑ JJ (Jujutsu): active";
+              nextJjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
+            } catch {
+              childProcess.execFileSync("jj", ["git", "init", "--colocate"], { cwd, stdio: "pipe" });
+              for (const branch of ["main", "master"]) {
+                try {
+                  childProcess.execFileSync("jj", ["bookmark", "track", `${branch}@origin`], { cwd, stdio: "pipe" });
+                  break;
+                } catch {
+                  // Try the next common default branch.
+                }
               }
+              ctx.ui.notify("JJ initialised", "info");
+              nextJjLine = "☑ JJ (Jujutsu): active";
+              nextJjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
             }
-            ctx.ui.notify("JJ initialised", "info");
-            jjLine = "☑ JJ (Jujutsu): active";
-            jjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
-          }
 
-          ensureGitignoreEntries([".jj/"], "Added .jj/ to .gitignore");
+            ensureGitignoreEntries([".jj/"], "Added .jj/ to .gitignore");
+          }
+        } catch (error: any) {
+          ctx.ui.notify(`JJ setup failed: ${error?.message || String(error)} — continuing with git fallback`, "warning");
+          nextJjDetailLine = "  ↳ JJ setup failed, so Git remains active without JJ checkpoints";
         }
-      } catch (error: any) {
-        ctx.ui.notify(`JJ setup failed: ${error?.message || String(error)} — continuing with git fallback`, "warning");
+
+        useJJ = detectJJ(cwd);
+        return { jjLine: nextJjLine, jjDetailLine: nextJjDetailLine };
+      };
+
+      if (!gitReady && !fossilReady) {
+        const choice = await ctx.ui.select(
+          "No version control system (VCS) is configured in this repo yet. Which mode should Vazir set up? This choice can be changed later in settings.",
+          [
+            "Git/JJ",
+            "Fossil",
+          ],
+        );
+        selectedMode = choice === "Fossil" ? "fossil" : "git";
+      } else if (gitReady && !fossilReady) {
+        selectedMode = "git";
+      } else if (!gitReady && fossilReady) {
+        selectedMode = "fossil";
+      } else {
+        const choice = await ctx.ui.select(
+          "Both Git and Fossil are already present in this repo. Which one should be the active mode in settings?",
+          [
+            "Git/JJ",
+            "Fossil",
+          ],
+        );
+        selectedMode = choice === "Fossil" ? "fossil" : "git";
       }
 
-      useJJ = jjAvailable && detectJJ(cwd);
+      if (selectedMode === "git" && !gitReady) {
+        try {
+          childProcess.execSync("git init", { cwd, stdio: "pipe" });
+          gitReady = true;
+          ctx.ui.notify("✓ git initialised\nRemember to add a remote:\ngit remote add origin <url>", "info");
+        } catch (error: any) {
+          ctx.ui.notify(`Git init failed: ${error?.message || String(error)} — JJ skipped`, "warning");
+          selectedMode = "none";
+          vcsDetailLine = "  ↳ Git initialisation failed.";
+        }
+      }
+
+      if (selectedMode === "fossil" && !fossilReady) {
+        if (!commandExists("fossil", ["version"])) {
+          ctx.ui.notify("Fossil is not installed, so Vazir could not configure a Fossil checkout for this repo.", "warning");
+          selectedMode = "none";
+          vcsDetailLine = "  ↳ Fossil was selected but is not installed.";
+        } else {
+          try {
+            const repoFile = `${path.basename(cwd)}.fossil`;
+            childProcess.execFileSync("fossil", ["init", repoFile], { cwd, stdio: "pipe" });
+            childProcess.execFileSync("fossil", ["open", "-f", repoFile], { cwd, stdio: "pipe" });
+            fossilReady = detectFossil(cwd);
+            ctx.ui.notify("✓ fossil repo initialised and opened", "info");
+          } catch (error: any) {
+            ctx.ui.notify(`Fossil setup failed: ${error?.message || String(error)}`, "warning");
+            selectedMode = "none";
+            vcsDetailLine = "  ↳ Fossil initialisation failed.";
+          }
+        }
+      }
+
+      const jjAlreadyActive = gitReady && detectJJ(cwd);
+      if (selectedMode === "git" && gitReady) {
+        if (initialGitReady && !initialFossilReady && !jjAlreadyActive) {
+          const jjChoice = await ctx.ui.select(
+            "Git is already set up in this repo. Do you want to enable JJ for checkpoints?",
+            [
+              "Yes — enable JJ checkpoints",
+              "No — keep Git only for now",
+            ],
+          );
+          shouldAttemptJjSetup = jjChoice === "Yes — enable JJ checkpoints";
+        } else if (initialGitReady && initialFossilReady && selectedMode === "git" && !jjAlreadyActive) {
+          const jjChoice = await ctx.ui.select(
+            "Git is the active mode for this repo. Do you want to enable JJ for checkpoints too?",
+            [
+              "Yes — enable JJ checkpoints",
+              "No — keep Git only for now",
+            ],
+          );
+          shouldAttemptJjSetup = jjChoice === "Yes — enable JJ checkpoints";
+        } else {
+          shouldAttemptJjSetup = true;
+        }
+      }
+
+      let jjLine = "☒ JJ (Jujutsu): Not started";
+      let jjDetailLine = `  ↳ Install JJ here ${JJ_DOCS_URL}`;
+      if (selectedMode === "git" && gitReady) {
+        if (shouldAttemptJjSetup || detectJJ(cwd)) {
+          const jjStatus = await gitAndJjSetupFlow();
+          jjLine = jjStatus.jjLine;
+          jjDetailLine = jjStatus.jjDetailLine;
+        } else {
+          useJJ = detectJJ(cwd);
+          jjDetailLine = "  ↳ Git is active. JJ can be enabled later for checkpoints.";
+        }
+      } else {
+        useJJ = false;
+      }
+
+      if (selectedMode === "fossil" && fossilReady) {
+        if (ensureFossilIgnoreGlob(cwd)) {
+          ctx.ui.notify("Added Fossil ignore defaults (.context/, node_modules/, .git/, .jj/)", "info");
+        }
+      }
+
+      if (selectedMode === "git" && gitReady) {
+        writeProjectSettings(cwd, { active_vcs_mode: "git", vcs_preference: useJJ ? "jj" : "git" });
+        vcsLine = "☑ Version control system (VCS): Git/JJ active";
+        vcsDetailLine = useJJ
+          ? `  ↳ JJ checkpoints are active. The active mode can be changed later in settings.`
+          : [
+              "  ↳ Git is active. JJ remains optional for checkpoints. The active mode can be changed later in settings.",
+              jjLine,
+              jjDetailLine,
+            ].join("\n");
+      } else if (selectedMode === "fossil" && fossilReady) {
+        writeProjectSettings(cwd, { active_vcs_mode: "fossil", vcs_preference: "fossil" });
+        vcsLine = "☑ Version control system (VCS): Fossil active";
+        vcsDetailLine = "  ↳ Fossil is active for this repo. The active mode can be changed later in settings.";
+      } else {
+        writeProjectSettings(cwd, { active_vcs_mode: "none" });
+        vcsLine = "☒ Version control system (VCS): Not configured";
+      }
+
+      await maybePromptForFallowInstall(ctx, cwd);
+
       const initSummary = buildInitSummary([
         { label: ".context/memory/system.md", present: fs.existsSync(systemPath(cwd)) },
         { label: ".context/memory/index.md", present: fs.existsSync(indexPath(cwd)) },
@@ -1878,7 +2269,7 @@ export default function (pi: ExtensionAPI) {
         { label: ".context/complaints-log.md", present: fs.existsSync(complaintsLogPath(cwd)) },
         { label: "AGENTS.md", present: fs.existsSync(agentsPath) },
         { label: ".context/settings/project.json", present: fs.existsSync(projectSettingsPath) },
-      ], useJJ ? "☑ JJ (Jujutsu): active" : jjLine, useJJ ? `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}` : jjDetailLine);
+      ], vcsLine, vcsDetailLine);
       pendingInitSummary = initSummary;
       ctx.ui.notify(initSummary, "info");
 
@@ -1992,12 +2383,12 @@ export default function (pi: ExtensionAPI) {
         : "Step 7. Rewrite .context/stories/plan.md completely — replace all placeholder text with real content.";
       const storyWriteStep = existingStoryFiles.length > 0
         ? `Step 8. Preserve existing story files: ${existingStoryFiles.join(", ")}. Do NOT overwrite, repurpose, or renumber them. If follow-up work is needed, express it as new story-NNN.md files.`
-        : "Step 8. Create as many story-NNN.md files as needed for the scoped work. There is NO preset cap on the number of story files. Prefer more smaller stories over fewer large stories.";
+        : "Step 8. Create as many story-NNN.md files as needed for the scoped work. There is NO preset cap.";
       const planModeNote = planExists
         ? existingStoryFiles.length > 0
-          ? "NOTE: This is a replan. Preserve every existing story file, keep existing story queue rows in plan.md, append only new stories needed for the added scope, and append a replanning log entry. There is NO preset cap on the number of story files. If older work is invalidated, retire or supersede it without overwriting the original story file. Keep new stories small: target 4–7 checklist tasks per story, with 7 as a hard cap."
-          : "NOTE: This is a replan with no existing story files yet. Treat the plan update as an addendum and create as many new story files as needed. There is NO preset cap on the number of story files. Keep stories small: target 4–7 checklist tasks per story, with 7 as a hard cap."
-        : "NOTE: Create as many story files as needed for the scoped work. There is NO preset cap on the number of story files. Prefer more smaller stories over fewer large stories. Target 4–7 checklist tasks per story, with 7 as a hard cap.";
+          ? "NOTE: This is a replan. Preserve every existing story file, keep existing story queue rows in plan.md, append only new stories needed for the added scope, and append a replanning log entry. If older work is invalidated, retire or supersede it without overwriting the original story file."
+          : "NOTE: This is a replan with no existing story files yet. Treat the plan update as an addendum and create as many new story files as needed."
+        : "NOTE: Create as many story files as needed for the scoped work. Do not stop at an arbitrary count.";
       const planningSourcesList = planningSources.length > 0 ? planningSources.join(", ") : "none";
 
       // Instruct the agent to run the planning conversation
@@ -2060,7 +2451,6 @@ export default function (pi: ExtensionAPI) {
           : "Step 8. Every story must use the exact template: Status, Created, Last accessed, Completed, Goal, Verification,",
         "        Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary.",
         "        Checklist items must be concrete implementation tasks — not questions, not open issues.",
-        "        Story size rule: target 4–7 checklist tasks per story; 7 checklist tasks is a hard cap. If a story needs more than 7 tasks, split it into multiple smaller stories by workflow step or deliverable.",
         planningSources.length > 0
           ? `Step 12. Number any new stories from ${nextStoryNumber(cwd)}.`
           : `Step 9. Number any new stories from ${nextStoryNumber(cwd)}.`,
@@ -2194,9 +2584,12 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      if (choice === "close") {
-        startLearnedRuleCloseout(ctx, storyPath);
-      }
+      if (choice === "not-yet") return;
+
+      const closeChoice = await resolveContextPersistenceChoice(ctx, storyPath, choice);
+      if (closeChoice == null) return;
+
+      startLearnedRuleCloseout(ctx, storyPath, closeChoice);
     },
   });
 
@@ -2367,34 +2760,20 @@ export default function (pi: ExtensionAPI) {
         .length;
 
       const preview = [
-        "Vazir consolidation will do the following:",
-        "- review complaints and cluster repeat problems",
-        "- review learned-rule candidates from reviews",
-        "- dedupe/update .context/memory/system.md learned rules",
-        undescribed.length > 0
-          ? `- fill ${undescribed.length} undescribed index entr${undescribed.length === 1 ? "y" : "ies"}`
-          : "- leave index descriptions alone unless something is clearly wrong",
-        malformed.length > 0
-          ? `- repair ${malformed.length} malformed story file${malformed.length === 1 ? "" : "s"}`
-          : "- leave story files alone unless a malformed one is found",
-        "",
         `Complaints entries: ${complaints}`,
         `Undescribed index entries: ${undescribed.length}`,
         `Malformed story files: ${malformed.length}`,
-        "",
-        "Start consolidation now?",
+        "Local learned-rule dedupe applied after confirmation only",
       ].join("\n");
 
-      const apply = await ctx.ui.select(preview, ["Start consolidation", "Cancel"]);
-      if (apply !== "Start consolidation") {
-        ctx.ui.notify("Consolidation cancelled", "info");
+      ctx.ui.notify(preview, "info");
+      const apply = await ctx.ui.select("Apply these consolidation changes?", ["Apply", "Discard"]);
+      if (apply !== "Apply") {
+        ctx.ui.notify("Consolidation discarded", "info");
         return;
       }
 
-      ctx.ui.notify("Starting consolidation with the current Pi model…", "info");
-      applyLocalRuleDedupe(ctx.cwd);
-      updateRuleConfidence(ctx.cwd);
-      organizeLearnedRules(ctx.cwd);
+      prepareLearnedRulesForConsolidation(ctx.cwd);
       await pi.sendUserMessage(buildConsolidationInstruction(ctx.cwd), { deliverAs: "followUp" });
       ctx.ui.notify("Consolidation handed to the current Pi model", "info");
     },
@@ -2502,6 +2881,234 @@ export default function (pi: ExtensionAPI) {
       // direct invocation
       await applyInstruction(direct);
 
+    },
+  });
+
+  // ── /vcs-settings ────────────────────────────────────────────────────
+
+  function resolveAutoVcsModeForSettings(cwd: string): "git" | "fossil" | "none" {
+    const hasGit = detectGitRepo(cwd);
+    const hasJJ = hasGit ? detectJJ(cwd) : false;
+    const hasFossil = detectFossil(cwd);
+    if (hasJJ || hasGit) return "git";
+    if (hasFossil) return "fossil";
+    return "none";
+  }
+
+  function persistVcsSettings(cwd: string, preference: "auto" | "git" | "jj" | "fossil", activeMode: "git" | "fossil" | "none") {
+    writeProjectSettings(cwd, {
+      vcs_preference: preference,
+      active_vcs_mode: activeMode,
+    });
+    refreshVcsState(cwd);
+  }
+
+  function ensureGitignoreEntriesForVcsCommand(cwd: string, entries: string[], ctx: any, notification: string): void {
+    const gitignorePath = path.join(cwd, ".gitignore");
+    let current = readIfExists(gitignorePath);
+    let changed = false;
+    for (const entry of entries) {
+      if (new RegExp(`^${escapeRegExp(entry)}$`, "m").test(current)) continue;
+      current = `${current.trimEnd()}${current.trim() ? "\n" : ""}${entry}\n`;
+      changed = true;
+    }
+    if (!changed) return;
+    fs.writeFileSync(gitignorePath, current);
+    ctx.ui.notify(notification, "info");
+  }
+
+  async function promptInstallIfMissing(ctx: any, label: "Git" | "JJ" | "Fossil", message: string): Promise<boolean> {
+    if (typeof ctx.ui?.select !== "function") {
+      ctx.ui.notify(message, "info");
+      return false;
+    }
+
+    const choice = await ctx.ui.select(
+      `${label} is not installed. Would you like to install it?`,
+      ["Yes", "No"],
+    );
+    if (choice === "Yes") {
+      ctx.ui.notify(message, "info");
+      return true;
+    }
+    return false;
+  }
+
+  async function promptInitializeMode(ctx: any, label: string): Promise<boolean> {
+    if (typeof ctx.ui?.select !== "function") return true;
+    const choice = await ctx.ui.select(
+      `${label} is not initialized in this repo yet. Would you like Vazir to initialize it now?`,
+      ["Yes", "No"],
+    );
+    return choice === "Yes";
+  }
+
+  async function activateGitOrJjMode(ctx: any, cwd: string, requestedPreference: "git" | "jj"): Promise<void> {
+    const preferJj = requestedPreference === "jj";
+    if (!commandExists("git", ["--version"])) {
+      await promptInstallIfMissing(
+        ctx,
+        "Git",
+        "Git is not installed. Install it first, then re-run /vcs-settings.\n\nExamples:\n  macOS: brew install git\n  Ubuntu/Debian: sudo apt install git\n  Fedora: sudo dnf install git",
+      );
+      return;
+    }
+
+    let gitReady = detectGitRepo(cwd);
+    if (!gitReady) {
+      const shouldInitializeGit = await promptInitializeMode(ctx, "Git");
+      if (!shouldInitializeGit) {
+        ctx.ui.notify("Git setup skipped.", "info");
+        return;
+      }
+      try {
+        childProcess.execSync("git init", { cwd, stdio: "pipe" });
+        gitReady = true;
+        ctx.ui.notify("✓ git initialised\nRemember to add a remote:\ngit remote add origin <url>", "info");
+      } catch (error: any) {
+        ctx.ui.notify(`Git init failed: ${error?.message || String(error)}`, "warning");
+        return;
+      }
+    }
+
+    let jjActive = gitReady ? detectJJ(cwd) : false;
+    if (preferJj && gitReady && !jjActive) {
+      if (!commandExists("jj", ["--version"])) {
+        const wantsInstallHelp = await promptInstallIfMissing(
+          ctx,
+          "JJ",
+          "JJ is not installed. It gives Vazir a full checkpoint history of every agent turn.\n\nTo install:\n  macOS: brew install jj\n  Linux: cargo install jj-cli\n\nAfter installing, re-run /vcs-settings and choose Git/JJ.",
+        );
+        ctx.ui.notify(
+          wantsInstallHelp
+            ? "Continuing with Git only for now. Re-run /vcs-settings after installing JJ to enable checkpoints."
+            : "JJ setup skipped. Continuing with Git only for now.",
+          "info",
+        );
+      } else {
+        const shouldInitializeJj = await promptInitializeMode(ctx, "JJ");
+        if (!shouldInitializeJj) {
+          ctx.ui.notify("JJ setup skipped. Continuing with Git only for now.", "info");
+        } else {
+          try {
+            childProcess.execFileSync("jj", ["git", "init", "--colocate"], { cwd, stdio: "pipe" });
+            for (const branch of ["main", "master"]) {
+              try {
+                childProcess.execFileSync("jj", ["bookmark", "track", `${branch}@origin`], { cwd, stdio: "pipe" });
+                break;
+              } catch {
+                // Try the next common default branch.
+              }
+            }
+            ensureGitignoreEntriesForVcsCommand(cwd, [".jj/"], ctx, "Added .jj/ to .gitignore");
+            ctx.ui.notify("JJ initialised", "info");
+          } catch (error: any) {
+            ctx.ui.notify(`JJ setup failed: ${error?.message || String(error)} — continuing with Git only`, "warning");
+          }
+          jjActive = detectJJ(cwd);
+        }
+      }
+    }
+
+    useJJ = jjActive;
+    const resolvedPreference = requestedPreference === "jj" && jjActive ? "jj" : "git";
+    persistVcsSettings(cwd, resolvedPreference, "git");
+    ctx.ui.notify(`VCS preference set to ${resolvedPreference}`, "info");
+  }
+
+  async function activateFossilMode(ctx: any, cwd: string): Promise<void> {
+    if (!commandExists("fossil", ["version"])) {
+      await promptInstallIfMissing(
+        ctx,
+        "Fossil",
+        "Fossil is not installed. Install it first, then re-run /vcs-settings.\n\nExamples:\n  macOS: brew install fossil\n  Ubuntu/Debian: sudo apt install fossil\n  Fedora: sudo dnf install fossil",
+      );
+      return;
+    }
+
+    let fossilReady = detectFossil(cwd);
+    if (!fossilReady) {
+      const shouldInitializeFossil = await promptInitializeMode(ctx, "Fossil");
+      if (!shouldInitializeFossil) {
+        ctx.ui.notify("Fossil setup skipped.", "info");
+        return;
+      }
+      try {
+        const repoFile = `${path.basename(cwd)}.fossil`;
+        childProcess.execFileSync("fossil", ["init", repoFile], { cwd, stdio: "pipe" });
+        childProcess.execFileSync("fossil", ["open", "-f", repoFile], { cwd, stdio: "pipe" });
+        fossilReady = detectFossil(cwd);
+        ctx.ui.notify("✓ fossil repo initialised and opened", "info");
+      } catch (error: any) {
+        ctx.ui.notify(`Fossil setup failed: ${error?.message || String(error)}`, "warning");
+        return;
+      }
+    }
+
+    if (ensureFossilIgnoreGlob(cwd)) {
+      ctx.ui.notify("Added Fossil ignore defaults (.context/, node_modules/, .git/, .jj/)", "info");
+    }
+
+    useJJ = false;
+    persistVcsSettings(cwd, "fossil", "fossil");
+    ctx.ui.notify("VCS preference set to fossil", "info");
+  }
+
+  async function chooseVcsPreferenceFromMenu(ctx: any): Promise<"auto" | "git" | "jj" | "fossil" | null | undefined> {
+    if (typeof ctx.ui?.select !== "function") return undefined;
+    const choice = await ctx.ui.select(
+      "Which VCS mode should Vazir use?",
+      ["Auto", "Git/JJ", "Fossil", "Cancel"],
+    );
+    if (choice === "Auto") return "auto";
+    if (choice === "Git/JJ") return "jj";
+    if (choice === "Fossil") return "fossil";
+    return null;
+  }
+
+  async function applyVcsSettingsCommand(rawArgs: string, ctx: any) {
+    const cwd = ctx.cwd;
+    const normalizedParts = rawArgs.trim().split(/\s+/).filter(Boolean);
+
+    let preference: "auto" | "git" | "jj" | "fossil" | null = null;
+    if (normalizedParts.length < 1) {
+      preference = await chooseVcsPreferenceFromMenu(ctx);
+      if (preference === undefined) {
+        ctx.ui.notify("Usage: /vcs-settings <auto|git|jj|fossil>", "info");
+        return;
+      }
+      if (preference === null) return;
+    } else {
+      const candidate = normalizedParts[0].toLowerCase();
+      if (candidate === "auto" || candidate === "git" || candidate === "jj" || candidate === "fossil") {
+        preference = candidate;
+      }
+    }
+
+    if (preference === null) {
+      ctx.ui.notify(`Invalid VCS preference: ${normalizedParts[0]}. Use auto, git, jj, or fossil.`, "warning");
+      return;
+    }
+
+    if (preference === "auto") {
+      const activeMode = resolveAutoVcsModeForSettings(cwd);
+      persistVcsSettings(cwd, "auto", activeMode);
+      ctx.ui.notify(`VCS preference set to auto (resolved to ${activeMode})`, "info");
+      return;
+    }
+
+    if (preference === "fossil") {
+      await activateFossilMode(ctx, cwd);
+      return;
+    }
+
+    await activateGitOrJjMode(ctx, cwd, preference);
+  }
+
+  pi.registerCommand("vcs-settings", {
+    description: "Pick or set the preferred VCS mode for Vazir",
+    handler: async (args: string, ctx: any) => {
+      await applyVcsSettingsCommand(args, ctx);
     },
   });
 
