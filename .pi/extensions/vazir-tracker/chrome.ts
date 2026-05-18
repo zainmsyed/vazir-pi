@@ -973,14 +973,14 @@ function sessionFooterLine(
   const cwd = snapshot.cwd;
   if (!isVazirInitialized(cwd)) {
     const left = [
-      paint(`◈ ${repoNameLabel(cwd)}`, "accent", true),
+      paint(`  ${repoNameLabel(cwd)}`, "accent", true),
       paint("setup required", "warning"),
       paint("run /vazir-init", "text"),
     ].join(separatorDot());
     return alignFooterLine(left, footerHint(), width);
   }
 
-  const repoLabel = repoNameLabel(cwd);
+  const repoLabel = `  ${repoNameLabel(cwd)}`;
   const isWorking = activeToolCalls > 0 && currentWorkingMessage;
   const summary = storyProgressSummary(cwd);
   const storySegment = summary
