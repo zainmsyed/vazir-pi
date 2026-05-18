@@ -13,7 +13,7 @@ import {
   type PendingVcsApproval,
   userInputHasVcsApproval,
 } from "../../lib/vazir-helpers.ts";
-import { changedFiles, invalidateStoryProgressCache } from "./chrome.ts";
+import { changedFiles, invalidateStoryProgressCache, toolPathFromInput } from "./chrome.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -57,8 +57,8 @@ export function noteUserVcsApproval(cwd: string, text: string): boolean {
 
 function directToolApprovalRequirement(toolName: string, input: unknown): PendingVcsApproval | null {
   if ((toolName !== "write" && toolName !== "edit") || !input || typeof input !== "object") return null;
-  const rawPath = (input as { path?: unknown }).path;
-  if (typeof rawPath !== "string" || !isProtectedVcsTarget(rawPath)) return null;
+  const rawPath = toolPathFromInput(input);
+  if (rawPath === "(unknown file)" || !isProtectedVcsTarget(rawPath)) return null;
 
   const fingerprint = `${toolName}:${normalizeCommandFingerprint(rawPath)}`;
   return {

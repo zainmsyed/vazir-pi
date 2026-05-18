@@ -26,7 +26,8 @@ const validations = [
   "validate-vazir-status-chrome.mts",
   "validate-vazir-story-status-guard.mts",
   "validate-vazir-vcs-safety-policy.mts",
-  "validate-vazir-vcs-tool-guard.mts"
+  "validate-vazir-vcs-tool-guard.mts",
+  "validate-vazir-critical-helpers.mts",
 ];
 const stubModuleDirs = installCommonPiStubs();
 
