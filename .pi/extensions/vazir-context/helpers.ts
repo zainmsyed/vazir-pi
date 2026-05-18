@@ -893,7 +893,7 @@ export function userExplicitlyApprovedStatusChange(prompt: string, nextStatus: s
   const normalized = prompt.trim().toLowerCase();
   if (!normalized) return false;
 
-  if (GENERAL_APPROVALS.has(normalized)) return true;
+  if (nextStatus !== "in-progress" && GENERAL_APPROVALS.has(normalized)) return true;
 
   if (nextStatus === "complete") {
     return [

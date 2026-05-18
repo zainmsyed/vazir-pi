@@ -358,6 +358,11 @@
     "658297f7": "Run a code review and write the results to .context/reviews/review-20260518-1242",
     "6b1fc64a": "please fix",
     "51e35e8b": "please create a new branch for these commands crashing and commit all to that",
-    "21d994ba": "one more thing can we add to this branch is i dont want a story to be marked in-"
+    "21d994ba": "one more thing can we add to this branch is i dont want a story to be marked in-",
+    "64b5c797": "yes lts do that",
+    "0798aff9": "where does /fix log the issue?",
+    "e9b0c4e1": "ok so i marked story 019 not-tarted and when you answered my /fix quetions it ma",
+    "83f299d5": "no /fix shouldnt start a new story, it should put it in the in-profess story or ",
+    "1143f129": "yes that is correct. we're in alighment with /fix. i havent ran the command bc i"
   }
 }
