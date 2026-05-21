@@ -772,8 +772,8 @@ function branchLabel(cwd: string): string {
   return clipInline(baseLabel + suffix, 24);
 }
 
-function repoNameLabel(_cwd: string): string {
-  return "vazir";
+function repoNameLabel(cwd: string): string {
+  return path.basename(cwd);
 }
 
 // ── Footer segments ────────────────────────────────────────────────────

@@ -10,6 +10,16 @@
 - If Vazir blocks a destructive VCS action, wait for the user to send the exact `VCS_APPROVE <token>` phrase before retrying that same action.
 
 ## Learned Rules
+- Remove no-op registration hooks once the real behavior has migrated to the owning extension. <!-- source: story-020, story-022 -->
+- After extracting helpers to a new module, delete the original copies from the source module to prevent drift and confusion. <!-- source: story-022, story-020 -->
+- The extension that owns a command's implementation should be the one that registers it with `pi.registerCommand`. <!-- source: story-022 -->
+- When creating a temp mirror of a repo for external tooling, exclude the project's own brain/metadata directories to prevent the tool from analyzing generated or internal files. <!-- source: story-006, story-022 -->
+- When extracting behaviour into a new extension, avoid importing from the extension that consumes your exports; move shared cross-cutting utilities into `.pi/lib` or a neutral helper module. <!-- source: story-021, story-022 -->
+- When extracting lifecycle handlers into a new extension, remove the original registration to avoid duplicate event processing. <!-- source: story-020, story-022 -->
+- When the same string-replacement sequence appears in two or more distinct code paths, extract it into a named helper so future changes to the output format happen in one place. <!-- source: story-006, story-022 -->
+- When updating a shared state Map, merge with the existing entry rather than replacing it entirely, unless the replacement is intentionally destructive. <!-- source: story-022 -->
+- When a closeout prompt aggregates work from multiple checklist sections, reuse the same aggregation helper in the action path so the selected work actually executes. <!-- source: story-020 -->
+- When the same helper appears in two workflow extensions, consolidate it into the primary owner or a shared utility so fixes and enhancements apply in one place. <!-- source: story-022, story-020 -->
 ### From failures
 - When adding new behavior to an existing state machine or closeout flow, layer it on top of the proven architecture rather than replacing the state machine inline; validate the golden path end-to-end after every integration. <!-- source: story-005 --> <!-- confidence: high -->
 - When refactoring UI chrome or rendering logic, diff visual output against the previous state to catch unintended tone, color, or glyph regressions before merging. <!-- source: story-005 --> <!-- confidence: high -->
