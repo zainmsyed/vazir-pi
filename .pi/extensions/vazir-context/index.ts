@@ -2460,6 +2460,7 @@ export default function (pi: ExtensionAPI) {
           : "Step 8. Every story must use the exact template: Status, Created, Last accessed, Completed, Goal, Verification,",
         "        Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary.",
         "        Checklist items must be concrete implementation tasks — not questions, not open issues.",
+        "        Story size rule: target 4–7 checklist tasks per story; 7 checklist tasks is a hard cap. If a story needs more than 7 tasks, split it into multiple smaller stories instead of growing the checklist.",
         planningSources.length > 0
           ? `Step 12. Number any new stories from ${nextStoryNumber(cwd)}.`
           : `Step 9. Number any new stories from ${nextStoryNumber(cwd)}.`,

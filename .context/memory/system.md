@@ -30,3 +30,4 @@
 - When a previously shipped feature regresses because shared helpers were later refactored, restore from the last known working commit instead of reimplementing from scratch. <!-- source: story-007 --> <!-- confidence: high -->
 - When extracting a combined helper that merges multiple previously separate operations, add a direct unit test that exercises all constituent operations together, not just the end-to-end consumer. <!-- source: story-007 --> <!-- confidence: high -->
 - Never run `fossil commit`, `git commit`, `jj commit`, or any VCS commit command unless the user explicitly asks for it with a phrase like "commit all" or "commit these changes". Do not auto-commit as part of routine file edits, story updates, or review writes. <!-- confidence: high -->
+- Keep story checklists to at most 7 concrete tasks. If a story needs more, split it into a follow-up story instead of growing the checklist beyond 7 items. <!-- confidence: high -->

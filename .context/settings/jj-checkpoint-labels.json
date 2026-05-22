@@ -1,5 +1,8 @@
 {
   "labels": {
-    "f803d99d": "commit all"
+    "f803d99d": "commit all",
+    "281ad117": "can we put in the system prompt to not commit anything unless specifically asked",
+    "dfbecc07": "can we also make it that stories dont have more than 7 tasks on the checklist",
+    "e74e577f": "no no no i wante to update the vazir plan template"
   }
 }
