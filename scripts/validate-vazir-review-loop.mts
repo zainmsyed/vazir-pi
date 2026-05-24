@@ -147,6 +147,9 @@ function makeCtx(
   return {
     cwd,
     hasUI,
+    hasPendingMessages() {
+      return false;
+    },
     ui: {
       notify(message: string, level: string) {
         notifications.push({ message, level });
@@ -276,6 +279,7 @@ fs.writeFileSync(
   ].join("\n"),
 );
 
+await harness.emit("turn_end", {}, ctx);
 await harness.emit("agent_end", {}, ctx);
 
 assert(selectCalls.some(call => call.options.includes("Open review document")), "manual review should let the user open the review document after completion");

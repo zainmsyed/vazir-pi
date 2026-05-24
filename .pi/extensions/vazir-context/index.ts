@@ -957,6 +957,23 @@ export default function (pi: ExtensionAPI) {
     appendFallowToComplaintsLog(cwd, storyLabel, fallowFindings);
   }
 
+  function setReviewInProgressForRemediation(reviewFilePath: string): void {
+    const content = readIfExists(reviewFilePath);
+    if (!content) return;
+
+    let updated = content.replace(/^\*\*Status:\*\*\s*.+$/m, "**Status:** in-progress");
+    updated = updated.replace(/^\*\*Completed:\*\*\s*.+$/m, "**Completed:** —");
+
+    if (updated !== content) {
+      fs.writeFileSync(reviewFilePath, updated);
+    }
+  }
+
+  function transitionReviewToRemediation(reviewFilePath: string, updatePendingState: () => void): void {
+    updatePendingState();
+    setReviewInProgressForRemediation(reviewFilePath);
+  }
+
   async function processCompleteStoryReviewCloseout(
     ctx: any,
     cwd: string,
@@ -991,6 +1008,13 @@ export default function (pi: ExtensionAPI) {
 
     if (decision === "fix-high" || decision === "fix-all") {
       const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
+      transitionReviewToRemediation(reviewFilePath, () => {
+        pendingCompleteStoryRequests.set(cwd, {
+          storyFile: storyPath,
+          reviewFile: reviewFilePath,
+          reviewCloseoutReady: false,  // reset so turn_end waits for next review completion
+        });
+      });
       sendInternalAgentMessage(
         ctx,
         buildReviewRemediationInstruction(
@@ -1574,14 +1598,10 @@ export default function (pi: ExtensionAPI) {
   }
 
   function sendInternalAgentMessage(
-    ctx: any,
+    _ctx: any,
     content: string,
     details: Record<string, unknown>,
   ): void {
-    const options = typeof ctx.isIdle === "function" && !ctx.isIdle()
-      ? { deliverAs: "followUp" as const }
-      : { triggerTurn: true };
-
     pi.sendMessage(
       {
         customType: INTERNAL_AGENT_MESSAGE_TYPE,
@@ -1589,7 +1609,7 @@ export default function (pi: ExtensionAPI) {
         display: false,
         details,
       },
-      options,
+      { deliverAs: "steer", triggerTurn: true },
     );
   }
 
@@ -1685,6 +1705,101 @@ export default function (pi: ExtensionAPI) {
     missingFallowNoticeShown.delete(ctx.cwd);
   });
 
+  // ── turn_end: review closeout prompt dispatch while agent is still alive ─
+
+  pi.on("turn_end", async (_event: any, ctx: any) => {
+    const cwd = ctx.cwd;
+
+    // Only act if the agent has no more pending messages queued —
+    // otherwise we'd fire the closeout prompt mid-stream.
+    if (ctx.hasPendingMessages?.()) return;
+
+    // ── Complete-story review closeout ──────────────────────────────────
+    const pendingCompleteStory = pendingCompleteStoryRequests.get(cwd);
+    if (pendingCompleteStory?.learnedRuleCloseoutFile) return;
+    if (pendingCompleteStory?.reviewFile) {
+      const reviewFrontmatter = parseReviewFrontmatter(pendingCompleteStory.reviewFile);
+      const canResumeCloseout = pendingCompleteStory.reviewCloseoutReady === true;
+      if (reviewFrontmatter?.status === "complete" || canResumeCloseout) {
+        const handled = await processCompleteStoryReviewCloseout(
+          ctx,
+          cwd,
+          pendingCompleteStory.storyFile,
+          pendingCompleteStory.reviewFile,
+        );
+        if (handled) return;
+      }
+    }
+
+    // ── Manual review closeout ──────────────────────────────────────────
+    const pendingManualReview = pendingManualReviewRequests.get(cwd);
+    if (!pendingManualReview) return;
+
+    const reviewFrontmatter = parseReviewFrontmatter(pendingManualReview.reviewFile);
+    const canResumeCloseout = pendingManualReview.reviewCloseoutReady === true;
+    if (reviewFrontmatter?.status !== "complete" && !canResumeCloseout) return;
+
+    pendingManualReviewRequests.set(cwd, {
+      reviewFile: pendingManualReview.reviewFile,
+      reviewCloseoutReady: true,
+    });
+
+    recordCompletedReviewFallowFindings(cwd, pendingManualReview.reviewFile);
+    const findings = reviewFindingsFromFile(pendingManualReview.reviewFile);
+    const recommendedFixes = reviewRecommendedFixesFromFile(pendingManualReview.reviewFile);
+    const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
+    const attachedStoryPath = reviewFrontmatter?.scope === "story" && reviewFrontmatter.story !== "—"
+      ? path.join(storiesDir(cwd), `${reviewFrontmatter.story}.md`)
+      : null;
+    const targetNoun: ReviewCloseoutTarget = attachedStoryPath && fs.existsSync(attachedStoryPath) ? "story" : "review";
+    const decision = await promptReviewFindingsCloseout(ctx, pendingManualReview.reviewFile, findings, targetNoun);
+    if (decision == null) return;
+
+    if (decision === "fix-high" || decision === "fix-all") {
+      const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
+      transitionReviewToRemediation(pendingManualReview.reviewFile, () => {
+        pendingManualReviewRequests.set(cwd, {
+          reviewFile: pendingManualReview.reviewFile,
+          reviewCloseoutReady: false,
+        });
+      });
+      sendInternalAgentMessage(
+        ctx,
+        buildReviewRemediationInstruction(
+          cwd,
+          pendingManualReview.reviewFile,
+          decision === "fix-high" ? "high" : "all",
+          targetedFixes,
+          targetNoun,
+        ),
+        {
+          purpose: "review-remediation",
+          reviewFile: path.basename(pendingManualReview.reviewFile),
+          mode: decision,
+          reviewTarget: targetNoun,
+        },
+      );
+      return;
+    }
+
+    if (decision === "not-yet") return;
+
+    let closeChoice: "close" | "close-commit" | null = decision === "close" || decision === "close-commit" ? decision : null;
+    if (targetNoun === "story" && attachedStoryPath && closeChoice) {
+      closeChoice = await resolveContextPersistenceChoice(ctx, attachedStoryPath, closeChoice);
+      if (closeChoice == null) return;
+    }
+
+    pendingManualReviewRequests.delete(cwd);
+    if (closeChoice === "close-commit" && targetNoun === "story" && attachedStoryPath) {
+      completeStoryAndCommitNow(ctx, attachedStoryPath);
+    } else if (closeChoice === "close" && targetNoun === "story" && attachedStoryPath) {
+      completeStoryNow(ctx, attachedStoryPath);
+    } else if (decision === "close") {
+      ctx.ui.notify(`${path.basename(pendingManualReview.reviewFile)} closeout finished`, "info");
+    }
+  });
+
   // ── agent_end: zero-token index.md structural updates ─────────────────
 
   pi.on("agent_end", async (_event: any, ctx: any) => {
@@ -1696,8 +1811,7 @@ export default function (pi: ExtensionAPI) {
         "info",
       );
     }
-    // Confirm or revert unauthorized story status changes interactively.
-    // Build the candidate list before deleting the snapshot.
+
     const snapshot = storyFrontmatterSnapshots.get(cwd);
     const pendingStatusChanges: Array<{
       storyFile: string;
@@ -1741,7 +1855,6 @@ export default function (pi: ExtensionAPI) {
         );
         shouldRevert = choice == null || choice.startsWith("No");
       } else {
-        // No interactive UI — auto-revert unauthorized status changes.
         shouldRevert = true;
       }
       if (shouldRevert) {
@@ -1750,121 +1863,64 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
+    // ── Pending complete-story (non-review paths) ───────────────────────
     const pendingCompleteStory = pendingCompleteStoryRequests.get(cwd);
     if (pendingCompleteStory) {
       const completionStoryFile = pendingCompleteStory.storyFile;
       const storyLabel = path.basename(completionStoryFile, ".md");
 
+      // Learned rule closeout — terminal, no new turn needed
       if (pendingCompleteStory.learnedRuleCloseoutFile) {
         await finishLearnedRuleCloseout(ctx, pendingCompleteStory);
         return;
       }
 
+      // Review in progress but not yet complete — show waiting prompt
       const reviewFilePath = pendingCompleteStory.reviewFile;
-      if (reviewFilePath) {
-        const handledReview = await processCompleteStoryReviewCloseout(ctx, cwd, completionStoryFile, reviewFilePath);
-        if (handledReview) return;
-        await promptInProgressCompleteStoryReview(ctx, reviewFilePath, storyLabel);
+      if (reviewFilePath && !pendingCompleteStory.reviewCloseoutReady) {
+        const reviewFrontmatter = parseReviewFrontmatter(reviewFilePath);
+        if (reviewFrontmatter?.status !== "complete") {
+          await promptInProgressCompleteStoryReview(ctx, reviewFilePath, storyLabel);
+          return;
+        }
+        // turn_end handles the completed-review closeout directly now.
         return;
       }
 
-      const readiness = assessStoryCompletionReadiness(completionStoryFile);
-      const blockers = listCompletionBlockers(readiness);
+      // No review file — check readiness and prompt
+      if (!reviewFilePath) {
+        const readiness = assessStoryCompletionReadiness(completionStoryFile);
+        const blockers = listCompletionBlockers(readiness);
+        if (blockers.length > 0) return;
 
-      if (blockers.length > 0) {
-        return;
-      }
+        const decision = await promptReadyCloseout(ctx, pendingCompleteStory.storyFile);
+        if (decision == null) return;
 
-      const decision = await promptReadyCloseout(ctx, pendingCompleteStory.storyFile);
-      if (decision == null) return;
+        if (decision === "review") {
+          const review = await startReviewFlow(ctx, {
+            focus: `${storyLabel} completion review`,
+            scope: "story",
+            storyLabel,
+            trigger: "complete-story",
+          });
+          pendingCompleteStoryRequests.set(cwd, {
+            storyFile: pendingCompleteStory.storyFile,
+            reviewFile: review.filePath,
+            reviewCloseoutReady: false,
+          });
+          return;
+        }
 
-      if (decision === "review") {
-        const review = await startReviewFlow(ctx, {
-          focus: `${storyLabel} completion review`,
-          scope: "story",
-          storyLabel,
-          trigger: "complete-story",
-        });
-        pendingCompleteStoryRequests.set(cwd, {
-          storyFile: pendingCompleteStory.storyFile,
-          reviewFile: review.filePath,
-          reviewCloseoutReady: false,
-        });
-        return;
-      }
+        if (decision === "not-yet") return;
 
-      if (decision === "not-yet") return;
-
-      const closeChoice = await resolveContextPersistenceChoice(ctx, completionStoryFile, decision);
-      if (closeChoice == null) return;
-
-      startLearnedRuleCloseout(ctx, completionStoryFile, closeChoice);
-    }
-
-    const pendingManualReview = pendingManualReviewRequests.get(cwd);
-    if (pendingManualReview) {
-      const reviewFrontmatter = parseReviewFrontmatter(pendingManualReview.reviewFile);
-      const canResumeCloseout = pendingManualReview.reviewCloseoutReady === true;
-      if (reviewFrontmatter?.status !== "complete" && !canResumeCloseout) {
-        return;
-      }
-
-      pendingManualReviewRequests.set(cwd, {
-        reviewFile: pendingManualReview.reviewFile,
-        reviewCloseoutReady: true,
-      });
-
-      recordCompletedReviewFallowFindings(cwd, pendingManualReview.reviewFile);
-      const findings = reviewFindingsFromFile(pendingManualReview.reviewFile);
-      const recommendedFixes = reviewRecommendedFixesFromFile(pendingManualReview.reviewFile);
-      const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
-      const attachedStoryPath = reviewFrontmatter?.scope === "story" && reviewFrontmatter.story !== "—"
-        ? path.join(storiesDir(cwd), `${reviewFrontmatter.story}.md`)
-        : null;
-      const targetNoun: ReviewCloseoutTarget = attachedStoryPath && fs.existsSync(attachedStoryPath) ? "story" : "review";
-      const decision = await promptReviewFindingsCloseout(ctx, pendingManualReview.reviewFile, findings, targetNoun);
-      if (decision == null) return;
-
-      if (decision === "fix-high" || decision === "fix-all") {
-        const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
-        sendInternalAgentMessage(
-          ctx,
-          buildReviewRemediationInstruction(
-            ctx.cwd,
-            pendingManualReview.reviewFile,
-            decision === "fix-high" ? "high" : "all",
-            targetedFixes,
-            targetNoun,
-          ),
-          {
-            purpose: "review-remediation",
-            reviewFile: path.basename(pendingManualReview.reviewFile),
-            mode: decision,
-            reviewTarget: targetNoun,
-          },
-        );
-        return;
-      }
-
-      if (decision === "not-yet") return;
-
-      let closeChoice: "close" | "close-commit" | null = decision === "close" || decision === "close-commit" ? decision : null;
-      if (targetNoun === "story" && attachedStoryPath && closeChoice) {
-        closeChoice = await resolveContextPersistenceChoice(ctx, attachedStoryPath, closeChoice);
+        const closeChoice = await resolveContextPersistenceChoice(ctx, completionStoryFile, decision);
         if (closeChoice == null) return;
-      }
 
-      pendingManualReviewRequests.delete(cwd);
-      if (closeChoice === "close-commit" && targetNoun === "story" && attachedStoryPath) {
-        completeStoryAndCommitNow(ctx, attachedStoryPath);
-      } else if (closeChoice === "close" && targetNoun === "story" && attachedStoryPath) {
-        completeStoryNow(ctx, attachedStoryPath);
-      } else if (decision === "close") {
-        ctx.ui.notify(`${path.basename(pendingManualReview.reviewFile)} closeout finished`, "info");
+        startLearnedRuleCloseout(ctx, completionStoryFile, closeChoice);
       }
-      return;
     }
 
+    // ── Newly completed stories (agent marked complete without /complete-story) ──
     const currentStoryStatuses = new Map(listStories(cwd).map(story => [story.file, story.status]));
     for (const completedStory of newlyCompletedStories) {
       if (currentStoryStatuses.get(completedStory.storyFile) !== "complete") continue;
@@ -1889,6 +1945,7 @@ export default function (pi: ExtensionAPI) {
       break;
     }
 
+    // ── index.md structural updates ─────────────────────────────────────
     const idxPath = indexPath(cwd);
     if (!fs.existsSync(idxPath)) return;
 
@@ -1899,7 +1956,6 @@ export default function (pi: ExtensionAPI) {
     const indexedFiles = new Set<string>();
 
     for (const line of lines) {
-      // Lines like: path/to/file.ts — description
       const match = line.match(/^(.+?)\s+—\s+(.+)$/);
       if (match) {
         const filePath = match[1].trim();
@@ -1907,13 +1963,11 @@ export default function (pi: ExtensionAPI) {
           updated.push(line);
           indexedFiles.add(filePath);
         }
-        // Else: file was deleted/renamed — skip it
       } else {
         updated.push(line);
       }
     }
 
-    // Add new files as (undescribed)
     for (const file of currentFiles) {
       if (!indexedFiles.has(file)) {
         updated.push(`${file} — (undescribed)`);
