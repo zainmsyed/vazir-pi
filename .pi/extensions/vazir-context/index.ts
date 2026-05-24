@@ -1210,26 +1210,56 @@ export default function (pi: ExtensionAPI) {
   ): Promise<number[] | "skip" | null> {
     if (!ctx.hasUI) return "skip";
 
-    const lines = [
-      `Before closing ${storyLabel}, Vazir found these possible learned rules:`,
-      "Reply with `both` to promote both rules, `skip` to promote none, or enter numbers like `1` or `1,2`.",
-      ...draft.candidates.map((candidate, index) => {
-        const sourceLabel = candidate.sources.length > 0 ? ` [sources: ${candidate.sources.join(", ")}]` : "";
-        return `${index + 1}. (${candidate.confidence}) ${candidate.text}${sourceLabel}`;
-      }),
+    const candidateLines = draft.candidates.map((candidate, index) => {
+      const sourceLabel = candidate.sources.length > 0 ? `Sources: ${candidate.sources.join(", ")}` : "Sources: —";
+      return [
+        `${index + 1}. ${candidate.text}`,
+        `   Confidence: ${candidate.confidence}`,
+        `   ${sourceLabel}`,
+      ].join("\n");
+    });
+
+    const prompt = [
+      `Before closing ${storyLabel}, Vazir found these possible learned rules.`,
+      "",
+      "Candidates",
+      "----------",
+      ...candidateLines,
       draft.note ? "" : "",
       draft.note ? `Note: ${draft.note}` : "",
-    ].filter(Boolean);
+    ].filter(Boolean).join("\n");
+
+    const summarizeRuleCandidateForOption = (text: string): string => {
+      const normalized = text.replace(/\s+/g, " ").trim();
+      if (normalized.length <= 56) return normalized;
+      return `${normalized.slice(0, 53).trimEnd()}...`;
+    };
+
+    const options = [
+      "Promote all candidates",
+      ...draft.candidates.map((candidate, index) => `Promote candidate ${index + 1} — ${summarizeRuleCandidateForOption(candidate.text)}`),
+      "Skip for now",
+    ];
+
+    if (typeof ctx.ui.select === "function") {
+      const choice = await ctx.ui.select(prompt, options);
+      if (choice == null) return null;
+      if (choice === options[0]) return draft.candidates.map((_candidate, index) => index);
+      if (choice === "Skip for now") return "skip";
+
+      const pickedIndex = options.indexOf(choice) - 1;
+      return pickedIndex >= 0 ? [pickedIndex] : null;
+    }
 
     if (typeof ctx.ui.input === "function") {
       while (true) {
         const response = (await ctx.ui.input(
-          lines.join("\n"),
-          draft.candidates.length > 1 ? "Type both, skip, or numbers like 1 or 1,2" : "Type 1 to promote the rule, or skip",
+          `${prompt}\n\nReply with \`all\`, \`skip\`, or candidate numbers like \`1\` or \`1,2\`.`,
+          draft.candidates.length > 1 ? "Type all, skip, or numbers like 1 or 1,2" : "Type all, skip, or 1",
         ))?.trim().toLowerCase();
         if (response == null || response === "") return null;
-        if (response === "skip" || response === "skip both") return "skip";
-        if (response === "both" || response === "promote both") {
+        if (response === "skip" || response === "skip all") return "skip";
+        if (response === "all" || response === "both" || response === "promote all" || response === "promote both") {
           return draft.candidates.map((_candidate, index) => index);
         }
 
@@ -1240,22 +1270,11 @@ export default function (pi: ExtensionAPI) {
         const uniquePicks = Array.from(new Set(picks.map(n => n - 1)));
         if (uniquePicks.length > 0) return uniquePicks;
 
-        ctx.ui.notify("Enter `both`, `skip`, or candidate numbers like `1` or `1,2`.", "warning");
+        ctx.ui.notify("Enter `all`, `skip`, or candidate numbers like `1` or `1,2`.", "warning");
       }
     }
 
-    const options = [
-      "Promote all",
-      ...draft.candidates.map((candidate, index) => `Promote ${index + 1} — ${candidate.text}`),
-      "Skip all",
-    ];
-    const choice = await ctx.ui.select(lines.join("\n"), options);
-    if (choice == null) return null;
-    if (choice === "Promote all") return draft.candidates.map((_candidate, index) => index);
-    if (choice === "Skip all") return "skip";
-
-    const pickedIndex = options.indexOf(choice) - 1;
-    return pickedIndex >= 0 ? [pickedIndex] : null;
+    return "skip";
   }
 
   function finalizeStoryCloseout(ctx: any, storyPath: string, closeIntent: "close" | "close-commit"): void {
