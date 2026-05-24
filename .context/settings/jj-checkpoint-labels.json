@@ -3,6 +3,24 @@
     "f803d99d": "commit all",
     "281ad117": "can we put in the system prompt to not commit anything unless specifically asked",
     "dfbecc07": "can we also make it that stories dont have more than 7 tasks on the checklist",
-    "e74e577f": "no no no i wante to update the vazir plan template"
+    "e74e577f": "no no no i wante to update the vazir plan template",
+    "b1b0b01d": "ok were getting close. now when i hit fix rec. it start and re prmpts. so were g",
+    "dfdf7727": "Here are the exact changes. I'll show the new `turn_end` handler and the trimmed",
+    "311c4b59": "Got both files. Now I have a clear picture. Here's the plan.\n\n**The problem in o",
+    "cc84add5": "lets make a story based on the vazir template for this complete story fix",
+    "74fa0b13": "lets mark it in progress",
+    "ab91e391": "does this include the whole complete story flow including commit all and mini co",
+    "2d5795a7": "does this include the whole complete story flow including commit all and mini co",
+    "3bcd31cd": "i would liek to run a test in the tui bc we need to make sure htat works. i i wa",
+    "2763b415": "i would liek to run a test in the tui bc we need to make sure htat works. i i wa",
+    "4a9f538a": "i would liek to run a test in the tui bc we need to make sure htat works. i i wa",
+    "a976e962": "i would liek to run a test in the tui bc we need to make sure htat works. i i wa",
+    "8c88d50b": "no thats not what happened i ran /complete-story so dont argue with me. ive benn",
+    "0992d89a": "no thats not what happened i ran /complete-story so dont argue with me. ive benn",
+    "80f78a33": "still  not working. please fix so i can try complete-story again",
+    "12367c52": "still  not working. please fix so i can try complete-story again",
+    "0e462728": "were getting close. now we get to the next promt. great! but when i make a fix s",
+    "cf2bc210": "were getting close. now we get to the next promt. great! but when i make a fix s",
+    "809b40a4": "can we create a new branch called complete-story fix"
   }
 }

@@ -295,7 +295,6 @@ async function runReviewGatedScenario() {
       "Start code review before closing",
       "Open review document",
       "Keep story open and fix high-priority recommended items",
-      "Keep story open and stay in review",
       "Close story and commit all",
     ],
     selectCalls,
@@ -344,10 +343,15 @@ async function runReviewGatedScenario() {
   markReviewFixResolved(reviewPath, "high — Add a local error boundary around the login form");
   setReviewStatus(reviewPath, "complete");
   await harness.emit("turn_end", {}, ctx);
+  await harness.emit("agent_end", {}, ctx);
 
-  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "review-gated closeout should keep the story open when learned-rule closeout is queued");
+  console.log("DEBUG selectCalls", JSON.stringify(selectCalls, null, 2));
+  console.log("DEBUG sentInternalMessages", harness.sentInternalMessages.length);
+  console.log("DEBUG review status", fs.readFileSync(reviewPath, "utf-8").match(/^\*\*Status:\*\*.*$/m)?.[0]);
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "review-gated closeout should keep the story open until mini-consolidate finishes");
   assert((harness.sentInternalMessages.length as number) === 3, "review-gated closeout should queue a mini-consolidate turn after review closeout");
 
+  fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
   await harness.emit("agent_end", {}, ctx);
 
   const story = fs.readFileSync(storyPath, "utf-8");
