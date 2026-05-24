@@ -751,7 +751,7 @@ async function runCandidatesPromoteScenario() {
   const harness = makePi();
   const ctx = makeCtx(cwd, notifications, {
     hasUI: true,
-    selectResponses: ["Close story now", "Promote all"],
+    selectResponses: ["Close story now", "Promote all candidates"],
     selectCalls,
   });
   const storyPath = writeStory(cwd, {
@@ -775,8 +775,9 @@ async function runCandidatesPromoteScenario() {
   await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "candidates-promote scenario should complete the story after promotion");
-  assert(selectCalls.some(call => call.options.includes("Promote all")), "candidates-promote scenario should offer Promote all when multiple candidates exist");
-  assert(selectCalls.some(call => call.options.includes("Skip all")), "candidates-promote scenario should offer Skip all");
+  assert(selectCalls.some(call => call.options.includes("Promote all candidates")), "candidates-promote scenario should offer a promote-all selection");
+  assert(selectCalls.some(call => call.options.includes("Skip for now")), "candidates-promote scenario should offer Skip for now");
+  assert(selectCalls.some(call => call.options.some(option => option.startsWith("Promote candidate 1 — "))), "candidates-promote scenario should offer a preview label for each candidate");
   const systemMd = fs.readFileSync(path.join(cwd, ".context", "memory", "system.md"), "utf-8");
   assert(systemMd.includes("Always validate user input before processing"), "candidates-promote scenario should promote the candidate to system.md");
   assert(systemMd.includes("<!-- source: story-001 -->"), "candidates-promote scenario should add provenance tag");
@@ -792,7 +793,7 @@ async function runCandidatesSkipScenario() {
   const harness = makePi();
   const ctx = makeCtx(cwd, notifications, {
     hasUI: true,
-    selectResponses: ["Close story now", "Skip all"],
+    selectResponses: ["Close story now", "Skip for now"],
     selectCalls,
   });
   const storyPath = writeStory(cwd, {
