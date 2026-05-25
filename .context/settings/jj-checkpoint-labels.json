@@ -1,5 +1,6 @@
 {
   "labels": {
+    "48826955": "hey",
     "f803d99d": "commit all",
     "281ad117": "can we put in the system prompt to not commit anything unless specifically asked",
     "dfbecc07": "can we also make it that stories dont have more than 7 tasks on the checklist",
@@ -31,6 +32,22 @@
     "1ee1f3cc": "can we make the mini-consolodate prompt a little better ui create some seperatio",
     "200f02a6": "can you show me an example lieve in the tui?",
     "a88661e2": "what would that look like first",
-    "38f56e2f": "yes i like that"
+    "38f56e2f": "yes i like that",
+    "e8a82577": "lets commit this",
+    "9d3bf245": "so i would like to make some upgrades but still stress test the complete-story p",
+    "6f892676": "i would like to harden this flow. initially we were going to isolate so it doens",
+    "1e5b7f71": "yes pleats create a through plan first",
+    "4c4b4c0f": "yes please",
+    "6053c9c1": "The user wants to plan their project.\nExisting story files already exist in .con",
+    "89e42955": "ok lets make that new hardening branch off this branch first",
+    "dbbe970a": "commit all now",
+    "b71ebe15": "commit all now",
+    "462af4a5": "commit all now",
+    "c0a8a70d": "hey",
+    "85bccdff": "hey",
+    "6f452219": "hey",
+    "ad32a030": "hey",
+    "bb8daf6d": "hey",
+    "dcffdd95": "Implement the in-progress story in .context/stories/story-024.md.\n\nYour job:\n1. "
   }
 }

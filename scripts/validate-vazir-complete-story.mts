@@ -2,13 +2,18 @@ import { createRequire } from "node:module";
 import childProcess from "node:child_process";
 import os from "node:os";
 import * as path from "node:path";
-import { assert, cleanupStubModules, installCommonPiStubs, loadExtensionModule, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
+import { assert, cleanupStubModules, installCommonPiStubs, loadExtensionModule, loadFileModule, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 const stubModuleDirs = installCommonPiStubs();
 
 const extensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context");
+const closeoutModule = await loadFileModule<{
+  COMPLETE_STORY_PHASE_HANDOFFS: ReadonlyArray<{ phase: string }>;
+  deriveCompleteStoryPhase: (input: { pendingRequest?: any; readinessBlocked?: boolean; reviewStatus?: string | null }) => { phase: string };
+  resetCompleteStoryReviewForRemediation: (pending: Map<string, any>, cwd: string, storyFile: string, reviewFile: string) => void;
+}> (path.join(repoRoot, ".pi", "extensions", "vazir-context", "complete-story.ts"));
 const register = extensionModule.default;
 
 type Notification = { message: string; level: string };
@@ -265,6 +270,41 @@ function writeCompletedReview(reviewPath: string): void {
       "",
     ].join("\n"),
   );
+}
+
+function runCloseoutHelperAssertions(): void {
+  assert(
+    closeoutModule.COMPLETE_STORY_PHASE_HANDOFFS.map(entry => entry.phase).join(",")
+      === "readiness-review,ready-for-closeout,review-in-progress,review-closeout,learned-rule-closeout",
+    "closeout helper should document the expected complete-story phases",
+  );
+
+  assert(
+    closeoutModule.deriveCompleteStoryPhase({ pendingRequest: { storyFile: "story-001.md" }, readinessBlocked: true }).phase === "readiness-review",
+    "closeout helper should treat blocked stories as readiness-review",
+  );
+  assert(
+    closeoutModule.deriveCompleteStoryPhase({ pendingRequest: { storyFile: "story-001.md" }, readinessBlocked: false }).phase === "ready-for-closeout",
+    "closeout helper should treat ready stories without a review as ready-for-closeout",
+  );
+  assert(
+    closeoutModule.deriveCompleteStoryPhase({ pendingRequest: { storyFile: "story-001.md", reviewFile: "review.md" }, reviewStatus: "in-progress" }).phase === "review-in-progress",
+    "closeout helper should treat incomplete reviews as review-in-progress",
+  );
+  assert(
+    closeoutModule.deriveCompleteStoryPhase({ pendingRequest: { storyFile: "story-001.md", reviewFile: "review.md" }, reviewStatus: "complete" }).phase === "review-closeout",
+    "closeout helper should treat completed reviews as review-closeout",
+  );
+
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "vazir-complete-story-helper-"));
+  const reviewPath = path.join(cwd, "review.md");
+  fs.writeFileSync(reviewPath, "**Status:** complete\n**Completed:** 2026-04-08\n");
+  const pending = new Map<string, any>();
+  closeoutModule.resetCompleteStoryReviewForRemediation(pending, cwd, path.join(cwd, "story-001.md"), reviewPath);
+  assert(pending.get(cwd)?.reviewCloseoutReady === false, "closeout helper should reset pending review closeout readiness during remediation");
+  const review = fs.readFileSync(reviewPath, "utf-8");
+  assert(review.includes("**Status:** in-progress"), "closeout helper should rewrite review status during remediation");
+  assert(review.includes("**Completed:** —"), "closeout helper should clear the review completed date during remediation");
 }
 
 function markReviewFixResolved(reviewPath: string, fixLine: string): void {
@@ -868,6 +908,7 @@ async function runKeepWorkingScenario() {
 }
 
 try {
+  runCloseoutHelperAssertions();
   const reviewGated = await runReviewGatedScenario();
   const reviewInProgressPrompt = await runReviewInProgressPromptScenario();
   const restartedReviewCloseout = await runRestartedReviewCloseoutScenario();

@@ -24,6 +24,18 @@ import {
   writeProjectSettings,
   updateStoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
+import {
+  applyCompleteStoryClosure,
+  clearCompleteStoryCloseout,
+  deriveCompleteStoryPhase,
+  enterCompleteStoryReadinessReview,
+  enterCompleteStoryReview,
+  enterLearnedRuleCloseout,
+  markCompleteStoryReviewCloseoutReady,
+  resetCompleteStoryReviewForRemediation,
+  resetReviewFileForRemediation,
+  type PendingCompleteStoryRequest,
+} from "./complete-story.ts";
 import { showScrollableText } from "../vazir-tracker/chrome.ts";
 import { refreshVcsState } from "../vazir-tracker/index.ts";
 import {
@@ -197,13 +209,6 @@ let lastUserPrompt = "";
 let useJJ = false;
 let pendingInitSummary: string | null = null;
 const storyFrontmatterSnapshots = new Map<string, Map<string, { status: string; completed: string }>>();
-type PendingCompleteStoryRequest = {
-  storyFile: string;
-  reviewFile?: string;
-  reviewCloseoutReady?: boolean;
-  closeIntent?: "close" | "close-commit";
-  learnedRuleCloseoutFile?: string;
-};
 type PendingManualReviewRequest = { reviewFile: string; reviewCloseoutReady?: boolean };
 const pendingCompleteStoryRequests = new Map<string, PendingCompleteStoryRequest>();
 const pendingManualReviewRequests = new Map<string, PendingManualReviewRequest>();
@@ -957,23 +962,6 @@ export default function (pi: ExtensionAPI) {
     appendFallowToComplaintsLog(cwd, storyLabel, fallowFindings);
   }
 
-  function setReviewInProgressForRemediation(reviewFilePath: string): void {
-    const content = readIfExists(reviewFilePath);
-    if (!content) return;
-
-    let updated = content.replace(/^\*\*Status:\*\*\s*.+$/m, "**Status:** in-progress");
-    updated = updated.replace(/^\*\*Completed:\*\*\s*.+$/m, "**Completed:** —");
-
-    if (updated !== content) {
-      fs.writeFileSync(reviewFilePath, updated);
-    }
-  }
-
-  function transitionReviewToRemediation(reviewFilePath: string, updatePendingState: () => void): void {
-    updatePendingState();
-    setReviewInProgressForRemediation(reviewFilePath);
-  }
-
   async function processCompleteStoryReviewCloseout(
     ctx: any,
     cwd: string,
@@ -988,11 +976,7 @@ export default function (pi: ExtensionAPI) {
       return false;
     }
 
-    pendingCompleteStoryRequests.set(cwd, {
-      storyFile: storyPath,
-      reviewFile: reviewFilePath,
-      reviewCloseoutReady: true,
-    });
+    markCompleteStoryReviewCloseoutReady(pendingCompleteStoryRequests, cwd, storyPath, reviewFilePath);
 
     recordCompletedReviewFallowFindings(cwd, reviewFilePath, storyLabel);
     const findings = reviewFindingsFromFile(reviewFilePath);
@@ -1008,13 +992,7 @@ export default function (pi: ExtensionAPI) {
 
     if (decision === "fix-high" || decision === "fix-all") {
       const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
-      transitionReviewToRemediation(reviewFilePath, () => {
-        pendingCompleteStoryRequests.set(cwd, {
-          storyFile: storyPath,
-          reviewFile: reviewFilePath,
-          reviewCloseoutReady: false,  // reset so turn_end waits for next review completion
-        });
-      });
+      resetCompleteStoryReviewForRemediation(pendingCompleteStoryRequests, cwd, storyPath, reviewFilePath);
       sendInternalAgentMessage(
         ctx,
         buildReviewRemediationInstruction(
@@ -1102,12 +1080,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function completeStoryNow(ctx: any, storyPath: string): void {
-    const storyLabel = path.basename(storyPath, ".md");
-    updateStoryFrontmatter(storyPath, {
-      status: "complete",
-      lastAccessed: todayDate(),
-      completed: todayDate(),
-    });
+    const storyLabel = applyCompleteStoryClosure(pendingCompleteStoryRequests, ctx.cwd, storyPath);
     ctx.ui.notify(`${storyLabel} marked complete`, "info");
   }
 
@@ -1189,12 +1162,11 @@ export default function (pi: ExtensionAPI) {
       /* ignore stale draft cleanup failures */
     }
 
-    pendingCompleteStoryRequests.set(ctx.cwd, {
+    enterLearnedRuleCloseout(pendingCompleteStoryRequests, ctx.cwd, {
       storyFile: storyPath,
       reviewFile: reviewFilePath,
-      reviewCloseoutReady: true,
       closeIntent,
-      learnedRuleCloseoutFile: draftPath,
+      draftFile: draftPath,
     });
     sendInternalAgentMessage(ctx, buildLearnedRuleCloseoutInstruction(ctx.cwd, storyLabel, reviewFilePath), {
       purpose: "learned-rule-closeout",
@@ -1278,7 +1250,6 @@ export default function (pi: ExtensionAPI) {
   }
 
   function finalizeStoryCloseout(ctx: any, storyPath: string, closeIntent: "close" | "close-commit"): void {
-    pendingCompleteStoryRequests.delete(ctx.cwd);
     if (closeIntent === "close-commit") {
       completeStoryAndCommitNow(ctx, storyPath);
     } else {
@@ -1719,7 +1690,7 @@ export default function (pi: ExtensionAPI) {
     clearLegacyPendingLearnings(ctx.cwd);
     applyLocalRuleDedupe(ctx.cwd);
     storyFrontmatterSnapshots.delete(ctx.cwd);
-    pendingCompleteStoryRequests.delete(ctx.cwd);
+    clearCompleteStoryCloseout(pendingCompleteStoryRequests, ctx.cwd);
     pendingManualReviewRequests.delete(ctx.cwd);
     missingFallowNoticeShown.delete(ctx.cwd);
   });
@@ -1735,19 +1706,19 @@ export default function (pi: ExtensionAPI) {
 
     // ── Complete-story review closeout ──────────────────────────────────
     const pendingCompleteStory = pendingCompleteStoryRequests.get(cwd);
-    if (pendingCompleteStory?.learnedRuleCloseoutFile) return;
-    if (pendingCompleteStory?.reviewFile) {
-      const reviewFrontmatter = parseReviewFrontmatter(pendingCompleteStory.reviewFile);
-      const canResumeCloseout = pendingCompleteStory.reviewCloseoutReady === true;
-      if (reviewFrontmatter?.status === "complete" || canResumeCloseout) {
-        const handled = await processCompleteStoryReviewCloseout(
-          ctx,
-          cwd,
-          pendingCompleteStory.storyFile,
-          pendingCompleteStory.reviewFile,
-        );
-        if (handled) return;
-      }
+    const completeStoryPhase = deriveCompleteStoryPhase({
+      pendingRequest: pendingCompleteStory,
+      reviewStatus: pendingCompleteStory?.reviewFile ? parseReviewFrontmatter(pendingCompleteStory.reviewFile)?.status : null,
+    });
+    if (completeStoryPhase.phase === "learned-rule-closeout") return;
+    if (completeStoryPhase.phase === "review-closeout" && pendingCompleteStory?.reviewFile) {
+      const handled = await processCompleteStoryReviewCloseout(
+        ctx,
+        cwd,
+        pendingCompleteStory.storyFile,
+        pendingCompleteStory.reviewFile,
+      );
+      if (handled) return;
     }
 
     // ── Manual review closeout ──────────────────────────────────────────
@@ -1776,12 +1747,11 @@ export default function (pi: ExtensionAPI) {
 
     if (decision === "fix-high" || decision === "fix-all") {
       const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
-      transitionReviewToRemediation(pendingManualReview.reviewFile, () => {
-        pendingManualReviewRequests.set(cwd, {
-          reviewFile: pendingManualReview.reviewFile,
-          reviewCloseoutReady: false,
-        });
+      pendingManualReviewRequests.set(cwd, {
+        reviewFile: pendingManualReview.reviewFile,
+        reviewCloseoutReady: false,
       });
+      resetReviewFileForRemediation(pendingManualReview.reviewFile);
       sendInternalAgentMessage(
         ctx,
         buildReviewRemediationInstruction(
@@ -1883,36 +1853,31 @@ export default function (pi: ExtensionAPI) {
     }
 
     // ── Pending complete-story (non-review paths) ───────────────────────
-    const pendingCompleteStory = pendingCompleteStoryRequests.get(cwd);
-    if (pendingCompleteStory) {
-      const completionStoryFile = pendingCompleteStory.storyFile;
+    const pendingCompleteStoryAfterTurn = pendingCompleteStoryRequests.get(cwd);
+    if (pendingCompleteStoryAfterTurn) {
+      const completionStoryFile = pendingCompleteStoryAfterTurn.storyFile;
       const storyLabel = path.basename(completionStoryFile, ".md");
+      const readiness = assessStoryCompletionReadiness(completionStoryFile);
+      const closeoutPhase = deriveCompleteStoryPhase({
+        pendingRequest: pendingCompleteStoryAfterTurn,
+        readinessBlocked: listCompletionBlockers(readiness).length > 0,
+        reviewStatus: pendingCompleteStoryAfterTurn.reviewFile ? parseReviewFrontmatter(pendingCompleteStoryAfterTurn.reviewFile)?.status : null,
+      });
 
-      // Learned rule closeout — terminal, no new turn needed
-      if (pendingCompleteStory.learnedRuleCloseoutFile) {
-        await finishLearnedRuleCloseout(ctx, pendingCompleteStory);
+      if (closeoutPhase.phase === "learned-rule-closeout") {
+        await finishLearnedRuleCloseout(ctx, pendingCompleteStoryAfterTurn);
         return;
       }
 
-      // Review in progress but not yet complete — show waiting prompt
-      const reviewFilePath = pendingCompleteStory.reviewFile;
-      if (reviewFilePath && !pendingCompleteStory.reviewCloseoutReady) {
-        const reviewFrontmatter = parseReviewFrontmatter(reviewFilePath);
-        if (reviewFrontmatter?.status !== "complete") {
-          await promptInProgressCompleteStoryReview(ctx, reviewFilePath, storyLabel);
-          return;
-        }
-        // turn_end handles the completed-review closeout directly now.
+      if (closeoutPhase.phase === "review-in-progress" && pendingCompleteStoryAfterTurn.reviewFile) {
+        await promptInProgressCompleteStoryReview(ctx, pendingCompleteStoryAfterTurn.reviewFile, storyLabel);
         return;
       }
 
-      // No review file — check readiness and prompt
-      if (!reviewFilePath) {
-        const readiness = assessStoryCompletionReadiness(completionStoryFile);
-        const blockers = listCompletionBlockers(readiness);
-        if (blockers.length > 0) return;
+      if (closeoutPhase.phase === "readiness-review") return;
 
-        const decision = await promptReadyCloseout(ctx, pendingCompleteStory.storyFile);
+      if (closeoutPhase.phase === "ready-for-closeout") {
+        const decision = await promptReadyCloseout(ctx, pendingCompleteStoryAfterTurn.storyFile);
         if (decision == null) return;
 
         if (decision === "review") {
@@ -1922,11 +1887,7 @@ export default function (pi: ExtensionAPI) {
             storyLabel,
             trigger: "complete-story",
           });
-          pendingCompleteStoryRequests.set(cwd, {
-            storyFile: pendingCompleteStory.storyFile,
-            reviewFile: review.filePath,
-            reviewCloseoutReady: false,
-          });
+          enterCompleteStoryReview(pendingCompleteStoryRequests, cwd, pendingCompleteStoryAfterTurn.storyFile, review.filePath);
           return;
         }
 
@@ -2631,7 +2592,7 @@ export default function (pi: ExtensionAPI) {
       const blockers = listCompletionBlockers(readiness);
 
       if (blockers.length > 0) {
-        pendingCompleteStoryRequests.set(cwd, { storyFile: storyPath });
+        enterCompleteStoryReadinessReview(pendingCompleteStoryRequests, cwd, storyPath);
         ctx.ui.notify(
           `${storyLabel} is not ready to complete yet. Vazir will review the remaining checklist, issues, and summary first.`,
           "warning",
@@ -2658,11 +2619,7 @@ export default function (pi: ExtensionAPI) {
           storyLabel,
           trigger: "complete-story",
         }, review => {
-          pendingCompleteStoryRequests.set(cwd, {
-            storyFile: storyPath,
-            reviewFile: review.filePath,
-            reviewCloseoutReady: false,
-          });
+          enterCompleteStoryReview(pendingCompleteStoryRequests, cwd, storyPath, review.filePath);
         });
         return;
       }
