@@ -1,13 +1,17 @@
 import { createRequire } from "node:module";
 import os from "node:os";
 import * as path from "node:path";
-import { assert, cleanupStubModules, installCommonPiStubs, loadExtensionModule, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
+import { assert, cleanupStubModules, installCommonPiStubs, loadExtensionModule, loadFileModule, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 const stubModuleDirs = installCommonPiStubs();
 
 const extensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context");
+const closeoutModule = await loadFileModule<{
+  deriveCompleteStoryPhase: (input: { pendingRequest?: any; readinessBlocked?: boolean; reviewStatus?: string | null }) => { phase: string };
+  resetReviewFileForRemediation: (reviewFile: string) => void;
+}> (path.join(repoRoot, ".pi", "extensions", "vazir-context", "complete-story.ts"));
 const register = extensionModule.default;
 
 type Notification = { message: string; level: string };
@@ -167,7 +171,23 @@ function makeCtx(
   };
 }
 
+function runCloseoutHelperAssertions(): void {
+  assert(
+    closeoutModule.deriveCompleteStoryPhase({ pendingRequest: { storyFile: "story-001.md", reviewFile: "review.md", reviewCloseoutReady: true }, reviewStatus: "in-progress" }).phase === "review-closeout",
+    "closeout helper should let explicit closeout readiness resume even before the review file is re-read as complete",
+  );
+
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "vazir-review-helper-"));
+  const reviewPath = path.join(cwd, "review.md");
+  fs.writeFileSync(reviewPath, "**Status:** complete\n**Completed:** 2026-04-08\n");
+  closeoutModule.resetReviewFileForRemediation(reviewPath);
+  const review = fs.readFileSync(reviewPath, "utf-8");
+  assert(review.includes("**Status:** in-progress"), "closeout helper should reopen review files for remediation");
+  assert(review.includes("**Completed:** —"), "closeout helper should clear the completed date when reopening review files");
+}
+
 try {
+runCloseoutHelperAssertions();
 const cwd = createProject("vazir-review-loop-");
 writeCompletedStory(cwd, 2, "2026-04-03", "2026-04-04");
 writeCompletedStory(cwd, 3, "2026-04-02", "2026-04-05");

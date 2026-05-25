@@ -1,67 +1,93 @@
 # Intake Brief
 
-**Last updated:** 2026-05-15
+**Last updated:** 2026-05-24
 
 ## Planning brief
-The next planning slice adds two priorities on top of the existing Addenda C/D roadmap.
+Harden the `/complete-story` workflow by isolating its orchestration into a maintainable module, making lifecycle phases explicit, centralizing transitions that touch both in-memory state and persisted review/story files, expanding lifecycle-aware regression coverage, and stress testing the full closeout path before any merge back toward `main`.
 
-### Priority 1: harden persistence and VCS safety
-The Vazir system guidance must explicitly treat these as non-negotiable:
-- Commit `.context` changes whenever they are part of the work, unless the user explicitly says not to.
-- Never delete, reset, clean, reinitialize, or overwrite VCS files or metadata without explicit user approval for that exact action.
+## Objectives
+- Keep `complete-story-fix` as the known-good base while follow-up hardening happens on a separate branch.
+- Reduce fragility in the `/complete-story` path by making review closeout, remediation, learned-rule closeout, and final completion phases explicit.
+- Improve maintainability by moving complete-story orchestration out of the large context extension file into a focused owner module.
+- Preserve existing behavior while making the flow easier to reason about, test, and change safely.
 
-Prompt rules alone are not enough. Vazir should also add runtime guardrails that block dangerous commands when they target protected VCS state.
+## Success metrics
+- `/complete-story` has one clear orchestration path.
+- `turn_end` and `agent_end` responsibilities are unambiguous.
+- Review/remediation/learned-rule/final-closeout phases are centralized and explicit.
+- Regression coverage exercises the exact lifecycle hooks and persisted state transitions that drive closeout behavior.
+- Interactive stress testing confirms no prompt loops, missing prompts, or story/review state drift before merge consideration.
 
-Protected paths and metadata to cover at minimum:
-- `.git/`
-- `.jj/`
-- `.fslckout`
-- `.fossil-settings/`
+## Users and journeys
+- Primary user: the maintainer operating Vazir through Pi’s TUI.
+- Main journey: run `/complete-story`, optionally run a story-scoped review, choose remediation or closeout actions, handle learned-rule promotion, and finish the story without lifecycle loops or missing prompts.
+- Maintenance journey: evolve the flow safely by editing a dedicated complete-story module instead of tracing behavior across scattered handlers.
 
-Guardrails should also treat repo-shaping commands as dangerous when they would mutate initialized VCS state, including patterns like:
-- `rm -rf`
-- `git clean`
-- `git reset --hard`
-- re-init/open flows such as `jj git init` or `fossil open` when the repo is already initialized
+## Inputs and outputs
+- Inputs: active story file, review file frontmatter and findings, learned-rule draft/candidates, pending in-memory closeout state, lifecycle events (`turn_end`, `agent_end`), and active VCS mode.
+- Outputs: stable closeout prompts, remediation dispatches, learned-rule promotion choices, final story close/commit behavior, and regression coverage for each phase.
 
-For ambiguous repo files such as `.gitignore`, prefer warning/confirmation rather than silent mutation or blanket blocking. Destructive VCS actions should require a very explicit confirmation token.
+## Integrations
+- `.pi/extensions/vazir-context/index.ts` and a new dedicated complete-story module under `.pi/extensions/vazir-context/`
+- `.context/stories/`, `.context/reviews/`, `.context/memory/system.md`, and learned-rule closeout JSON/candidate files
+- validation harnesses such as `scripts/validate-vazir-complete-story.mts` and related review-loop coverage
+- existing review and mini-consolidate behavior from Addendum D
 
-### Priority 2: reduce extension sprawl
-The current extension surface is large enough that reviews and fixes feel slow and overly coupled. The preferred direction is to split by responsibility, not by arbitrary file size.
+## Auth and security
+- No new auth model.
+- Preserve current VCS safety rules and `.context` persistence behavior.
+- Do not widen destructive VCS behavior while hardening this flow.
 
-Working split direction:
-- Keep `vazir-context` focused on init, plan, memory, consolidation, and learned-rules/system-prompt assembly.
-- Split review lifecycle into a dedicated review extension.
-- Split story lifecycle and story-close flows into a dedicated story extension.
-- Split VCS/checkpoint/settings logic into a dedicated VCS extension.
-- Keep tracker or UI-focused chrome/status rendering separate from workflow logic.
+## Acceptance criteria
+- The current `/complete-story` lifecycle is mapped before extraction.
+- One shared phase model derives the closeout phase from in-memory state plus persisted files.
+- Shared transition helpers own required pending-state updates and frontmatter rewrites together.
+- Complete-story orchestration is extracted to a dedicated owner module while command registration stays with the owning extension.
+- Lifecycle ownership is narrowed so prompt-triggered orchestration lives in `turn_end` and non-interactive cleanup stays in `agent_end`.
+- Regression coverage includes restart/re-entry and repeated `turn_end` scenarios.
+- The flow passes interactive stress testing across review, remediation, learned-rule, and close/commit paths.
 
-The highest-risk areas during the split are:
-- `.context` persistence
-- story/review closeout handoffs
-- checkpoint sync and active-mode refresh
-- footer refresh timing and chrome state
-- shared helper drift
+## Constraints and non-goals
+- Preserve existing story files as history; do not repurpose them.
+- Do not rewrite the whole state machine in one jump.
+- Do not move command ownership away from the owning extension.
+- Do not duplicate helpers across modules.
+- Do not leave stale lifecycle handlers registered after extraction.
+- Main trunk should remain untouched until the hardened branch proves stable.
 
-### Safe planning assumptions
-- The split should be incremental and behavior-preserving, with regression coverage added before or alongside moves.
-- `.pi/lib/vazir-helpers.ts` remains the shared source for common helpers unless a cleaner shared module emerges during implementation.
-- Existing stories `story-001` through `story-015` are preserved as history; new work starts at `story-016`.
+## Edge cases
+- Review completes but closeout prompt must appear immediately.
+- Review remediation must rewrite the review file back to `in-progress` and avoid re-prompt loops.
+- Learned-rule closeout must not re-enter review closeout.
+- Story should stay open until mini-consolidate finishes.
+- Restart/re-entry must restore the correct phase from persisted files plus pending state.
+- Repeated `turn_end` emissions must be idempotent.
+
+## Monitoring and verification
+- Validation harness coverage for complete-story and review-loop flows.
+- Interactive TUI stress testing across no-review, review-without-findings, fix-high, fix-all, learned-rule selection, close-now, close-and-commit, and interrupted-session cases.
+
+## Deployment and merge strategy
+- Branch from `complete-story-fix` into a dedicated hardening branch (assumed name: `complete-story-hardening`).
+- Merge toward `main` only after tests pass and manual stress testing confirms stability.
+
+## Timeline and stakeholders
+- Immediate follow-up hardening work for the current maintainer.
+- No external stakeholder or release timeline was specified; safe default is to prioritize stability over speed.
+
+## Assumptions
+- Safe default: split the hardening work into multiple focused follow-up stories rather than one oversized story.
+- Safe default: branch name `complete-story-hardening` is the working target unless the user chooses a different name later.
+- Safe default: interactive stress testing is part of the implementation scope and must happen before merge consideration.
 
 ## Source files
 - .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_C.md
 - .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_D.md
-- User replanning direction captured in the current planning conversation
-
-## Distilled notes
-- Addendum C remains the source of truth for design-system behavior.
-- Addendum D remains the source of truth for mini-consolidate, recurrence tracking, and consolidation UX.
-- New scope adds security and maintainability work around `.context` persistence, VCS safety, and extension decomposition.
-- The user wants both prompt-level rules and programmatic enforcement for VCS safety.
-- The user wants the extension split to improve review/fix performance by narrowing responsibility boundaries.
+- .context/stories/intake-brief.md (prior distilled replan context)
 
 ## Planning rules
-- Preserve existing story files and queue entries.
-- Express new scope only as additive story rows and new `story-016+` files.
-- Keep each story small enough for one focused implementation session.
-- Do not place questions or open issues inside story checklist items.
+- Treat listed source files as user-authored planning inputs unless explicitly marked as generated artifacts.
+- Preserve existing story history and append only new plan rows/stories for this hardening scope.
+- Keep each new story within one focused session and at most 7 checklist tasks.
+- Prefer incremental extraction layered on proven behavior, with validation after each integration step.
+- Surface contradictions instead of resolving them silently.
