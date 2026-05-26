@@ -359,8 +359,7 @@ export function contextPersistenceStatus(cwd: string): ContextPersistenceStatus 
   };
 }
 
-export function commitStoryCloseChanges(cwd: string, storyLabel: string): StoryCloseCommitResult {
-  const message = `complete ${storyLabel}`;
+export function commitStoryCloseChanges(cwd: string, message: string): StoryCloseCommitResult {
   const activeMode = readActiveVcsMode(cwd);
 
   try {

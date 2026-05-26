@@ -10,6 +10,7 @@ export interface StoryFrontmatter {
   completed: string;
   file: string;
   number: number;
+  title: string;
 }
 
 export type ActiveVcsMode = "git" | "fossil" | "none";
@@ -400,6 +401,7 @@ export function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null
   const content = readIfExists(filePath);
   if (!content) return null;
 
+  const headingMatch = content.match(/^#\s+Story\s+(\d+):\s*(.+)$/m);
   const statusMatch = content.match(/^\*\*Status:\*\*\s*(.+)$/m);
   const lastAccessedMatch = content.match(/^\*\*Last accessed:\*\*\s*(.+)$/m);
   const completedMatch = content.match(/^\*\*Completed:\*\*\s*(.+)$/m);
@@ -414,6 +416,7 @@ export function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null
     completed: completedMatch?.[1]?.trim() ?? "—",
     file: filePath,
     number: parseInt(numberMatch[1], 10),
+    title: headingMatch?.[2]?.trim() ?? "",
   };
 }
 
