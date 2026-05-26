@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-26T13:20:09Z
+**Last updated:** 2026-05-26T13:22:18Z
 
 ## Findings
 - Remove no-op registration hooks once the real behavior has migrated to the owning extension. | count: 3 | status: promoted | sources: review-20260518-211642.md, review-20260520-013627.md, review-20260520-021434.md | stories: story-020, story-022
