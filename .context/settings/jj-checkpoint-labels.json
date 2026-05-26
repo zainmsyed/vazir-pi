@@ -95,6 +95,7 @@
     "f7c116ab": "can you give me a plan i can write in th ?plan to create stories etc",
     "5451c31f": "The user wants to plan their project.\nExisting story files already exist in .con",
     "f575d883": "ok lets commit this and write a short detailed message",
-    "6750339f": "what was the full command you were running i can run it myself"
+    "6750339f": "what was the full command you were running i can run it myself",
+    "2c3c065d": "Implement the in-progress story in .context/stories/story-028.md.\n\nYour job:\n1. "
   }
 }

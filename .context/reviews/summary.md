@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-26T15:43:53Z
+**Last updated:** 2026-05-26T21:01:33Z
 
 ## Findings
 - Add extension-level validation whenever new safety logic is wired into a live event interception path, not just helper-level unit checks. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
@@ -11,6 +11,8 @@
 - Avoid committing editor or backup files (e.g. .bak, ~, .tmp). | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Consider adding a rule disallowing editor/backup artifacts (.bak, ~, .orig) in source tree (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Do not commit large binary backups into the main repository; use external storage or LFS. | count: 1 | status: tracked | sources: review-20260422-120959.md
+- Do not persist fields in a schema until there is a committed consumer; if stored speculatively, document the planned consumer and target story. | count: 1 | status: tracked | sources: review-20260526-204100.md | stories: story-028
+- Every new persistence contract needs coverage for: (a) all mutating entry points, (b) bounded storage growth, and (c) graceful degradation on corrupt disk state. | count: 1 | status: tracked | sources: review-20260526-204100.md | stories: story-028
 - Every persisted workflow phase needs a restart test that proves rerunning the command resumes that exact phase instead of restarting from an earlier prompt. | count: 1 | status: tracked | sources: review-20260526-004914.md | stories: story-026
 - Every state-machine or guardrail helper that blocks or auto-approves user-facing actions must have at least one direct unit test exercising both the allow and deny paths. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Extracted closeout flows must preserve all terminal branches of the original state machine, including commit-and-close paths. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
@@ -23,6 +25,7 @@
 - Remove no-op registration hooks once the real behavior has migrated to the owning extension. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Require an automated integration test for any change touching .context persistence or extension APIs (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
+- Silent catch blocks are acceptable for cosmetic or best-effort operations, but never for structural persistence that downstream user actions depend on. | count: 1 | status: tracked | sources: review-20260526-204100.md | stories: story-028
 - Substring-based approval detection must guard against negation prefixes; use word-boundary regexes or explicit allow-list tokens rather than naive `includes()`. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When a checklist calls for coverage "across" a set of states, verify more than one representative state. | count: 1 | status: tracked | sources: review-20260526-121611.md | stories: story-026
 - When a feature relies on auxiliary binaries beyond its primary tool, validate each dependency explicitly and emit a diagnostic that names the missing tool so users do not confuse it with a failure of the primary feature. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
@@ -41,6 +44,7 @@
 - When extracting helpers into a new module, update every validation/import site that exercises those helpers and rerun the moved module's validation scripts before closing the story. | count: 1 | status: tracked | sources: review-20260518-220211.md | stories: story-020
 - When extracting lifecycle handlers into a new extension, remove the original registration to avoid duplicate event processing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When generating numbered requirement lists in instruction builders, scan for duplicate ordinals before committing. | count: 1 | status: tracked | sources: review-20260518-145628.md
+- When normalising tool input paths, always use the same helper at every consumption site; do not re-implement partial extracts that drift from the canonical fallback logic. | count: 1 | status: tracked | sources: review-20260526-204100.md | stories: story-028
 - When parsing VCS status output, include rename/move states explicitly; they are common and silently dropping them creates UI gaps. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When prompt builders interpolate file paths, add one regression assertion that the final prompt contains the concrete rendered path rather than a raw `${...}` placeholder. | count: 1 | status: tracked | sources: review-20260516-125356.md | stories: story-006

@@ -285,7 +285,7 @@ export function checkpointLabel(op: { id: string; description: string; ago: stri
   return `${op.ago} · ${label}`;
 }
 
-function currentJjOpId(cwd: string): string {
+export function currentJjOpId(cwd: string): string {
   try {
     return childProcess
       .execSync(`jj op log --no-graph --limit 1 --template 'id.short(8)'`, { cwd, encoding: "utf-8", timeout: 5000 })
@@ -368,8 +368,61 @@ export function jjHasChanges(cwd: string): boolean {
 }
 
 export function jjRestoreCheckpoint(cwd: string, opId: string): void {
-  childProcess.execFileSync("jj", ["op", "restore", opId], { cwd, stdio: "pipe" });
-  childProcess.execFileSync("jj", ["restore", "--from", "@-"], { cwd, stdio: "pipe" });
+  childProcess.execFileSync("jj", ["op", "restore", opId], { cwd, stdio: "pipe", timeout: 5000 });
+  childProcess.execFileSync("jj", ["restore", "--from", "@-"], { cwd, stdio: "pipe", timeout: 5000 });
+}
+
+// ── Agent-run checkpoint helpers ───────────────────────────────────────
+
+export interface AgentRunCheckpoint {
+  preRunOpId: string;
+  prompt: string;
+  files: string[];
+  timestamp: string;
+  hasChanges: boolean;
+}
+
+interface AgentRunCheckpointStore {
+  checkpoints: AgentRunCheckpoint[];
+}
+
+const AGENT_RUN_CHECKPOINT_MAX = 20;
+
+function agentRunCheckpointsPath(cwd: string): string {
+  return path.join(cwd, ".context", "settings", "jj-agent-run-checkpoints.json");
+}
+
+export function loadAgentRunCheckpoints(cwd: string): AgentRunCheckpoint[] {
+  const storePath = agentRunCheckpointsPath(cwd);
+  if (!fs.existsSync(storePath)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(storePath, "utf-8")) as Partial<AgentRunCheckpointStore>;
+    if (Array.isArray(parsed.checkpoints)) return parsed.checkpoints;
+  } catch {
+    /* ignore corrupt store */
+  }
+  return [];
+}
+
+function pruneAgentRunCheckpoints(checkpoints: AgentRunCheckpoint[]): AgentRunCheckpoint[] {
+  return checkpoints.slice(-AGENT_RUN_CHECKPOINT_MAX);
+}
+
+export function saveAgentRunCheckpoint(cwd: string, checkpoint: AgentRunCheckpoint): void {
+  const storePath = agentRunCheckpointsPath(cwd);
+  fs.mkdirSync(path.dirname(storePath), { recursive: true });
+  const existing = loadAgentRunCheckpoints(cwd);
+  existing.push(checkpoint);
+  const pruned = pruneAgentRunCheckpoints(existing);
+  fs.writeFileSync(storePath, JSON.stringify({ checkpoints: pruned }, null, 2));
+}
+
+export function getLatestUndoableAgentRun(cwd: string): AgentRunCheckpoint | null {
+  const checkpoints = loadAgentRunCheckpoints(cwd);
+  for (let i = checkpoints.length - 1; i >= 0; i--) {
+    if (checkpoints[i].hasChanges) return checkpoints[i];
+  }
+  return null;
 }
 
 // ── VCS sync ───────────────────────────────────────────────────────────

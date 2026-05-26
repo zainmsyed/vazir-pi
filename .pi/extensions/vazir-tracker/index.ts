@@ -56,8 +56,10 @@ import {
   clearPendingVcsApproval,
   type CheckpointMeta,
   checkpointLabel,
+  currentJjOpId,
   detectGitRepo,
   findOrphanedGitSessions,
+  getLatestUndoableAgentRun,
   gitRestoreCheckpoint,
   gitSnapshotFile,
   inspectVcsToolGuard,
@@ -70,6 +72,7 @@ import {
   loadJjCheckpointLabels,
   noteUserVcsApproval,
   persistCurrentJjCheckpointLabel,
+  saveAgentRunCheckpoint,
   sessionCheckpointDir,
   syncChanges,
 } from "./vcs.ts";
@@ -82,6 +85,12 @@ let hasGitRepo = false;
 let hasFossilRepo = false;
 let vcsKind: "none" | "git" | "jj" | "fossil" = "none";
 let currentSessionId = "";
+
+// ── JJ agent-run checkpoint state ──────────────────────────────────────
+
+let jjPreRunOpId = "";
+let jjRunWroteFiles = false;
+let jjRunFiles: string[] = [];
 
 export function normalizeTrackerInputText(text: string): string {
   return text.trim() === "/impliment" ? "/implement" : text;
@@ -515,7 +524,14 @@ export default function (pi: ExtensionAPI) {
       ensureSessionChromeMounted(ctx.ui, ctx.cwd);
     }
 
-    if (useJJ || !hasGitRepo) return;
+    if (useJJ) {
+      jjPreRunOpId = currentJjOpId(ctx.cwd);
+      jjRunWroteFiles = false;
+      jjRunFiles = [];
+      return;
+    }
+
+    if (!hasGitRepo) return;
 
     gitCheckpointCount++;
     const dir = path.join(sessionCheckpointDir(ctx.cwd, currentSessionId), String(gitCheckpointCount));
@@ -547,6 +563,11 @@ export default function (pi: ExtensionAPI) {
         const callId = pushPendingEditCall(toolName, file);
         recordEditStreamEntry("start", toolName, file, callId);
         refreshWidgets();
+
+        if (useJJ && file !== "(unknown file)") {
+          jjRunWroteFiles = true;
+          if (!jjRunFiles.includes(file)) jjRunFiles.push(file);
+        }
       }
 
       if (useJJ) return;
@@ -586,6 +607,25 @@ export default function (pi: ExtensionAPI) {
     if (ctx.hasUI) ensureSessionChromeMounted(ctx.ui, ctx.cwd);
 
     if (!useJJ || !lastUserPrompt.trim()) return;
+
+    if (jjRunWroteFiles && jjPreRunOpId) {
+      try {
+        saveAgentRunCheckpoint(ctx.cwd, {
+          preRunOpId: jjPreRunOpId,
+          prompt: lastUserPrompt.slice(0, 200),
+          files: [...jjRunFiles],
+          timestamp: new Date().toISOString(),
+          hasChanges: true,
+        });
+      } catch (e: any) {
+        ctx.ui?.notify?.(`Failed to save undo checkpoint: ${e.message}`, "warning");
+      }
+    }
+
+    // Reset per-run state for next agent run
+    jjPreRunOpId = "";
+    jjRunWroteFiles = false;
+    jjRunFiles = [];
 
     try {
       persistCurrentJjCheckpointLabel(ctx.cwd, lastUserPrompt);
@@ -846,28 +886,45 @@ export default function (pi: ExtensionAPI) {
     const cwd = ctx.cwd;
 
     if (useJJ) {
+      const latestRun = getLatestUndoableAgentRun(cwd);
       const pickable = jjCheckpointChoices(cwd);
-      if (pickable.length === 0) {
-        ctx.ui.notify("No checkpoints available to restore", "info");
-        return;
-      }
+
+      const undoLabel = latestRun
+        ? `Undo last agent run — ${latestRun.prompt.slice(0, 40)}`
+        : "Previous checkpoint — undo last agent turn";
 
       const restoreChoice = await ctx.ui.select("Restore checkpoint?", [
-        "Previous checkpoint — undo last agent turn",
+        undoLabel,
         "Choose checkpoint — pick from history",
         "Cancel",
       ]);
 
       if (restoreChoice === "Cancel" || restoreChoice == null) return;
 
-      if (restoreChoice === "Previous checkpoint — undo last agent turn") {
-        try {
-          jjRestoreCheckpoint(cwd, pickable[0].id);
-          ctx.ui.notify(`Restored to previous checkpoint (${checkpointLabel(pickable[0])})`, "info");
-        } catch (e: any) {
-          ctx.ui.notify(`Restore failed: ${e.message}`, "error");
+      if (restoreChoice === undoLabel) {
+        if (latestRun) {
+          try {
+            jjRestoreCheckpoint(cwd, latestRun.preRunOpId);
+            ctx.ui.notify(`Restored to pre-run state (${latestRun.prompt.slice(0, 50)})`, "info");
+          } catch (e: any) {
+            ctx.ui.notify(`Restore failed: ${e.message}`, "error");
+          }
+        } else if (pickable.length > 0) {
+          try {
+            jjRestoreCheckpoint(cwd, pickable[0].id);
+            ctx.ui.notify(`Restored to previous checkpoint (${checkpointLabel(pickable[0])})`, "info");
+          } catch (e: any) {
+            ctx.ui.notify(`Restore failed: ${e.message}`, "error");
+          }
+        } else {
+          ctx.ui.notify("No checkpoints available to restore", "info");
+          return;
         }
       } else if (restoreChoice === "Choose checkpoint — pick from history") {
+        if (pickable.length === 0) {
+          ctx.ui.notify("No checkpoints available to restore", "info");
+          return;
+        }
         const labels = pickable.map(op => checkpointLabel(op));
         const pick = await ctx.ui.select("Restore to which checkpoint?", labels);
         if (pick != null) {
