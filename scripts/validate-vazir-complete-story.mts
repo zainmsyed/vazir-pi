@@ -335,7 +335,6 @@ async function runReviewGatedScenario() {
       "Start code review before closing",
       "Open review document",
       "Keep story open and fix high-priority recommended items",
-      "Keep story open and stay in review",
       "Close story and commit all",
     ],
     selectCalls,
@@ -378,16 +377,20 @@ async function runReviewGatedScenario() {
   assert(customCalls.length === 1, "review-gated closeout should allow opening the review document and returning to the choices");
   assert(customCalls[0].title.includes(path.basename(reviewPath)), "review document viewer should show the review file title");
   assert((harness.sentInternalMessages.length as number) === 2, "review-gated closeout should queue a remediation turn after the user selects a fix path");
+  assert(harness.sentInternalMessages[1].message.content.includes("Review .context/reviews/"), "review-gated closeout should dispatch remediation from turn_end");
   assert(harness.sentInternalMessages[1].message.content.includes("Only work the unchecked items marked `high` or `critical`"), "review-gated closeout should support high-priority-only remediation");
   assert(harness.sentInternalMessages[1].message.content.includes("high: Add a local error boundary around the login form"), "review-gated closeout should target the high-priority checklist item");
 
   markReviewFixResolved(reviewPath, "high — Add a local error boundary around the login form");
+  assert((harness.sentInternalMessages.length as number) === 2, "agent_end alone should not queue more complete-story work while remediation is still in progress");
   setReviewStatus(reviewPath, "complete");
   await harness.emit("turn_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "review-gated closeout should keep the story open when learned-rule closeout is queued");
   assert((harness.sentInternalMessages.length as number) === 3, "review-gated closeout should queue a mini-consolidate turn after review closeout");
 
+  await harness.emit("before_agent_start", { prompt: "internal learned-rule closeout" }, ctx);
+  await harness.emit("turn_end", {}, ctx);
   await harness.emit("agent_end", {}, ctx);
 
   const story = fs.readFileSync(storyPath, "utf-8");
@@ -400,6 +403,7 @@ async function runReviewGatedScenario() {
   assert(selectCalls.some(call => call.options.includes("Close story now (remaining items noted)")), "review-gated complete-story should offer a remaining-items-noted close option");
   assert(selectCalls.some(call => call.options.includes("Close story and commit all")), "review-gated complete-story should offer an explicit close-and-commit-all option after review");
   assert(selectCalls.some(call => call.options.includes("Not yet, keep working")), "review-gated complete-story should let the user keep working after remediation");
+  assert(!selectCalls.some(call => call.prompt.includes("Did you mean to close this story?")), "review-gated complete-story should not route approved closeout completion through the agent_end status guard");
 
   return { cwd, notifications, selectCalls, customCalls, reviewFiles, story };
 }
@@ -535,7 +539,7 @@ async function runReadyCloseScenario() {
   assert(fs.readFileSync(path.join(cwd, ".context", "stories", "story-001.md"), "utf-8").includes("**Status:** in-progress"), "ready closeout should keep the story open until mini-consolidate finishes");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
 
   assert(fs.readFileSync(path.join(cwd, ".context", "stories", "story-001.md"), "utf-8").includes("**Status:** complete"), "ready closeout should complete the story after mini-consolidate finishes");
 
@@ -570,7 +574,7 @@ async function runReadyCloseAndCommitScenario() {
   assert(harness.sentInternalMessages.length === 1, "close-and-commit scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "close-and-commit scenario should mark the story complete after mini-consolidate");
   assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "close-and-commit scenario should report the commit result");
@@ -610,7 +614,7 @@ async function runDirtyContextCommitScenario() {
   assert(harness.sentInternalMessages.length === 1, "dirty .context commit scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "dirty .context commit scenario should still complete the story after mini-consolidate");
   assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "dirty .context commit scenario should commit after the prompt");
@@ -649,7 +653,7 @@ async function runDirtyContextDeclineScenario() {
   assert(harness.sentInternalMessages.length === 1, "dirty .context decline scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "dirty .context decline scenario should complete the story after explicit opt-out");
   assert(notifications.some(note => note.message.includes("user explicitly declined the pending .context commit")), "dirty .context decline scenario should log the explicit opt-out");
@@ -689,7 +693,7 @@ async function runColocatedGitPreferredCommitScenario() {
   assert(harness.sentInternalMessages.length === 1, "colocated git-preferred scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated git-preferred scenario should complete the story after mini-consolidate");
   assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "colocated git-preferred scenario should honor Git instead of switching to JJ");
@@ -730,7 +734,7 @@ async function runColocatedJjPreferredCommitScenario() {
   assert(harness.sentInternalMessages.length === 1, "colocated JJ-preferred scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated JJ-preferred scenario should complete the story after mini-consolidate");
   assert(notifications.some(note => note.message.includes("Recorded JJ change: complete story-001")), "colocated JJ-preferred scenario should use JJ when explicitly preferred");
@@ -773,7 +777,7 @@ async function runFossilCloseAndCommitScenario() {
   assert(harness.sentInternalMessages.length === 1, "fossil close-and-commit scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "fossil close-and-commit scenario should complete the story after mini-consolidate");
   assert(notifications.some(note => note.message.includes("Committed with Fossil: complete story-001")), "fossil close-and-commit scenario should report the Fossil commit result");
@@ -812,7 +816,7 @@ async function runCandidatesPromoteScenario() {
   assert(harness.sentInternalMessages.length === 1, "candidates-promote scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "- high: Always validate user input before processing\n");
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "candidates-promote scenario should complete the story after promotion");
   assert(selectCalls.some(call => call.options.includes("Promote all candidates")), "candidates-promote scenario should offer a promote-all selection");
@@ -853,7 +857,7 @@ async function runCandidatesSkipScenario() {
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "candidates-skip scenario should keep the story open until mini-consolidate finishes");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "- medium: Use null-coalescing instead of ternary for defaults\n");
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "candidates-skip scenario should complete the story after skipping");
   assert(notifications.some(note => note.message.includes("Mini-consolidate skipped for story-001")), "candidates-skip scenario should notify about skip");
@@ -898,7 +902,7 @@ async function runKeepWorkingScenario() {
     .replace("## Completion Summary\n", "## Completion Summary\nImplemented the story and verified the expected flow.\n");
   fs.writeFileSync(storyPath, readyStory);
 
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
 
   assert(selectCalls.some(call => call.prompt.includes("What would you like to do?")), "keep-working scenario should prompt for the final action once ready");
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "keep-working scenario should leave the story open when the user says not yet");

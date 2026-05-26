@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-25T23:46:23Z
+**Last updated:** 2026-05-26T00:20:46Z
 
 ## Findings
 - Remove no-op registration hooks once the real behavior has migrated to the owning extension. | count: 3 | status: promoted | sources: review-20260518-211642.md, review-20260520-013627.md, review-20260520-021434.md | stories: story-020, story-022
@@ -57,6 +57,7 @@
 - When adding shared policy helpers that parse commands or paths, add a checked-in validation covering representative positive and negative cases. | count: 1 | status: tracked | sources: review-20260515-125626.md | stories: story-016
 - When adding story-dependent prompt/context injection, add automated positive and negative harness tests for each story type branch. | count: 1 | status: tracked | sources: review-20260505-224448.md | stories: story-002
 - When adding temporary debug or reproduction scripts during development, delete them before the story closeout or add the path to `.gitignore` exclusion patterns if they must persist. | count: 1 | status: tracked | sources: review-20260519-101934.md | stories: story-021
+- When an extracted workflow changes when story frontmatter is written, re-run the full lifecycle including any status-guard snapshots so user-approved transitions are not mistaken for unsolicited agent changes. | count: 1 | status: tracked | sources: review-20260526-000311.md | stories: story-025
 - When an instruction conditionally references a backend service, the fallback message must accurately reflect whether the service executed or was bypassed. | count: 1 | status: tracked | sources: review-20260516-192313.md | stories: story-006
 - When an instruction references content that is conditionally prepended, the guidance about that content must also be conditional. | count: 1 | status: tracked | sources: review-20260516-144220.md | stories: story-006
 - When deferring closeout across multiple `agent_end` turns, guard the intermediate closeout prompt so it does not re-fire after the user has already made a choice | count: 1 | status: tracked | sources: review-20260515-214549.md | stories: story-005
