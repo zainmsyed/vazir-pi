@@ -624,6 +624,63 @@ export async function showScrollableText(
   });
 }
 
+export async function showScrollableOverlay(
+  ctx: { ui: any },
+  title: string,
+  subtitle: string,
+  body: string,
+): Promise<void> {
+  if ((process.stdout.columns || 0) < 80) {
+    await showScrollableText(ctx, title, subtitle, body);
+    return;
+  }
+
+  const lines = body.split("\n");
+  let scrollOffset = 0;
+
+  await ctx.ui.custom((tui: { requestRender(): void }, _theme: unknown, _kb: unknown, done: () => void) => {
+    return {
+      render(width = 80): string[] {
+        const innerWidth = Math.max(20, width - 4);
+        const visibleRows = Math.max(5, Math.min(lines.length || 1, (process.stdout.rows || 24) - 10));
+        const headerText = `${title} · ${subtitle} · esc close`;
+        const paddedHeader = headerText.length > innerWidth
+          ? headerText.slice(0, innerWidth)
+          : `${headerText}${" ".repeat(innerWidth - headerText.length)}`;
+        const bodyLines = lines
+          .slice(scrollOffset, scrollOffset + visibleRows)
+          .map(line => `│ ${line.slice(0, innerWidth).padEnd(innerWidth, " ")} │`);
+        while (bodyLines.length < visibleRows) {
+          bodyLines.push(`│ ${" ".repeat(innerWidth)} │`);
+        }
+        return [
+          `┌${paddedHeader}┐`,
+          ...bodyLines,
+          `└${"─".repeat(innerWidth)}┘`,
+        ];
+      },
+      invalidate() {},
+      handleInput(data: string) {
+        if (piTui.matchesKey(data, piTui.Key.up)) scrollOffset = Math.max(0, scrollOffset - 1);
+        else if (piTui.matchesKey(data, piTui.Key.down)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 1);
+        else if (piTui.matchesKey(data, piTui.Key.pageUp) || piTui.matchesKey(data, piTui.Key.home)) scrollOffset = Math.max(0, scrollOffset - 10);
+        else if (piTui.matchesKey(data, piTui.Key.pageDown) || piTui.matchesKey(data, piTui.Key.end)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 10);
+        else if (piTui.matchesKey(data, piTui.Key.escape)) { done(); return; }
+        tui.requestRender();
+      },
+    };
+  }, {
+    overlay: true,
+    overlayOptions: {
+      anchor: "right-center",
+      width: "50%",
+      minWidth: 60,
+      maxHeight: "80%",
+      margin: 1,
+    },
+  });
+}
+
 function isCommandHelpShortcut(data: string): boolean {
   return [
     piTui.Key.ctrl("?"),

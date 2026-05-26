@@ -359,6 +359,17 @@ export function refreshVcsState(cwd: string): void {
   refreshWidgets();
 }
 
+function deferInitialVcsRefresh(cwd: string): void {
+  setTimeout(() => {
+    try {
+      syncAndPublishVcs(cwd);
+      refreshWidgets();
+    } catch {
+      /* defer refresh best-effort only */
+    }
+  }, 0);
+}
+
 export function getResolvedVcsKind(): "none" | "git" | "jj" | "fossil" {
   return vcsKind;
 }
@@ -408,7 +419,13 @@ export default function (pi: ExtensionAPI) {
       },
     ) => {
       const cwd = ctx.cwd;
-      refreshVcsState(cwd);
+      refreshDetectedVcs(cwd);
+      if (vcsKind === "fossil") {
+        deferInitialVcsRefresh(cwd);
+      } else {
+        syncAndPublishVcs(cwd);
+        refreshWidgets();
+      }
 
       const sessionManager = {
         getBranch: ctx.sessionManager?.getBranch ?? (() => []),
@@ -472,7 +489,6 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (!ctx.hasUI) return;
-      syncAndPublishVcs(cwd);
       callUiMethod(ctx.ui, "setToolOutputExpanded", false);
       applyWorkingMessage(ctx.ui);
       ensureSessionChromeMounted(ctx.ui, cwd);
@@ -618,10 +634,15 @@ export default function (pi: ExtensionAPI) {
             .join("\n");
         } else {
           const { execFileSync } = await import("child_process");
-          diffText = execFileSync("git", ["diff", "--no-color", "HEAD", "--", chosen.file], {
-            cwd: ctx.cwd,
-            encoding: "utf-8",
-          });
+          diffText = vcsKind === "fossil"
+            ? execFileSync("fossil", ["diff", "--", chosen.file], {
+              cwd: ctx.cwd,
+              encoding: "utf-8",
+            })
+            : execFileSync("git", ["diff", "--no-color", "HEAD", "--", chosen.file], {
+              cwd: ctx.cwd,
+              encoding: "utf-8",
+            });
         }
       } catch (e: any) {
         ctx.ui.notify(`Failed to get diff: ${e.message}`, "error");

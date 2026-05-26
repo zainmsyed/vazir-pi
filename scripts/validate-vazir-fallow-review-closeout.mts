@@ -186,12 +186,12 @@ async function runManualReviewScenario() {
   const reviewPath = path.join(reviewDir, reviewFiles[0]);
   writeCompletedReview(reviewPath, "manual", finding);
 
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
   let log = fs.readFileSync(path.join(cwd, ".context", "complaints-log.md"), "utf-8");
   assert(log.includes("[fallow] unused-export: src/utils/formatDate.ts:14 / toRelativeTime never imported | status: noted"), "manual review closeout should append fallow findings to complaints-log.md");
   assert(fallowEntryCount(cwd, "unused-export: src/utils/formatDate.ts:14 / toRelativeTime never imported") === 1, "manual review closeout should only record one fallow entry for the story");
 
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
   log = fs.readFileSync(path.join(cwd, ".context", "complaints-log.md"), "utf-8");
   assert(fallowEntryCount(cwd, "unused-export: src/utils/formatDate.ts:14 / toRelativeTime never imported") === 1, "manual review closeout should not duplicate same-story fallow entries on resume");
 
@@ -222,13 +222,13 @@ async function runCompleteStoryReviewScenario() {
   const reviewPath = path.join(reviewDir, reviewFiles[0]);
   writeCompletedReview(reviewPath, "complete-story", finding);
 
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
   let log = fs.readFileSync(path.join(cwd, ".context", "complaints-log.md"), "utf-8");
   assert(log.includes("[fallow] unused-export: src/lib/worker.ts:7 / runTask never imported | status: noted"), "complete-story review closeout should append fallow findings to complaints-log.md");
   assert(fallowEntryCount(cwd, "unused-export: src/lib/worker.ts:7 / runTask never imported") === 1, "complete-story review closeout should only record one fallow entry for the story");
   assert(fs.readFileSync(path.join(cwd, ".context", "stories", "story-001.md"), "utf-8").includes("**Status:** in-progress"), "complete-story review closeout should keep the story open when user selects not yet");
 
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
   log = fs.readFileSync(path.join(cwd, ".context", "complaints-log.md"), "utf-8");
   assert(fallowEntryCount(cwd, "unused-export: src/lib/worker.ts:7 / runTask never imported") === 1, "complete-story review closeout should not duplicate same-story fallow entries on resume");
 

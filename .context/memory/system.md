@@ -37,5 +37,6 @@
 - Do not commit merge-tool backup files (e.g., `.baseline`, `.merge`, `.original`) to the repository; delete them or add them to `.gitignore`. <!-- source: story-025 --> <!-- confidence: high -->
 - Regression tests should exercise the primary code path, not just the legacy fallback. <!-- source: story-026 --> <!-- confidence: high -->
 - When a checklist calls for coverage 'across' a set of states, verify more than one representative state. <!-- source: story-026 --> <!-- confidence: high -->
+- When a workflow must survive session restarts, persist both the current phase and any user-selected completion intent in restart-safe state, then add restart-resume regression coverage for each resumed path. <!-- source: story-026 --> <!-- confidence: high -->
 ### From successes
 - When a closeout prompt aggregates work from multiple checklist sections, reuse the same aggregation helper in the action path so the selected work actually executes. <!-- source: story-020 --> <!-- confidence: low — no signal in last 5 stories -->

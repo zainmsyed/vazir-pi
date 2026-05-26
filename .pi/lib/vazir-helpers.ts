@@ -73,6 +73,8 @@ const BASE_SYSTEM_RULE_LINES = [
   "Ask before changing ambiguous areas.",
 ];
 
+const FOSSIL_DETECT_TIMEOUT_MS = 1000;
+
 export function readIfExists(filePath: string): string {
   return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : "";
 }
@@ -270,8 +272,10 @@ export function buildDefaultSystemRulesMarkdown(): string {
 }
 
 export function detectFossil(cwd: string): boolean {
+  if (fs.existsSync(path.join(cwd, ".fslckout"))) return true;
+
   try {
-    const jsonInfo = childProcess.execSync("fossil info --json", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const jsonInfo = childProcess.execSync("fossil info --json", { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_DETECT_TIMEOUT_MS }).trim();
     if (jsonInfo) {
       const parsed = JSON.parse(jsonInfo) as { checkout?: { root?: string } };
       const checkoutRoot = parsed.checkout?.root?.trim();
@@ -282,7 +286,7 @@ export function detectFossil(cwd: string): boolean {
   }
 
   try {
-    const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe" });
+    const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_DETECT_TIMEOUT_MS });
     const checkoutRoot = info.match(/^local-root:\s+(.+)$/m)?.[1]?.trim();
     return checkoutRoot ? isCurrentDirectoryInsideRepo(cwd, checkoutRoot) : false;
   } catch {
