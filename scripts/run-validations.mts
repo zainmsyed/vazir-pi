@@ -29,6 +29,7 @@ const validations = [
   "validate-vazir-implement-command.mts",
   "validate-vazir-init.mts",
   "validate-vazir-jj-agent-run-checkpoints.mts",
+  "validate-vazir-jj-exact-restore.mts",
   "validate-vazir-learning-loop.mts",
   "validate-vazir-memory-review.mts",
   "validate-vazir-overlay-reader.mts",

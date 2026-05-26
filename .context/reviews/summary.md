@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-26T21:01:33Z
+**Last updated:** 2026-05-26T22:14:59Z
 
 ## Findings
 - Add extension-level validation whenever new safety logic is wired into a live event interception path, not just helper-level unit checks. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
@@ -12,6 +12,7 @@
 - Consider adding a rule disallowing editor/backup artifacts (.bak, ~, .orig) in source tree (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Do not commit large binary backups into the main repository; use external storage or LFS. | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Do not persist fields in a schema until there is a committed consumer; if stored speculatively, document the planned consumer and target story. | count: 1 | status: tracked | sources: review-20260526-204100.md | stories: story-028
+- Every command that shells out to a backend operation needs at least one negative-path test verifying graceful failure when the backend rejects the input. | count: 1 | status: tracked | sources: review-20260526-215055.md | stories: story-029
 - Every new persistence contract needs coverage for: (a) all mutating entry points, (b) bounded storage growth, and (c) graceful degradation on corrupt disk state. | count: 1 | status: tracked | sources: review-20260526-204100.md | stories: story-028
 - Every persisted workflow phase needs a restart test that proves rerunning the command resumes that exact phase instead of restarting from an earlier prompt. | count: 1 | status: tracked | sources: review-20260526-004914.md | stories: story-026
 - Every state-machine or guardrail helper that blocks or auto-approves user-facing actions must have at least one direct unit test exercising both the allow and deny paths. | count: 1 | status: tracked | sources: review-20260518-145628.md
@@ -27,6 +28,7 @@
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Silent catch blocks are acceptable for cosmetic or best-effort operations, but never for structural persistence that downstream user actions depend on. | count: 1 | status: tracked | sources: review-20260526-204100.md | stories: story-028
 - Substring-based approval detection must guard against negation prefixes; use word-boundary regexes or explicit allow-list tokens rather than naive `includes()`. | count: 1 | status: tracked | sources: review-20260518-145628.md
+- When a checklist calls for coverage "across" a set of changed-file states, verify more than one representative state — include create, modify, delete, and rename. | count: 1 | status: tracked | sources: review-20260526-215055.md | stories: story-029
 - When a checklist calls for coverage "across" a set of states, verify more than one representative state. | count: 1 | status: tracked | sources: review-20260526-121611.md | stories: story-026
 - When a feature relies on auxiliary binaries beyond its primary tool, validate each dependency explicitly and emit a diagnostic that names the missing tool so users do not confuse it with a failure of the primary feature. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
 - When a safety approval flow instructs the user to approve in one turn and retry in another, store the approval state independently from the latest natural-language prompt. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017

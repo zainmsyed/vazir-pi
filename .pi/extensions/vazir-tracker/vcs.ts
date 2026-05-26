@@ -369,7 +369,6 @@ export function jjHasChanges(cwd: string): boolean {
 
 export function jjRestoreCheckpoint(cwd: string, opId: string): void {
   childProcess.execFileSync("jj", ["op", "restore", opId], { cwd, stdio: "pipe", timeout: 5000 });
-  childProcess.execFileSync("jj", ["restore", "--from", "@-"], { cwd, stdio: "pipe", timeout: 5000 });
 }
 
 // ── Agent-run checkpoint helpers ───────────────────────────────────────
