@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-26T10:48:12Z
+**Last updated:** 2026-05-26T12:35:51Z
 
 ## Findings
 - Remove no-op registration hooks once the real behavior has migrated to the owning extension. | count: 3 | status: promoted | sources: review-20260518-211642.md, review-20260520-013627.md, review-20260520-021434.md | stories: story-020, story-022
@@ -13,6 +13,7 @@
 - Add one validation per supported VCS mode and per protected decision branch whenever closeout behavior depends on persisted VCS mode or commit-policy prompts. | count: 1 | status: tracked | sources: review-20260515-191433.md | stories: story-018
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - Add targeted regression coverage whenever extraction scaffolding introduces ownership metadata or no-op registration hooks, so future refactors cannot silently sever the migration path. | count: 1 | status: tracked | sources: review-20260518-182632.md | stories: story-019
+- After extracting a module, remove imports that are now only consumed by the extracted file. | count: 1 | status: tracked | sources: review-20260526-104812.md | stories: story-025
 - After extracting helpers to a new module, delete the original copies to prevent drift and confusion. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Always verify runtime capability flags before returning a mode or state label; preference settings are intent, not proof of readiness. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Avoid committing editor or backup files (e.g. .bak, ~, .tmp). | count: 1 | status: tracked | sources: review-20260422-120959.md
@@ -36,10 +37,12 @@
 - Picker prompt text should match the actual option count so the user is not confused | count: 1 | status: tracked | sources: review-20260515-214549.md | stories: story-005
 - Prefer shared prompt-policy builders, but avoid injecting the same policy both from persisted memory and from an additional runtime block. | count: 1 | status: tracked | sources: review-20260515-125626.md | stories: story-016
 - Promote a rule requiring shared test harness utilities for repository validation scripts (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
+- Regression tests should exercise the primary code path, not just the legacy fallback. | count: 1 | status: tracked | sources: review-20260526-121611.md | stories: story-026
 - Require an automated integration test for any change touching .context persistence or extension APIs (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Substring-based approval detection must guard against negation prefixes; use word-boundary regexes or explicit allow-list tokens rather than naive `includes()`. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When a backend produces structured findings that must be parsed later, the review template and instructions must explicitly direct the agent to preserve them in the expected section. | count: 1 | status: tracked | sources: review-20260516-142440.md | stories: story-006
+- When a checklist calls for coverage "across" a set of states, verify more than one representative state. | count: 1 | status: tracked | sources: review-20260526-121611.md | stories: story-026
 - When a closeout menu offers terminal actions like close or commit, ensure those choices either finish the flow or are labeled as intermediate steps instead of triggering another mandatory prompt. | count: 1 | status: tracked | sources: review-20260520-010013.md | stories: story-021
 - When a feature relies on auxiliary binaries beyond its primary tool, validate each dependency explicitly and emit a diagnostic that names the missing tool so users do not confuse it with a failure of the primary feature. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
 - When a helper is extracted from a closure that captured a runtime object (like `pi`), update the helper signature to accept that object explicitly and verify every call site passes it correctly. | count: 1 | status: tracked | sources: review-20260519-101934.md | stories: story-021
