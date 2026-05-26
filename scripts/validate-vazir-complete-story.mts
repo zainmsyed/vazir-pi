@@ -13,6 +13,7 @@ const closeoutModule = await loadFileModule<{
   COMPLETE_STORY_PHASE_HANDOFFS: ReadonlyArray<{ phase: string }>;
   deriveCompleteStoryPhase: (input: { pendingRequest?: any; readinessBlocked?: boolean; reviewStatus?: string | null }) => { phase: string };
   resetCompleteStoryReviewForRemediation: (pending: Map<string, any>, cwd: string, storyFile: string, reviewFile: string) => void;
+  buildCompleteStoryCommitMessage: (storyPath: string) => string;
 }> (path.join(repoRoot, ".pi", "extensions", "vazir-context", "complete-story.ts"));
 const register = extensionModule.default;
 
@@ -101,11 +102,11 @@ function createFossilProject(prefix: string): string {
 
 function writeStory(
   cwd: string,
-  options: { checklist: string[]; issues: string[]; completionSummary: string },
+  options: { title?: string; checklist: string[]; issues: string[]; completionSummary: string },
 ): string {
   const filePath = path.join(cwd, ".context", "stories", "story-001.md");
   const content = [
-    "# Story 001: Example",
+    `# Story 001: ${options.title ?? "Example"}`,
     "",
     "**Status:** in-progress  ",
     "**Created:** 2026-03-25  ",
@@ -296,7 +297,7 @@ function runCloseoutHelperAssertions(): void {
     "closeout helper should treat completed reviews as review-closeout",
   );
 
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "vazir-complete-story-helper-"));
+  const cwd = createProject("vazir-complete-story-helper-");
   const reviewPath = path.join(cwd, "review.md");
   fs.writeFileSync(reviewPath, "**Status:** complete\n**Completed:** 2026-04-08\n");
   const pending = new Map<string, any>();
@@ -305,6 +306,28 @@ function runCloseoutHelperAssertions(): void {
   const review = fs.readFileSync(reviewPath, "utf-8");
   assert(review.includes("**Status:** in-progress"), "closeout helper should rewrite review status during remediation");
   assert(review.includes("**Completed:** —"), "closeout helper should clear the review completed date during remediation");
+
+  const summaryStoryPath = writeStory(cwd, {
+    title: "Ship onboarding flow",
+    checklist: ["- [x] Wire the submit handler"],
+    issues: [],
+    completionSummary: "Implemented the new signup flow and verified the success path.",
+  });
+  assert(
+    closeoutModule.buildCompleteStoryCommitMessage(summaryStoryPath) === "complete story-001 Ship onboarding flow: Implemented the new signup flow and verified the success path.",
+    "closeout helper should build a descriptive commit message from the story title and completion summary",
+  );
+
+  const fallbackStoryPath = writeStory(cwd, {
+    title: "Polish settings screen",
+    checklist: ["- [x] Add keyboard shortcuts to the settings modal"],
+    issues: [],
+    completionSummary: "Done.",
+  });
+  assert(
+    closeoutModule.buildCompleteStoryCommitMessage(fallbackStoryPath) === "complete story-001 Polish settings screen: Add keyboard shortcuts to the settings modal",
+    "closeout helper should fall back to checked checklist work when the completion summary is too weak",
+  );
 }
 
 function markReviewFixResolved(reviewPath: string, fixLine: string): void {
@@ -577,8 +600,11 @@ async function runReadyCloseAndCommitScenario() {
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
   await harness.emit("agent_end", {}, ctx);
 
+  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "close-and-commit scenario should mark the story complete after mini-consolidate");
-  assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "close-and-commit scenario should report the commit result");
+  assert(notifications.some(note => note.message.includes(`Committed with Git: ${expectedMessage}`)), "close-and-commit scenario should report the descriptive commit result");
+  const gitMessage = childProcess.execSync("git log -1 --pretty=%B", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(gitMessage === expectedMessage, "close-and-commit scenario should write the descriptive Git commit message");
   const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
   assert(status === "", "close-and-commit scenario should leave the git checkout clean");
 
@@ -617,8 +643,11 @@ async function runDirtyContextCommitScenario() {
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
   await harness.emit("agent_end", {}, ctx);
 
+  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "dirty .context commit scenario should still complete the story after mini-consolidate");
-  assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "dirty .context commit scenario should commit after the prompt");
+  assert(notifications.some(note => note.message.includes(`Committed with Git: ${expectedMessage}`)), "dirty .context commit scenario should commit after the prompt with the descriptive message");
+  const gitMessage = childProcess.execSync("git log -1 --pretty=%B", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(gitMessage === expectedMessage, "dirty .context commit scenario should persist the descriptive Git commit message");
   const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
   assert(status === "", "dirty .context commit scenario should leave the git checkout clean");
 
@@ -696,9 +725,12 @@ async function runColocatedGitPreferredCommitScenario() {
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
   await harness.emit("agent_end", {}, ctx);
 
+  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated git-preferred scenario should complete the story after mini-consolidate");
-  assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "colocated git-preferred scenario should honor Git instead of switching to JJ");
+  assert(notifications.some(note => note.message.includes(`Committed with Git: ${expectedMessage}`)), "colocated git-preferred scenario should honor Git instead of switching to JJ");
   assert(!notifications.some(note => note.message.includes("Recorded JJ change")), "colocated git-preferred scenario should not describe the change with JJ");
+  const gitMessage = childProcess.execSync("git log -1 --pretty=%B", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(gitMessage === expectedMessage, "colocated git-preferred scenario should keep the descriptive Git commit message");
   const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
   assert(status === "", "colocated git-preferred scenario should leave the Git checkout clean");
 
@@ -737,12 +769,13 @@ async function runColocatedJjPreferredCommitScenario() {
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
   await harness.emit("agent_end", {}, ctx);
 
+  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated JJ-preferred scenario should complete the story after mini-consolidate");
-  assert(notifications.some(note => note.message.includes("Recorded JJ change: complete story-001")), "colocated JJ-preferred scenario should use JJ when explicitly preferred");
+  assert(notifications.some(note => note.message.includes(`Recorded JJ change: ${expectedMessage}`)), "colocated JJ-preferred scenario should use JJ when explicitly preferred");
   const describedMessage = childProcess.execSync("jj log -r @ -T description --no-graph", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-  assert(describedMessage.includes("complete story-001"), "colocated JJ-preferred scenario should describe the current JJ change");
+  assert(describedMessage === expectedMessage, "colocated JJ-preferred scenario should describe the current JJ change with the descriptive message");
   const jjStatus = childProcess.execSync("jj status", { cwd, encoding: "utf-8", stdio: "pipe" });
-  assert(jjStatus.includes("Working copy  (@)") && jjStatus.includes("complete story-001"), "colocated JJ-preferred scenario should keep the described JJ working copy active");
+  assert(jjStatus.includes("Working copy  (@)") && jjStatus.includes(expectedMessage), "colocated JJ-preferred scenario should keep the described JJ working copy active");
 
   return { cwd, notifications, selectCalls };
 }
@@ -780,8 +813,11 @@ async function runFossilCloseAndCommitScenario() {
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
   await harness.emit("agent_end", {}, ctx);
 
+  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "fossil close-and-commit scenario should complete the story after mini-consolidate");
-  assert(notifications.some(note => note.message.includes("Committed with Fossil: complete story-001")), "fossil close-and-commit scenario should report the Fossil commit result");
+  assert(notifications.some(note => note.message.includes(`Committed with Fossil: ${expectedMessage}`)), "fossil close-and-commit scenario should report the descriptive Fossil commit result");
+  const fossilTimeline = childProcess.execSync("fossil timeline -t ci -n 1 -W 0", { cwd, encoding: "utf-8", stdio: "pipe" });
+  assert(fossilTimeline.includes(expectedMessage), "fossil close-and-commit scenario should write the descriptive Fossil commit message");
   const changes = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
   const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
   assert(changes === "" && extras === "", "fossil close-and-commit scenario should leave the checkout clean");
@@ -994,8 +1030,11 @@ async function runLearnedRuleDraftRestartScenario() {
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "draft-restart: rerunning /complete-story should resume and finish learned-rule closeout");
   assert(restartSelectCalls.some(call => call.options.includes("Promote all candidates")), "draft-restart: should show promotion picker on resume");
   const systemMd = fs.readFileSync(path.join(cwd, ".context", "memory", "system.md"), "utf-8");
+  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
   assert(systemMd.includes("Always validate input before processing"), "draft-restart: should promote the resumed candidate to system.md");
-  assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "draft-restart: should preserve close-and-commit intent across restart");
+  assert(notifications.some(note => note.message.includes(`Committed with Git: ${expectedMessage}`)), "draft-restart: should preserve close-and-commit intent across restart");
+  const gitMessage = childProcess.execSync("git log -1 --pretty=%B", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(gitMessage === expectedMessage, "draft-restart: resumed close-and-commit should keep the descriptive Git commit message");
   const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
   assert(status === "", "draft-restart: resumed close-and-commit should leave the git checkout clean");
 
