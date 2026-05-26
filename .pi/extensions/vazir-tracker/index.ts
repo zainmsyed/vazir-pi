@@ -420,12 +420,7 @@ export default function (pi: ExtensionAPI) {
     ) => {
       const cwd = ctx.cwd;
       refreshDetectedVcs(cwd);
-      if (vcsKind === "fossil") {
-        deferInitialVcsRefresh(cwd);
-      } else {
-        syncAndPublishVcs(cwd);
-        refreshWidgets();
-      }
+      deferInitialVcsRefresh(cwd);
 
       const sessionManager = {
         getBranch: ctx.sessionManager?.getBranch ?? (() => []),
@@ -463,30 +458,36 @@ export default function (pi: ExtensionAPI) {
         registerCommandHelpShortcut(ctx);
       }
 
-      // ── Recovery check ────────────────────────────────────────────
-      if (useJJ) {
-        if (jjHasChanges(cwd)) {
-          ctx.ui.notify(
-            "Work in progress from previous session detected. Use /reset to restore an earlier state.",
-            "warning",
-          );
-        }
-      } else if (hasGitRepo) {
-        const orphans = findOrphanedGitSessions(cwd, currentSessionId);
-        if (orphans.length > 0) {
-          if (!isGitClean(cwd)) {
-            ctx.ui.notify(
-              "Unfinished work from a previous session detected. Use /reset to restore a checkpoint.",
-              "warning",
-            );
-          } else {
-            for (const id of orphans) {
-              const d = sessionCheckpointDir(cwd, id);
-              if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
+      // ── Recovery check (deferred so it doesn't block session startup) ──
+      setTimeout(() => {
+        try {
+          if (useJJ) {
+            if (jjHasChanges(cwd)) {
+              ctx.ui.notify(
+                "Work in progress from previous session detected. Use /reset to restore an earlier state.",
+                "warning",
+              );
+            }
+          } else if (hasGitRepo) {
+            const orphans = findOrphanedGitSessions(cwd, currentSessionId);
+            if (orphans.length > 0) {
+              if (!isGitClean(cwd)) {
+                ctx.ui.notify(
+                  "Unfinished work from a previous session detected. Use /reset to restore a checkpoint.",
+                  "warning",
+                );
+              } else {
+                for (const id of orphans) {
+                  const d = sessionCheckpointDir(cwd, id);
+                  if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
+                }
+              }
             }
           }
+        } catch {
+          /* best-effort recovery check */
         }
-      }
+      }, 0);
 
       if (!ctx.hasUI) return;
       callUiMethod(ctx.ui, "setToolOutputExpanded", false);
