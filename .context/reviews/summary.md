@@ -1,8 +1,9 @@
 # Review Summary
 
-**Last updated:** 2026-05-26T14:01:51Z
+**Last updated:** 2026-05-26T15:43:53Z
 
 ## Findings
+- Add extension-level validation whenever new safety logic is wired into a live event interception path, not just helper-level unit checks. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - After extracting a module, remove imports that are now only consumed by the extracted file. | count: 1 | status: tracked | sources: review-20260526-104812.md | stories: story-025
 - After extracting helpers to a new module, delete the original copies to prevent drift and confusion. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
@@ -16,6 +17,7 @@
 - Footer should always include the active story slug for easy orientation. | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Make the team policy explicit about which .context subpaths (if any) are authoritative and tracked. | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Never hardcode story labels or temporal identifiers in reusable command handlers; always derive them from runtime state. | count: 1 | status: tracked | sources: review-20260518-145628.md
+- Prefer shared prompt-policy builders, but avoid injecting the same policy both from persisted memory and from an additional runtime block. | count: 1 | status: tracked | sources: review-20260515-125626.md | stories: story-016
 - Promote a rule requiring shared test harness utilities for repository validation scripts (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Regression tests should exercise the primary code path, not just the legacy fallback. | count: 1 | status: tracked | sources: review-20260526-121611.md | stories: story-026
 - Remove no-op registration hooks once the real behavior has migrated to the owning extension. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
@@ -23,9 +25,16 @@
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Substring-based approval detection must guard against negation prefixes; use word-boundary regexes or explicit allow-list tokens rather than naive `includes()`. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When a checklist calls for coverage "across" a set of states, verify more than one representative state. | count: 1 | status: tracked | sources: review-20260526-121611.md | stories: story-026
+- When a feature relies on auxiliary binaries beyond its primary tool, validate each dependency explicitly and emit a diagnostic that names the missing tool so users do not confuse it with a failure of the primary feature. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
+- When a safety approval flow instructs the user to approve in one turn and retry in another, store the approval state independently from the latest natural-language prompt. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - When a workflow persists an intermediate closeout artifact, `/complete-story` must check for it and resume that phase before offering a fresh closeout prompt. | count: 1 | status: tracked | sources: review-20260526-004914.md | stories: story-026
+- When adding a new backend-specific code path, cover at least the happy path and one error-path branch in the same validation script. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
+- When adding a new signal source to an instruction-driven workflow, validate at least one real consumer path end-to-end instead of only checking that the prompt mentions the source. | count: 1 | status: tracked | sources: review-20260516-125356.md | stories: story-006
+- When adding conditional template/instruction injection, add automated positive and negative harness tests for each branch. | count: 1 | status: tracked | sources: review-20260505-235339.md | stories: story-004
 - When adding or tightening VCS detection, validate extension behavior from both the repo root and a nested project directory. | count: 1 | status: tracked | sources: review-20260518-124246.md
+- When adding shared policy helpers that parse commands or paths, add a checked-in validation covering representative positive and negative cases. | count: 1 | status: tracked | sources: review-20260515-125626.md | stories: story-016
+- When adding story-dependent prompt/context injection, add automated positive and negative harness tests for each story type branch. | count: 1 | status: tracked | sources: review-20260505-224448.md | stories: story-002
 - When an extracted workflow changes when story frontmatter is written, re-run the full lifecycle including any status-guard snapshots so user-approved transitions are not mistaken for unsolicited agent changes. | count: 1 | status: tracked | sources: review-20260526-000311.md | stories: story-025
 - When extracting a command into a new extension, update every validation script that exercises that command to load the new extension module alongside the original entrypoint. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
 - When extracting a large block of helpers from a module, run a reference check for every removed function name against the remaining code in that module before committing the extraction. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
@@ -34,5 +43,7 @@
 - When generating numbered requirement lists in instruction builders, scan for duplicate ordinals before committing. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When parsing VCS status output, include rename/move states explicitly; they are common and silently dropping them creates UI gaps. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
+- When prompt builders interpolate file paths, add one regression assertion that the final prompt contains the concrete rendered path rather than a raw `${...}` placeholder. | count: 1 | status: tracked | sources: review-20260516-125356.md | stories: story-006
+- When the same string-replacement sequence appears in two or more distinct code paths, extract it into a named helper so future changes to the output format happen in one place. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
 - When tracking async tool lifecycle, correlate start and end events with a unique call identifier, not just the tool name. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When validating tool input for security, always check every documented alias of a target field (`path` / `filePath`), not just the primary one. | count: 1 | status: tracked | sources: review-20260518-145628.md
