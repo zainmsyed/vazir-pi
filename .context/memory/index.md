@@ -15,9 +15,9 @@ test_exec.js — Tiny Node child-process smoke test that runs `node -e` and prin
 types/node-runtime-ambient.d.ts — Minimal ambient Node typings for child_process, fs, path, os, module, url, and process used by stripped-TypeScript runtime loading.
 types/pi-runtime-ambient.d.ts — Minimal ambient Pi SDK and pi-tui module typings for extension compilation without full upstream type packages.
 
-.pi/lib/vazir-vcs-helpers.ts — (undescribed)
-.pi/extensions/vazir-review/index.ts — (undescribed)
-.pi/extensions/vazir-story/index.ts — (undescribed)
-.pi/extensions/vazir-vcs/index.ts — (undescribed)
+.pi/lib/vazir-vcs-helpers.ts — VCS checkpoint, guardrail, and repo-state helpers for the tracker extension (changed-files tracking, checkpoint metadata, VCS-kind detection, and pending-approval state).
+.pi/extensions/vazir-review/index.ts — Scaffold for future review lifecycle extraction; target owner for /review command orchestration and review draft closeout.
+.pi/extensions/vazir-story/index.ts — Scaffold for future story workflow extraction; target owner for /story, /implement, /fix, and /complete-story orchestration.
+.pi/extensions/vazir-vcs/index.ts — Scaffold for future VCS/settings extraction; target owner for VCS mode selection, checkpoint restore/sync, and VCS guardrails.
 
-.pi/extensions/vazir-context/complete-story.ts — (undescribed)
+.pi/extensions/vazir-context/complete-story.ts — Complete-story orchestration module owning phase detection, closeout prompting, remediation dispatch, learned-rule closeout, and final story close/commit handoff.

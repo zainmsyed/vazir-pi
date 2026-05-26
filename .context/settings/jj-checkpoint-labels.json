@@ -76,6 +76,9 @@
     "a056e083": "so the point was to harden this loop. did we do that?",
     "743a26c2": "can you review the code and see what we might be missing if anything before we m",
     "248aee9f": "can we merge this branch directly eith the trunk. bc this is a fork of the compl",
-    "7c1b86b0": "ok lets do that. do your cehcks and if they pass lets go!"
+    "7c1b86b0": "ok lets do that. do your cehcks and if they pass lets go!",
+    "2300c08f": "complete the merge with all.context included please",
+    "ba22dc1e": "complete the merge with all.context included please",
+    "2605494f": "Run Vazir consolidation using the currently selected Pi model.\n\nTasks:\n1. Read ."
   }
 }
