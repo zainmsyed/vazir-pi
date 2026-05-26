@@ -813,11 +813,11 @@ function branchLabel(cwd: string): string {
   let baseLabel = _vcsDisplay.refLabel || _vcsKind;
   if (_vcsKind === "git" && (!baseLabel || baseLabel === "workspace")) {
     try {
-      const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+      const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
       if (branch && branch !== "HEAD") {
         baseLabel = branch;
       } else {
-        const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
         if (symRef) baseLabel = symRef;
       }
     } catch {
@@ -871,14 +871,14 @@ function footerVcsStatusSegment(): string {
 
 function liveGitBranchLabel(cwd: string): string | null {
   try {
-    const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
     if (symRef) return clipInline(symRef, 24);
   } catch {
     /* fall through */
   }
 
   try {
-    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
     if (branch && branch !== "HEAD") return clipInline(branch, 24);
   } catch {
     /* fall through */

@@ -116,7 +116,7 @@ export function inspectVcsToolGuard(
 
 export function isGitClean(cwd: string): boolean {
   try {
-    return childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim() === "";
+    return childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim() === "";
   } catch {
     return true;
   }
@@ -243,7 +243,7 @@ export function persistCurrentJjCheckpointLabel(cwd: string, prompt: string): vo
 export function autoDescribeCurrentJjChange(cwd: string, prompt: string): void {
   const trimmedPrompt = prompt.trim();
   if (!trimmedPrompt) return;
-  childProcess.execFileSync("jj", ["describe", "-m", trimmedPrompt.slice(0, 72)], { cwd, stdio: "pipe" });
+  childProcess.execFileSync("jj", ["describe", "-m", trimmedPrompt.slice(0, 72)], { cwd, stdio: "pipe", timeout: 5000 });
 }
 
 function isJjDescribeOperation(op: { description: string }): boolean {
@@ -255,7 +255,7 @@ function jjOpLog(cwd: string, limit = 15): Array<{ id: string; description: stri
     const raw = childProcess
       .execSync(
         `jj op log --no-graph --limit ${limit} --template 'id.short(8) ++ "||" ++ description ++ "||" ++ time.start().ago() ++ "\\n"'`,
-        { cwd, encoding: "utf-8" },
+        { cwd, encoding: "utf-8", timeout: 5000 },
       )
       .trim();
     return raw
@@ -288,7 +288,7 @@ export function checkpointLabel(op: { id: string; description: string; ago: stri
 function currentJjOpId(cwd: string): string {
   try {
     return childProcess
-      .execSync(`jj op log --no-graph --limit 1 --template 'id.short(8)'`, { cwd, encoding: "utf-8" })
+      .execSync(`jj op log --no-graph --limit 1 --template 'id.short(8)'`, { cwd, encoding: "utf-8", timeout: 5000 })
       .trim();
   } catch {
     return "";
@@ -345,7 +345,7 @@ export function jjCheckpointChoices(
 
 export function jjDiffStat(cwd: string): string {
   try {
-    return childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8" }).trim();
+    return childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8", timeout: 5000 }).trim();
   } catch {
     return "";
   }
@@ -353,7 +353,7 @@ export function jjDiffStat(cwd: string): string {
 
 export function jjDiffFile(cwd: string, file: string): string {
   try {
-    return childProcess.execFileSync("jj", ["diff", "--no-color", "--", file], { cwd, encoding: "utf-8" });
+    return childProcess.execFileSync("jj", ["diff", "--no-color", "--", file], { cwd, encoding: "utf-8", timeout: 5000 });
   } catch {
     return "";
   }
@@ -361,7 +361,7 @@ export function jjDiffFile(cwd: string, file: string): string {
 
 export function jjHasChanges(cwd: string): boolean {
   try {
-    return childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8" }).trim() !== "";
+    return childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8", timeout: 5000 }).trim() !== "";
   } catch {
     return false;
   }
@@ -376,7 +376,7 @@ export function jjRestoreCheckpoint(cwd: string, opId: string): void {
 
 function syncFromGit(cwd: string): void {
   try {
-    const statusOut = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" });
+    const statusOut = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 });
     const statusMap = new Map<string, string>();
 
     for (const line of statusOut.split("\n")) {
@@ -395,7 +395,7 @@ function syncFromGit(cwd: string): void {
     let statOut = "";
     try {
       statOut = childProcess
-        .execSync("git diff --stat HEAD", { cwd, encoding: "utf-8", stdio: "pipe" })
+        .execSync("git diff --stat HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 })
         .trim();
     } catch {
       statOut = "";
@@ -544,17 +544,17 @@ function syncFromFossil(cwd: string): void {
 
 function gitRefLabel(cwd: string): string {
   try {
-    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
     if (branch && branch !== "HEAD") return branch;
     if (branch === "HEAD") {
       try {
-        const sha = childProcess.execSync("git rev-parse --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        const sha = childProcess.execSync("git rev-parse --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
         if (sha) return `detached@${sha}`;
       } catch {
         // ignore
       }
       try {
-        const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
         if (symRef) return symRef;
       } catch {
         // ignore
@@ -569,7 +569,7 @@ function gitRefLabel(cwd: string): string {
 
 function jjRefLabel(cwd: string): string {
   try {
-    const label = childProcess.execSync("jj bookmark list --revision @ --no-graph", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const label = childProcess.execSync("jj bookmark list --revision @ --no-graph", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
     if (label) return label;
   } catch {
     // ignore

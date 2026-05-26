@@ -318,7 +318,7 @@ function shellSummary(error: unknown): string {
 
 function gitHasPendingChanges(cwd: string): boolean {
   try {
-    return childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim() !== "";
+    return childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim() !== "";
   } catch {
     return false;
   }
@@ -326,7 +326,7 @@ function gitHasPendingChanges(cwd: string): boolean {
 
 function jjHasPendingChangesForCommit(cwd: string): boolean {
   try {
-    return childProcess.execSync("jj diff --summary", { cwd, encoding: "utf-8", stdio: "pipe" }).trim() !== "";
+    return childProcess.execSync("jj diff --summary", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim() !== "";
   } catch {
     return false;
   }
@@ -334,8 +334,8 @@ function jjHasPendingChangesForCommit(cwd: string): boolean {
 
 function fossilHasPendingChanges(cwd: string): boolean {
   try {
-    const changed = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-    const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const changed = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
+    const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
     return changed !== "" || extras !== "";
   } catch {
     return false;
