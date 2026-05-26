@@ -33,6 +33,8 @@ const acknowledgedVcsApprovals = new Map<string, Set<string>>();
 
 export type VcsKind = "none" | "git" | "jj" | "fossil";
 
+const FOSSIL_STATUS_TIMEOUT_MS = 5000;
+
 export interface VcsDisplayInfo {
   kind: VcsKind;
   refLabel: string;
@@ -473,7 +475,7 @@ function syncFromFossil(cwd: string): void {
   const statusMap = new Map<string, string>();
 
   try {
-    const changes = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const changes = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_STATUS_TIMEOUT_MS }).trim();
     for (const line of changes.split("\n")) {
       const editedMatch = line.match(/^\s*EDITED\s+(.+)$/);
       const updatedMatch = line.match(/^\s*UPDATED_BY_MERGE\s+(.+)$/);
@@ -511,7 +513,7 @@ function syncFromFossil(cwd: string): void {
       }
     } else if (status === "M") {
       try {
-        const diff = childProcess.execFileSync("fossil", ["diff", "--", file], { cwd, encoding: "utf-8", stdio: "pipe" });
+        const diff = childProcess.execFileSync("fossil", ["diff", "--", file], { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_STATUS_TIMEOUT_MS });
         const counts = fossilDiffLineCounts(diff);
         added = counts.added;
         removed = counts.removed;
@@ -523,7 +525,7 @@ function syncFromFossil(cwd: string): void {
   }
 
   try {
-    const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_STATUS_TIMEOUT_MS }).trim();
     for (const line of extras.split("\n")) {
       const file = line.trim();
       if (!file) continue;
@@ -578,14 +580,14 @@ function jjRefLabel(cwd: string): string {
 
 function fossilRefLabel(cwd: string): string {
   try {
-    const branch = childProcess.execSync("fossil branch current", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const branch = childProcess.execSync("fossil branch current", { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_STATUS_TIMEOUT_MS }).trim();
     if (branch) return branch;
   } catch {
     // ignore
   }
 
   try {
-    const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe" });
+    const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_STATUS_TIMEOUT_MS });
     const checkout = info.match(/^checkout:\s+([a-f0-9]+)/m)?.[1];
     if (checkout) return `checkin@${checkout.slice(0, 8)}`;
   } catch {
@@ -597,7 +599,7 @@ function fossilRefLabel(cwd: string): string {
 
 function fossilAutosyncEnabled(cwd: string): boolean | null {
   try {
-    const value = childProcess.execSync("fossil setting autosync", { cwd, encoding: "utf-8", stdio: "pipe" }).trim().toLowerCase();
+    const value = childProcess.execSync("fossil setting autosync", { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_STATUS_TIMEOUT_MS }).trim().toLowerCase();
     if (/(^|\s)on(\s|$)/.test(value) || /(^|\s)1(\s|$)/.test(value) || /(^|\s)true(\s|$)/.test(value)) return true;
     if (/(^|\s)off(\s|$)/.test(value) || /(^|\s)0(\s|$)/.test(value) || /(^|\s)false(\s|$)/.test(value)) return false;
   } catch {

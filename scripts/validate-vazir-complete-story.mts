@@ -489,21 +489,21 @@ async function runRestartedReviewCloseoutScenario() {
   const resumedCustomCalls: CustomCall[] = [];
   const resumedCtx = makeCtx(cwd, notifications, {
     hasUI: true,
-    selectResponses: ["Start code review before closing"],
+    selectResponses: ["Open review document", "Close story now (remaining items noted)", "Skip for now"],
     selectCalls: resumedSelectCalls,
     customCalls: resumedCustomCalls,
   });
 
   await harness.completeStory.handler("", resumedCtx);
+  await harness.emit("agent_end", {}, resumedCtx);
 
   const resumedReviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name)).sort();
-  assert(resumedReviewFiles.length === 2, "restart scenario should create a fresh review file on rerun");
-  assert(resumedReviewFiles[0] !== resumedReviewFiles[1], "restart scenario should not overwrite the earlier review");
-  assert(resumedSelectCalls.some(call => call.options.includes("Start code review before closing")), "restart scenario should prompt to start a fresh review on rerun");
-  assert(resumedSelectCalls.some(call => call.options.includes("Close story now")), "restart scenario should still offer the close story choice on rerun");
-  assert(resumedCustomCalls.length === 0, "restart scenario should not reopen the previous review document automatically");
-  assert(harness.sentInternalMessages.length === 2, "restart scenario should dispatch a second review turn on rerun");
-  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "restart scenario should keep the story open until the fresh review finishes");
+  assert(resumedReviewFiles.length === 1, "restart scenario should resume the existing review instead of creating a replacement review file");
+  assert(resumedSelectCalls.some(call => call.options.includes("Open review document")), "restart scenario should reopen the completed review closeout choices on rerun");
+  assert(resumedSelectCalls.some(call => call.prompt.includes("Review complete.")), "restart scenario should resume from the completed review closeout prompt");
+  assert(resumedCustomCalls.length === 1, "restart scenario should still allow reopening the prior review document");
+  assert(harness.sentInternalMessages.length === 2, "restart scenario should continue into learned-rule closeout after the resumed review prompt");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "restart scenario should allow the story to close after the resumed review prompt finishes");
 
   return { cwd, notifications, firstSelectCalls, resumedSelectCalls, resumedCustomCalls, reviewFiles, resumedReviewFiles };
 }
@@ -952,13 +952,13 @@ async function runTurnEndIdempotencyScenario() {
 }
 
 async function runLearnedRuleDraftRestartScenario() {
-  const cwd = createProject("vazir-complete-story-draft-restart-");
+  const cwd = createGitProject("vazir-complete-story-draft-restart-");
   const notifications: Notification[] = [];
   const selectCalls: SelectCall[] = [];
   const harness = makePi();
   const ctx = makeCtx(cwd, notifications, {
     hasUI: true,
-    selectResponses: ["Close story now"],
+    selectResponses: ["Close story and commit all"],
     selectCalls,
   });
   const storyPath = writeStory(cwd, {
@@ -995,6 +995,9 @@ async function runLearnedRuleDraftRestartScenario() {
   assert(restartSelectCalls.some(call => call.options.includes("Promote all candidates")), "draft-restart: should show promotion picker on resume");
   const systemMd = fs.readFileSync(path.join(cwd, ".context", "memory", "system.md"), "utf-8");
   assert(systemMd.includes("Always validate input before processing"), "draft-restart: should promote the resumed candidate to system.md");
+  assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "draft-restart: should preserve close-and-commit intent across restart");
+  const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(status === "", "draft-restart: resumed close-and-commit should leave the git checkout clean");
 
   return { cwd, notifications, selectCalls: restartSelectCalls };
 }
@@ -1035,8 +1038,8 @@ async function runReadinessReviewIdempotencyScenario() {
   return { cwd, notifications, selectCalls };
 }
 
-async function runReviewCloseoutRestartGapScenario() {
-  const cwd = createProject("vazir-complete-story-review-restart-gap-");
+async function runReviewCloseoutRestartResumeScenario() {
+  const cwd = createProject("vazir-complete-story-review-restart-resume-");
   const notifications: Notification[] = [];
   const selectCalls: SelectCall[] = [];
   const harness = makePi();
@@ -1054,28 +1057,27 @@ async function runReviewCloseoutRestartGapScenario() {
   await harness.completeStory.handler("", ctx);
   const reviewDir = path.join(cwd, ".context", "reviews");
   const reviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name));
-  assert(reviewFiles.length === 1, "review-restart-gap: should create a review file");
+  assert(reviewFiles.length === 1, "review-restart-resume: should create a review file");
   const reviewPath = path.join(reviewDir, reviewFiles[0]);
 
-  // Mark the review complete
+  // Mark the review complete before the session restarts.
   setReviewStatus(reviewPath, "complete");
 
-  // Simulate session restart: new harness loses pending request state
+  // Simulate session restart: new harness loses pending request state.
   const restartHarness = makePi();
   const restartSelectCalls: SelectCall[] = [];
   const restartCtx = makeCtx(cwd, notifications, {
     hasUI: true,
-    selectResponses: ["Close story now"],
+    selectResponses: ["Close story now", "Skip for now"],
     selectCalls: restartSelectCalls,
   });
 
   await restartHarness.completeStory.handler("", restartCtx);
+  await restartHarness.emit("agent_end", {}, restartCtx);
 
-  // Current behavior: it does NOT resume the existing review closeout;
-  // it goes back to ready-for-closeout and can create a second review.
-  // This test documents the gap rather than asserting desired behavior.
-  const hasReadyPrompt = restartSelectCalls.some(call => call.prompt.includes("What would you like to do?"));
-  assert(hasReadyPrompt, "review-restart-gap: after losing pending state, /complete-story should fall back to ready prompt (documented gap: review closeout is not restart-resumable)");
+  assert(restartSelectCalls.some(call => call.prompt.includes("Review complete.")), "review-restart-resume: rerunning /complete-story should reopen the completed review closeout prompt");
+  assert(!restartSelectCalls.some(call => call.prompt.includes("What would you like to do?")), "review-restart-resume: should not fall back to the generic ready prompt once a completed review exists");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "review-restart-resume: closing from the resumed review prompt should still complete the story");
 
   return { cwd, notifications, selectCalls: restartSelectCalls };
 }
@@ -1098,7 +1100,7 @@ try {
   const turnEndIdempotency = await runTurnEndIdempotencyScenario();
   const readinessReviewIdempotency = await runReadinessReviewIdempotencyScenario();
   const learnedRuleDraftRestart = await runLearnedRuleDraftRestartScenario();
-  const reviewCloseoutRestartGap = await runReviewCloseoutRestartGapScenario();
+  const reviewCloseoutRestartResume = await runReviewCloseoutRestartResumeScenario();
 
   console.log("Review Gated Closeout");
   console.log(`cwd: ${reviewGated.cwd}`);
@@ -1228,10 +1230,10 @@ try {
     console.log(`  - [${note.level}] ${note.message}`);
   }
 
-  console.log("Review Closeout Restart Gap");
-  console.log(`cwd: ${reviewCloseoutRestartGap.cwd}`);
+  console.log("Review Closeout Restart Resume");
+  console.log(`cwd: ${reviewCloseoutRestartResume.cwd}`);
   console.log("notifications:");
-  for (const note of reviewCloseoutRestartGap.notifications) {
+  for (const note of reviewCloseoutRestartResume.notifications) {
     console.log(`  - [${note.level}] ${note.message}`);
   }
 } finally {

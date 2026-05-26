@@ -66,6 +66,8 @@
     "a6dd9ac0": "so we have an issue where i keep seeing this in the picture\n\n/tmp/pi-clipboard-b",
     "c28e230e": "this should be a prompt user picks from. what happened?",
     "73402f9e": "no what i want is to work like tis meant to. i want the prompt the user and they",
-    "8cd730e6": "Implement the in-progress story in .context/stories/story-026.md.\n\nYour job:\n1. "
+    "8cd730e6": "Implement the in-progress story in .context/stories/story-026.md.\n\nYour job:\n1. ",
+    "f795049d": "Run a code review and write the results to .context/reviews/review-20260526-1238",
+    "4cc2fe54": "looks like /review loop is not giving me the after fix prompmt to commit???it sh"
   }
 }
