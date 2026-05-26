@@ -51,7 +51,6 @@ import {
   buildContextMapDraftInstruction,
   buildInitSummary,
   buildIntakeBrief,
-  buildLearnedRuleCloseoutInstruction,
   buildRememberInstruction,
   buildReviewInstruction,
   clearLegacyPendingLearnings,
@@ -62,15 +61,10 @@ import {
   createReviewDraft,
   designDir,
   designSystemPath,
-  formatReviewFindingSummary,
-  formatReviewRecommendedFixSummary,
   hasUiTypeOverride,
   isUiStory,
-  parseMiniConsolidateCandidates,
   prepareLearnedRulesForConsolidation,
   parseReviewFrontmatter,
-  readLearnedRuleCloseoutDraft,
-  readStorySection,
   reviewFallowFindingsFromFile,
   reviewFindingsFromFile,
   reviewRecommendedFixesFromFile,
@@ -100,8 +94,6 @@ import {
   memoryDir,
   memoryReviewArchiveCandidates,
   memoryReviewDeleteCandidates,
-  learnedRuleCloseoutDraftPath,
-  miniConsolidateCandidatesPath,
   nextStoryNumber,
   normalizeProjectBrief,
   planTemplate,
@@ -130,13 +122,9 @@ import {
   syncReviewSummaryAndPromoteRules,
   systemPath,
   type ArchiveCandidate,
-  type LearnedRuleCloseoutDraft,
-  type LearnedRuleCloseoutDraftReadResult,
   undescribedIndexFiles,
   userExplicitlyApprovedStatusChange,
   walkSourceFiles,
-  type ReviewFindingSummary,
-  type ReviewRecommendedFix,
   type FallowAuditIssue,
   writeIndex,
 } from "./helpers.ts";
@@ -1226,7 +1214,7 @@ export default function (pi: ExtensionAPI) {
       let shouldRevert: boolean;
       if (ctx.hasUI) {
         const choice = await ctx.ui.select(
-          `The agent marked ${change.basename} as "${change.nextStatus}". Did you mean to close this story? If yes, Vazir can optionally start a review next.`,
+          `The agent marked ${change.basename} as "${change.nextStatus}". Did you mean to close this story?`,
           [
             `Yes — keep it as ${change.nextStatus}`,
             `No — revert to ${change.previous.status}`,
@@ -1241,6 +1229,9 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify(`${change.basename} reverted to "${change.previous.status}"`, "warning");
       }
     }
+
+    // ── Complete-story in-progress review prompt ────────────────────────
+    await completeStoryController.handleAgentEnd(ctx);
 
     // ── Newly completed stories (agent marked complete without /complete-story) ──
     const currentStoryStatuses = new Map(listStories(cwd).map(story => [story.file, story.status]));

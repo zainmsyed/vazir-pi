@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-26T00:20:46Z
+**Last updated:** 2026-05-26T10:48:12Z
 
 ## Findings
 - Remove no-op registration hooks once the real behavior has migrated to the owning extension. | count: 3 | status: promoted | sources: review-20260518-211642.md, review-20260520-013627.md, review-20260520-021434.md | stories: story-020, story-022
@@ -21,6 +21,7 @@
 - Consider adding a rule disallowing editor/backup artifacts (.bak, ~, .orig) in source tree (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Do not commit large binary backups into the main repository; use external storage or LFS. | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Every new resume/shortcut path in a state machine needs a dedicated regression test that proves the shortcut triggers the expected next state. | count: 1 | status: tracked | sources: review-20260520-173733.md | stories: story-022
+- Every persisted workflow phase needs a restart test that proves rerunning the command resumes that exact phase instead of restarting from an earlier prompt. | count: 1 | status: tracked | sources: review-20260526-004914.md | stories: story-026
 - Every state-machine branch that aborts a user-facing workflow must emit a diagnostic so the user knows why the expected prompt did not appear. | count: 1 | status: tracked | sources: review-20260520-021434.md | stories: story-022
 - Every state-machine or guardrail helper that blocks or auto-approves user-facing actions must have at least one direct unit test exercising both the allow and deny paths. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Extract repeated closeout sequences into a single helper to prevent drift | count: 1 | status: tracked | sources: review-20260515-214549.md | stories: story-005
@@ -48,6 +49,7 @@
 - When a validation script loads an extracted extension alongside another extension that already imports it, use the same module instance as production instead of cache-busting one side into a second copy. | count: 1 | status: tracked | sources: review-20260520-004549.md | stories: story-021
 - When a workflow depends on background agent orchestration, do not route control instructions through a user-visible message channel that renders as chat content. | count: 1 | status: tracked | sources: review-20260520-233851.md | stories: story-022
 - When a workflow persists an active backend/mode choice, write follow-up actions against that persisted mode instead of re-probing a different backend first. | count: 1 | status: tracked | sources: review-20260515-191433.md | stories: story-018
+- When a workflow persists an intermediate closeout artifact, `/complete-story` must check for it and resume that phase before offering a fresh closeout prompt. | count: 1 | status: tracked | sources: review-20260526-004914.md | stories: story-026
 - When adding a new backend-specific code path, cover at least the happy path and one error-path branch in the same validation script. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
 - When adding a new section to a structured output template, add a positive assertion that the template contains the section and a negative assertion that the instruction builder does not omit guidance for it. | count: 1 | status: tracked | sources: review-20260516-142440.md | stories: story-006
 - When adding a new signal source to an instruction-driven workflow, validate at least one real consumer path end-to-end instead of only checking that the prompt mentions the source. | count: 1 | status: tracked | sources: review-20260516-125356.md | stories: story-006

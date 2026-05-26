@@ -335,6 +335,7 @@ async function runReviewGatedScenario() {
       "Start code review before closing",
       "Open review document",
       "Keep story open and fix high-priority recommended items",
+      "Keep story open and stay in review",
       "Close story and commit all",
     ],
     selectCalls,
