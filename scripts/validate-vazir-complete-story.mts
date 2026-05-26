@@ -2,13 +2,19 @@ import { createRequire } from "node:module";
 import childProcess from "node:child_process";
 import os from "node:os";
 import * as path from "node:path";
-import { assert, cleanupStubModules, installCommonPiStubs, loadExtensionModule, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
+import { assert, cleanupStubModules, installCommonPiStubs, loadExtensionModule, loadFileModule, makePi as createPiHarness, repoRoot } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 const stubModuleDirs = installCommonPiStubs();
 
 const extensionModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context");
+const closeoutModule = await loadFileModule<{
+  COMPLETE_STORY_PHASE_HANDOFFS: ReadonlyArray<{ phase: string }>;
+  deriveCompleteStoryPhase: (input: { pendingRequest?: any; readinessBlocked?: boolean; reviewStatus?: string | null }) => { phase: string };
+  resetCompleteStoryReviewForRemediation: (pending: Map<string, any>, cwd: string, storyFile: string, reviewFile: string) => void;
+  buildCompleteStoryCommitMessage: (storyPath: string) => string;
+}> (path.join(repoRoot, ".pi", "extensions", "vazir-context", "complete-story.ts"));
 const register = extensionModule.default;
 
 type Notification = { message: string; level: string };
@@ -96,11 +102,11 @@ function createFossilProject(prefix: string): string {
 
 function writeStory(
   cwd: string,
-  options: { checklist: string[]; issues: string[]; completionSummary: string },
+  options: { title?: string; checklist: string[]; issues: string[]; completionSummary: string },
 ): string {
   const filePath = path.join(cwd, ".context", "stories", "story-001.md");
   const content = [
-    "# Story 001: Example",
+    `# Story 001: ${options.title ?? "Example"}`,
     "",
     "**Status:** in-progress  ",
     "**Created:** 2026-03-25  ",
@@ -172,6 +178,9 @@ function makeCtx(
     hasUI,
     isIdle() {
       return isIdle;
+    },
+    hasPendingMessages() {
+      return false;
     },
     ui: {
       notify(message: string, level: string) {
@@ -264,6 +273,63 @@ function writeCompletedReview(reviewPath: string): void {
   );
 }
 
+function runCloseoutHelperAssertions(): void {
+  assert(
+    closeoutModule.COMPLETE_STORY_PHASE_HANDOFFS.map(entry => entry.phase).join(",")
+      === "readiness-review,ready-for-closeout,review-in-progress,review-closeout,learned-rule-closeout",
+    "closeout helper should document the expected complete-story phases",
+  );
+
+  assert(
+    closeoutModule.deriveCompleteStoryPhase({ pendingRequest: { storyFile: "story-001.md" }, readinessBlocked: true }).phase === "readiness-review",
+    "closeout helper should treat blocked stories as readiness-review",
+  );
+  assert(
+    closeoutModule.deriveCompleteStoryPhase({ pendingRequest: { storyFile: "story-001.md" }, readinessBlocked: false }).phase === "ready-for-closeout",
+    "closeout helper should treat ready stories without a review as ready-for-closeout",
+  );
+  assert(
+    closeoutModule.deriveCompleteStoryPhase({ pendingRequest: { storyFile: "story-001.md", reviewFile: "review.md" }, reviewStatus: "in-progress" }).phase === "review-in-progress",
+    "closeout helper should treat incomplete reviews as review-in-progress",
+  );
+  assert(
+    closeoutModule.deriveCompleteStoryPhase({ pendingRequest: { storyFile: "story-001.md", reviewFile: "review.md" }, reviewStatus: "complete" }).phase === "review-closeout",
+    "closeout helper should treat completed reviews as review-closeout",
+  );
+
+  const cwd = createProject("vazir-complete-story-helper-");
+  const reviewPath = path.join(cwd, "review.md");
+  fs.writeFileSync(reviewPath, "**Status:** complete\n**Completed:** 2026-04-08\n");
+  const pending = new Map<string, any>();
+  closeoutModule.resetCompleteStoryReviewForRemediation(pending, cwd, path.join(cwd, "story-001.md"), reviewPath);
+  assert(pending.get(cwd)?.reviewCloseoutReady === false, "closeout helper should reset pending review closeout readiness during remediation");
+  const review = fs.readFileSync(reviewPath, "utf-8");
+  assert(review.includes("**Status:** in-progress"), "closeout helper should rewrite review status during remediation");
+  assert(review.includes("**Completed:** —"), "closeout helper should clear the review completed date during remediation");
+
+  const summaryStoryPath = writeStory(cwd, {
+    title: "Ship onboarding flow",
+    checklist: ["- [x] Wire the submit handler"],
+    issues: [],
+    completionSummary: "Implemented the new signup flow and verified the success path.",
+  });
+  assert(
+    closeoutModule.buildCompleteStoryCommitMessage(summaryStoryPath) === "complete story-001 Ship onboarding flow: Implemented the new signup flow and verified the success path.",
+    "closeout helper should build a descriptive commit message from the story title and completion summary",
+  );
+
+  const fallbackStoryPath = writeStory(cwd, {
+    title: "Polish settings screen",
+    checklist: ["- [x] Add keyboard shortcuts to the settings modal"],
+    issues: [],
+    completionSummary: "Done.",
+  });
+  assert(
+    closeoutModule.buildCompleteStoryCommitMessage(fallbackStoryPath) === "complete story-001 Polish settings screen: Add keyboard shortcuts to the settings modal",
+    "closeout helper should fall back to checked checklist work when the completion summary is too weak",
+  );
+}
+
 function markReviewFixResolved(reviewPath: string, fixLine: string): void {
   const content = fs.readFileSync(reviewPath, "utf-8");
   fs.writeFileSync(reviewPath, content.replace(`- [ ] ${fixLine}`, `- [x] ${fixLine}`));
@@ -271,7 +337,13 @@ function markReviewFixResolved(reviewPath: string, fixLine: string): void {
 
 function setReviewStatus(reviewPath: string, status: "in-progress" | "complete"): void {
   const content = fs.readFileSync(reviewPath, "utf-8");
-  fs.writeFileSync(reviewPath, content.replace(/\*\*Status:\*\*\s+(?:in-progress|complete)\s{2}/, `**Status:** ${status}  `));
+  let updated = content.replace(/^\*\*Status:\*\*\s*.+$/m, `**Status:** ${status}`);
+  if (status === "complete") {
+    updated = updated.replace(/^\*\*Completed:\*\*\s*.+$/m, "**Completed:** 2026-04-08");
+  } else {
+    updated = updated.replace(/^\*\*Completed:\*\*\s*.+$/m, "**Completed:** —");
+  }
+  fs.writeFileSync(reviewPath, updated);
 }
 
 async function runReviewGatedScenario() {
@@ -286,7 +358,8 @@ async function runReviewGatedScenario() {
       "Start code review before closing",
       "Open review document",
       "Keep story open and fix high-priority recommended items",
-      "Close story now (remaining items noted)",
+      "Keep story open and stay in review",
+      "Close story and commit all",
     ],
     selectCalls,
     customCalls,
@@ -320,23 +393,28 @@ async function runReviewGatedScenario() {
     "review-gated complete-story should record when Fallow was not available",
   );
   writeCompletedReview(reviewPath);
+  await harness.emit("turn_end", {}, ctx);
   await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "selecting remediation should keep the story open");
+  assert(fs.readFileSync(reviewPath, "utf-8").includes("**Status:** in-progress"), "fix-path selection should move the review back to in-progress until remediation finishes");
   assert(customCalls.length === 1, "review-gated closeout should allow opening the review document and returning to the choices");
   assert(customCalls[0].title.includes(path.basename(reviewPath)), "review document viewer should show the review file title");
   assert((harness.sentInternalMessages.length as number) === 2, "review-gated closeout should queue a remediation turn after the user selects a fix path");
+  assert(harness.sentInternalMessages[1].message.content.includes("Review .context/reviews/"), "review-gated closeout should dispatch remediation from turn_end");
   assert(harness.sentInternalMessages[1].message.content.includes("Only work the unchecked items marked `high` or `critical`"), "review-gated closeout should support high-priority-only remediation");
   assert(harness.sentInternalMessages[1].message.content.includes("high: Add a local error boundary around the login form"), "review-gated closeout should target the high-priority checklist item");
 
   markReviewFixResolved(reviewPath, "high — Add a local error boundary around the login form");
-  setReviewStatus(reviewPath, "in-progress");
-  await harness.emit("agent_end", {}, ctx);
+  assert((harness.sentInternalMessages.length as number) === 2, "agent_end alone should not queue more complete-story work while remediation is still in progress");
+  setReviewStatus(reviewPath, "complete");
+  await harness.emit("turn_end", {}, ctx);
 
-  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "review-gated closeout should keep the story open until mini-consolidate finishes");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "review-gated closeout should keep the story open when learned-rule closeout is queued");
   assert((harness.sentInternalMessages.length as number) === 3, "review-gated closeout should queue a mini-consolidate turn after review closeout");
 
-  fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
+  await harness.emit("before_agent_start", { prompt: "internal learned-rule closeout" }, ctx);
+  await harness.emit("turn_end", {}, ctx);
   await harness.emit("agent_end", {}, ctx);
 
   const story = fs.readFileSync(storyPath, "utf-8");
@@ -349,6 +427,7 @@ async function runReviewGatedScenario() {
   assert(selectCalls.some(call => call.options.includes("Close story now (remaining items noted)")), "review-gated complete-story should offer a remaining-items-noted close option");
   assert(selectCalls.some(call => call.options.includes("Close story and commit all")), "review-gated complete-story should offer an explicit close-and-commit-all option after review");
   assert(selectCalls.some(call => call.options.includes("Not yet, keep working")), "review-gated complete-story should let the user keep working after remediation");
+  assert(!selectCalls.some(call => call.prompt.includes("Did you mean to close this story?")), "review-gated complete-story should not route approved closeout completion through the agent_end status guard");
 
   return { cwd, notifications, selectCalls, customCalls, reviewFiles, story };
 }
@@ -382,6 +461,7 @@ async function runReviewInProgressPromptScenario() {
   assert(reviewFiles.length === 1, "review-in-progress scenario should create a review file before closing");
 
   const reviewPath = path.join(reviewDir, reviewFiles[0]);
+  await harness.emit("turn_end", {}, ctx);
   await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "review-in-progress scenario should keep the story open while the review is still in progress");
@@ -432,21 +512,21 @@ async function runRestartedReviewCloseoutScenario() {
   const resumedCustomCalls: CustomCall[] = [];
   const resumedCtx = makeCtx(cwd, notifications, {
     hasUI: true,
-    selectResponses: ["Start code review before closing"],
+    selectResponses: ["Open review document", "Close story now (remaining items noted)", "Skip for now"],
     selectCalls: resumedSelectCalls,
     customCalls: resumedCustomCalls,
   });
 
   await harness.completeStory.handler("", resumedCtx);
+  await harness.emit("agent_end", {}, resumedCtx);
 
   const resumedReviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name)).sort();
-  assert(resumedReviewFiles.length === 2, "restart scenario should create a fresh review file on rerun");
-  assert(resumedReviewFiles[0] !== resumedReviewFiles[1], "restart scenario should not overwrite the earlier review");
-  assert(resumedSelectCalls.some(call => call.options.includes("Start code review before closing")), "restart scenario should prompt to start a fresh review on rerun");
-  assert(resumedSelectCalls.some(call => call.options.includes("Close story now")), "restart scenario should still offer the close story choice on rerun");
-  assert(resumedCustomCalls.length === 0, "restart scenario should not reopen the previous review document automatically");
-  assert(harness.sentInternalMessages.length === 2, "restart scenario should dispatch a second review turn on rerun");
-  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "restart scenario should keep the story open until the fresh review finishes");
+  assert(resumedReviewFiles.length === 1, "restart scenario should resume the existing review instead of creating a replacement review file");
+  assert(resumedSelectCalls.some(call => call.options.includes("Open review document")), "restart scenario should reopen the completed review closeout choices on rerun");
+  assert(resumedSelectCalls.some(call => call.prompt.includes("Review complete.")), "restart scenario should resume from the completed review closeout prompt");
+  assert(resumedCustomCalls.length === 1, "restart scenario should still allow reopening the prior review document");
+  assert(harness.sentInternalMessages.length === 2, "restart scenario should continue into learned-rule closeout after the resumed review prompt");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "restart scenario should allow the story to close after the resumed review prompt finishes");
 
   return { cwd, notifications, firstSelectCalls, resumedSelectCalls, resumedCustomCalls, reviewFiles, resumedReviewFiles };
 }
@@ -520,8 +600,11 @@ async function runReadyCloseAndCommitScenario() {
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
   await harness.emit("agent_end", {}, ctx);
 
+  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "close-and-commit scenario should mark the story complete after mini-consolidate");
-  assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "close-and-commit scenario should report the commit result");
+  assert(notifications.some(note => note.message.includes(`Committed with Git: ${expectedMessage}`)), "close-and-commit scenario should report the descriptive commit result");
+  const gitMessage = childProcess.execSync("git log -1 --pretty=%B", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(gitMessage === expectedMessage, "close-and-commit scenario should write the descriptive Git commit message");
   const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
   assert(status === "", "close-and-commit scenario should leave the git checkout clean");
 
@@ -560,8 +643,11 @@ async function runDirtyContextCommitScenario() {
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
   await harness.emit("agent_end", {}, ctx);
 
+  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "dirty .context commit scenario should still complete the story after mini-consolidate");
-  assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "dirty .context commit scenario should commit after the prompt");
+  assert(notifications.some(note => note.message.includes(`Committed with Git: ${expectedMessage}`)), "dirty .context commit scenario should commit after the prompt with the descriptive message");
+  const gitMessage = childProcess.execSync("git log -1 --pretty=%B", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(gitMessage === expectedMessage, "dirty .context commit scenario should persist the descriptive Git commit message");
   const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
   assert(status === "", "dirty .context commit scenario should leave the git checkout clean");
 
@@ -639,9 +725,12 @@ async function runColocatedGitPreferredCommitScenario() {
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
   await harness.emit("agent_end", {}, ctx);
 
+  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated git-preferred scenario should complete the story after mini-consolidate");
-  assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "colocated git-preferred scenario should honor Git instead of switching to JJ");
+  assert(notifications.some(note => note.message.includes(`Committed with Git: ${expectedMessage}`)), "colocated git-preferred scenario should honor Git instead of switching to JJ");
   assert(!notifications.some(note => note.message.includes("Recorded JJ change")), "colocated git-preferred scenario should not describe the change with JJ");
+  const gitMessage = childProcess.execSync("git log -1 --pretty=%B", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(gitMessage === expectedMessage, "colocated git-preferred scenario should keep the descriptive Git commit message");
   const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
   assert(status === "", "colocated git-preferred scenario should leave the Git checkout clean");
 
@@ -680,12 +769,13 @@ async function runColocatedJjPreferredCommitScenario() {
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
   await harness.emit("agent_end", {}, ctx);
 
+  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated JJ-preferred scenario should complete the story after mini-consolidate");
-  assert(notifications.some(note => note.message.includes("Recorded JJ change: complete story-001")), "colocated JJ-preferred scenario should use JJ when explicitly preferred");
+  assert(notifications.some(note => note.message.includes(`Recorded JJ change: ${expectedMessage}`)), "colocated JJ-preferred scenario should use JJ when explicitly preferred");
   const describedMessage = childProcess.execSync("jj log -r @ -T description --no-graph", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-  assert(describedMessage.includes("complete story-001"), "colocated JJ-preferred scenario should describe the current JJ change");
+  assert(describedMessage === expectedMessage, "colocated JJ-preferred scenario should describe the current JJ change with the descriptive message");
   const jjStatus = childProcess.execSync("jj status", { cwd, encoding: "utf-8", stdio: "pipe" });
-  assert(jjStatus.includes("Working copy  (@)") && jjStatus.includes("complete story-001"), "colocated JJ-preferred scenario should keep the described JJ working copy active");
+  assert(jjStatus.includes("Working copy  (@)") && jjStatus.includes(expectedMessage), "colocated JJ-preferred scenario should keep the described JJ working copy active");
 
   return { cwd, notifications, selectCalls };
 }
@@ -723,8 +813,11 @@ async function runFossilCloseAndCommitScenario() {
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
   await harness.emit("agent_end", {}, ctx);
 
+  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "fossil close-and-commit scenario should complete the story after mini-consolidate");
-  assert(notifications.some(note => note.message.includes("Committed with Fossil: complete story-001")), "fossil close-and-commit scenario should report the Fossil commit result");
+  assert(notifications.some(note => note.message.includes(`Committed with Fossil: ${expectedMessage}`)), "fossil close-and-commit scenario should report the descriptive Fossil commit result");
+  const fossilTimeline = childProcess.execSync("fossil timeline -t ci -n 1 -W 0", { cwd, encoding: "utf-8", stdio: "pipe" });
+  assert(fossilTimeline.includes(expectedMessage), "fossil close-and-commit scenario should write the descriptive Fossil commit message");
   const changes = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
   const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
   assert(changes === "" && extras === "", "fossil close-and-commit scenario should leave the checkout clean");
@@ -739,7 +832,7 @@ async function runCandidatesPromoteScenario() {
   const harness = makePi();
   const ctx = makeCtx(cwd, notifications, {
     hasUI: true,
-    selectResponses: ["Close story now", "Promote all"],
+    selectResponses: ["Close story now", "Promote all candidates"],
     selectCalls,
   });
   const storyPath = writeStory(cwd, {
@@ -763,8 +856,9 @@ async function runCandidatesPromoteScenario() {
   await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "candidates-promote scenario should complete the story after promotion");
-  assert(selectCalls.some(call => call.options.includes("Promote all")), "candidates-promote scenario should offer Promote all when multiple candidates exist");
-  assert(selectCalls.some(call => call.options.includes("Skip all")), "candidates-promote scenario should offer Skip all");
+  assert(selectCalls.some(call => call.options.includes("Promote all candidates")), "candidates-promote scenario should offer a promote-all selection");
+  assert(selectCalls.some(call => call.options.includes("Skip for now")), "candidates-promote scenario should offer Skip for now");
+  assert(selectCalls.some(call => call.options.some(option => option.startsWith("Promote candidate 1 — "))), "candidates-promote scenario should offer a preview label for each candidate");
   const systemMd = fs.readFileSync(path.join(cwd, ".context", "memory", "system.md"), "utf-8");
   assert(systemMd.includes("Always validate user input before processing"), "candidates-promote scenario should promote the candidate to system.md");
   assert(systemMd.includes("<!-- source: story-001 -->"), "candidates-promote scenario should add provenance tag");
@@ -780,7 +874,7 @@ async function runCandidatesSkipScenario() {
   const harness = makePi();
   const ctx = makeCtx(cwd, notifications, {
     hasUI: true,
-    selectResponses: ["Close story now", "Skip all"],
+    selectResponses: ["Close story now", "Skip for now"],
     selectCalls,
   });
   const storyPath = writeStory(cwd, {
@@ -845,7 +939,7 @@ async function runKeepWorkingScenario() {
     .replace("## Completion Summary\n", "## Completion Summary\nImplemented the story and verified the expected flow.\n");
   fs.writeFileSync(storyPath, readyStory);
 
-  await harness.emit("agent_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
 
   assert(selectCalls.some(call => call.prompt.includes("What would you like to do?")), "keep-working scenario should prompt for the final action once ready");
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "keep-working scenario should leave the story open when the user says not yet");
@@ -854,7 +948,181 @@ async function runKeepWorkingScenario() {
   return { cwd, notifications, selectCalls };
 }
 
+async function runTurnEndIdempotencyScenario() {
+  const cwd = createProject("vazir-complete-story-idempotency-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story now"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+  assert(harness.sentInternalMessages.length === 1, "idempotency: should queue one mini-consolidate turn");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "idempotency: story should be open before agent_end");
+
+  // Emit turn_end repeatedly before agent_end runs — no duplicate messages or state corruption
+  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
+  assert(harness.sentInternalMessages.length === 1, "idempotency: repeated turn_end should not queue extra internal messages");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "idempotency: story should remain open until agent_end finalizes");
+
+  // Write a valid JSON draft (primary path) with no candidates so agent_end finalizes immediately
+  const draftPath = path.join(cwd, ".context", "reviews", "story-001-learned-rule-closeout.json");
+  fs.mkdirSync(path.dirname(draftPath), { recursive: true });
+  fs.writeFileSync(draftPath, JSON.stringify({ note: "No candidates found.", candidates: [] }, null, 2));
+  await harness.emit("agent_end", {}, ctx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "idempotency: story should complete after agent_end");
+  assert(selectCalls.length === 1, "idempotency: ready closeout should prompt exactly once");
+
+  return { cwd, notifications, selectCalls };
+}
+
+async function runLearnedRuleDraftRestartScenario() {
+  const cwd = createGitProject("vazir-complete-story-draft-restart-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story and commit all"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "draft-restart: story should be open after command");
+
+  // Write a valid learned-rule closeout draft directly, simulating an agent that wrote it
+  const draftPath = path.join(cwd, ".context", "reviews", "story-001-learned-rule-closeout.json");
+  fs.mkdirSync(path.dirname(draftPath), { recursive: true });
+  fs.writeFileSync(draftPath, JSON.stringify({
+    note: "",
+    candidates: [
+      { text: "Always validate input before processing", confidence: "high", sources: ["review finding"], rationale: "" },
+    ],
+  }, null, 2));
+
+  // Simulate a fresh session restart: new harness = new pending-request Map
+  const restartHarness = makePi();
+  const restartSelectCalls: SelectCall[] = [];
+  const restartCtx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Promote all candidates"],
+    selectCalls: restartSelectCalls,
+  });
+
+  await restartHarness.completeStory.handler("", restartCtx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "draft-restart: rerunning /complete-story should resume and finish learned-rule closeout");
+  assert(restartSelectCalls.some(call => call.options.includes("Promote all candidates")), "draft-restart: should show promotion picker on resume");
+  const systemMd = fs.readFileSync(path.join(cwd, ".context", "memory", "system.md"), "utf-8");
+  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
+  assert(systemMd.includes("Always validate input before processing"), "draft-restart: should promote the resumed candidate to system.md");
+  assert(notifications.some(note => note.message.includes(`Committed with Git: ${expectedMessage}`)), "draft-restart: should preserve close-and-commit intent across restart");
+  const gitMessage = childProcess.execSync("git log -1 --pretty=%B", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(gitMessage === expectedMessage, "draft-restart: resumed close-and-commit should keep the descriptive Git commit message");
+  const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(status === "", "draft-restart: resumed close-and-commit should leave the git checkout clean");
+
+  return { cwd, notifications, selectCalls: restartSelectCalls };
+}
+
+async function runReadinessReviewIdempotencyScenario() {
+  const cwd = createProject("vazir-complete-story-readiness-idempotency-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: [],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [ ] Example task"],
+    issues: [
+      "### /fix — \"signup button broken\"",
+      "- **Reported:** 2026-03-25  ",
+      "- **Status:** pending  ",
+      "- **Agent note:** —  ",
+      "- **Solution:** —",
+    ],
+    completionSummary: "",
+  });
+
+  await harness.completeStory.handler("", ctx);
+  assert(harness.sentInternalMessages.length === 1, "readiness-idempotency: should queue one readiness instruction");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "readiness-idempotency: story should be open during readiness review");
+
+  // Emit turn_end repeatedly while the story still has blockers
+  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
+  assert(harness.sentInternalMessages.length === 1, "readiness-idempotency: repeated turn_end should not queue extra readiness instructions");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "readiness-idempotency: story should remain open until blockers are resolved");
+
+  return { cwd, notifications, selectCalls };
+}
+
+async function runReviewCloseoutRestartResumeScenario() {
+  const cwd = createProject("vazir-complete-story-review-restart-resume-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Start code review before closing"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+  const reviewDir = path.join(cwd, ".context", "reviews");
+  const reviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name));
+  assert(reviewFiles.length === 1, "review-restart-resume: should create a review file");
+  const reviewPath = path.join(reviewDir, reviewFiles[0]);
+
+  // Mark the review complete before the session restarts.
+  setReviewStatus(reviewPath, "complete");
+
+  // Simulate session restart: new harness loses pending request state.
+  const restartHarness = makePi();
+  const restartSelectCalls: SelectCall[] = [];
+  const restartCtx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story now", "Skip for now"],
+    selectCalls: restartSelectCalls,
+  });
+
+  await restartHarness.completeStory.handler("", restartCtx);
+  await restartHarness.emit("agent_end", {}, restartCtx);
+
+  assert(restartSelectCalls.some(call => call.prompt.includes("Review complete.")), "review-restart-resume: rerunning /complete-story should reopen the completed review closeout prompt");
+  assert(!restartSelectCalls.some(call => call.prompt.includes("What would you like to do?")), "review-restart-resume: should not fall back to the generic ready prompt once a completed review exists");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "review-restart-resume: closing from the resumed review prompt should still complete the story");
+
+  return { cwd, notifications, selectCalls: restartSelectCalls };
+}
+
 try {
+  runCloseoutHelperAssertions();
   const reviewGated = await runReviewGatedScenario();
   const reviewInProgressPrompt = await runReviewInProgressPromptScenario();
   const restartedReviewCloseout = await runRestartedReviewCloseoutScenario();
@@ -868,6 +1136,10 @@ try {
   const keepWorking = await runKeepWorkingScenario();
   const candidatesPromote = await runCandidatesPromoteScenario();
   const candidatesSkip = await runCandidatesSkipScenario();
+  const turnEndIdempotency = await runTurnEndIdempotencyScenario();
+  const readinessReviewIdempotency = await runReadinessReviewIdempotencyScenario();
+  const learnedRuleDraftRestart = await runLearnedRuleDraftRestartScenario();
+  const reviewCloseoutRestartResume = await runReviewCloseoutRestartResumeScenario();
 
   console.log("Review Gated Closeout");
   console.log(`cwd: ${reviewGated.cwd}`);
@@ -973,6 +1245,34 @@ try {
   console.log(`cwd: ${candidatesSkip.cwd}`);
   console.log("notifications:");
   for (const note of candidatesSkip.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Turn-End Idempotency");
+  console.log(`cwd: ${turnEndIdempotency.cwd}`);
+  console.log("notifications:");
+  for (const note of turnEndIdempotency.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Readiness-Review Idempotency");
+  console.log(`cwd: ${readinessReviewIdempotency.cwd}`);
+  console.log("notifications:");
+  for (const note of readinessReviewIdempotency.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Learned-Rule Draft Restart");
+  console.log(`cwd: ${learnedRuleDraftRestart.cwd}`);
+  console.log("notifications:");
+  for (const note of learnedRuleDraftRestart.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Review Closeout Restart Resume");
+  console.log(`cwd: ${reviewCloseoutRestartResume.cwd}`);
+  console.log("notifications:");
+  for (const note of reviewCloseoutRestartResume.notifications) {
     console.log(`  - [${note.level}] ${note.message}`);
   }
 } finally {

@@ -1,67 +1,34 @@
 # Intake Brief
 
-**Last updated:** 2026-05-15
+**Last updated:** 2026-05-26
 
 ## Planning brief
-The next planning slice adds two priorities on top of the existing Addenda C/D roadmap.
-
-### Priority 1: harden persistence and VCS safety
-The Vazir system guidance must explicitly treat these as non-negotiable:
-- Commit `.context` changes whenever they are part of the work, unless the user explicitly says not to.
-- Never delete, reset, clean, reinitialize, or overwrite VCS files or metadata without explicit user approval for that exact action.
-
-Prompt rules alone are not enough. Vazir should also add runtime guardrails that block dangerous commands when they target protected VCS state.
-
-Protected paths and metadata to cover at minimum:
-- `.git/`
-- `.jj/`
-- `.fslckout`
-- `.fossil-settings/`
-
-Guardrails should also treat repo-shaping commands as dangerous when they would mutate initialized VCS state, including patterns like:
-- `rm -rf`
-- `git clean`
-- `git reset --hard`
-- re-init/open flows such as `jj git init` or `fossil open` when the repo is already initialized
-
-For ambiguous repo files such as `.gitignore`, prefer warning/confirmation rather than silent mutation or blanket blocking. Destructive VCS actions should require a very explicit confirmation token.
-
-### Priority 2: reduce extension sprawl
-The current extension surface is large enough that reviews and fixes feel slow and overly coupled. The preferred direction is to split by responsibility, not by arbitrary file size.
-
-Working split direction:
-- Keep `vazir-context` focused on init, plan, memory, consolidation, and learned-rules/system-prompt assembly.
-- Split review lifecycle into a dedicated review extension.
-- Split story lifecycle and story-close flows into a dedicated story extension.
-- Split VCS/checkpoint/settings logic into a dedicated VCS extension.
-- Keep tracker or UI-focused chrome/status rendering separate from workflow logic.
-
-The highest-risk areas during the split are:
-- `.context` persistence
-- story/review closeout handoffs
-- checkpoint sync and active-mode refresh
-- footer refresh timing and chrome state
-- shared helper drift
-
-### Safe planning assumptions
-- The split should be incremental and behavior-preserving, with regression coverage added before or alongside moves.
-- `.pi/lib/vazir-helpers.ts` remains the shared source for common helpers unless a cleaner shared module emerges during implementation.
-- Existing stories `story-001` through `story-015` are preserved as history; new work starts at `story-016`.
+I want `/complete-story` commit paths to use a short descriptive commit message instead of only `complete story-026`. Include the story name/title and a concise description of what was done.
 
 ## Source files
-- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_C.md
-- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_D.md
-- User replanning direction captured in the current planning conversation
+- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_C.md (13039 bytes)
+- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_D.md (12436 bytes)
 
 ## Distilled notes
-- Addendum C remains the source of truth for design-system behavior.
-- Addendum D remains the source of truth for mini-consolidate, recurrence tracking, and consolidation UX.
-- New scope adds security and maintainability work around `.context` persistence, VCS safety, and extension decomposition.
-- The user wants both prompt-level rules and programmatic enforcement for VCS safety.
-- The user wants the extension split to improve review/fix performance by narrowing responsibility boundaries.
+### Requested change
+- Add a follow-up story for descriptive `/complete-story` commit messages.
+- Keep the message short and concise.
+- Include the story label/title and a brief summary of completed work.
+
+### Relevant intake context
+- Addendum D makes `/complete-story` the owner of story-close mini-consolidate and closeout completion, so this follow-up belongs on that closeout path.
+- Existing closeout flows already support Git, JJ, and Fossil commit paths; the message-format change should preserve that behavior.
+- Story history through `story-026` is preserved; the new scope should be added as a fresh follow-up story starting at `story-027`.
+
+### Safe planning assumptions
+- The descriptive message should be derived from existing story metadata/content rather than by asking the user for a custom message during closeout.
+- Fallback behavior is still needed when the completion summary is weak or absent, so validation should cover both rich and sparse story content.
+- This request changes only `/complete-story` closeout commit messaging, not unrelated manual commit flows.
 
 ## Planning rules
-- Preserve existing story files and queue entries.
-- Express new scope only as additive story rows and new `story-016+` files.
-- Keep each story small enough for one focused implementation session.
-- Do not place questions or open issues inside story checklist items.
+- Treat listed source files as user-authored planning inputs unless they are explicitly marked as generated artifacts.
+- Vazir-generated files in .context/stories/ are replan context, not primary intake.
+- Read all text-based planning sources before asking questions.
+- Ask only implementation-blocking delta questions after reviewing this brief and any raw files you actually need.
+- State safe default assumptions briefly so the user can correct them.
+- Surface contradictions instead of resolving them silently.

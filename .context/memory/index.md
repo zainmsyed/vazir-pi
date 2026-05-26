@@ -19,3 +19,5 @@ types/pi-runtime-ambient.d.ts — Minimal ambient Pi SDK and pi-tui module typin
 .pi/extensions/vazir-review/index.ts — (undescribed)
 .pi/extensions/vazir-story/index.ts — (undescribed)
 .pi/extensions/vazir-vcs/index.ts — (undescribed)
+
+.pi/extensions/vazir-context/complete-story.ts — (undescribed)

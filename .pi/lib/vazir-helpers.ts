@@ -10,6 +10,7 @@ export interface StoryFrontmatter {
   completed: string;
   file: string;
   number: number;
+  title: string;
 }
 
 export type ActiveVcsMode = "git" | "fossil" | "none";
@@ -72,6 +73,8 @@ const BASE_SYSTEM_RULE_LINES = [
   "Write directly to real project files.",
   "Ask before changing ambiguous areas.",
 ];
+
+const FOSSIL_DETECT_TIMEOUT_MS = 1000;
 
 export function readIfExists(filePath: string): string {
   return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : "";
@@ -270,8 +273,10 @@ export function buildDefaultSystemRulesMarkdown(): string {
 }
 
 export function detectFossil(cwd: string): boolean {
+  if (fs.existsSync(path.join(cwd, ".fslckout"))) return true;
+
   try {
-    const jsonInfo = childProcess.execSync("fossil info --json", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const jsonInfo = childProcess.execSync("fossil info --json", { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_DETECT_TIMEOUT_MS }).trim();
     if (jsonInfo) {
       const parsed = JSON.parse(jsonInfo) as { checkout?: { root?: string } };
       const checkoutRoot = parsed.checkout?.root?.trim();
@@ -282,7 +287,7 @@ export function detectFossil(cwd: string): boolean {
   }
 
   try {
-    const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe" });
+    const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_DETECT_TIMEOUT_MS });
     const checkoutRoot = info.match(/^local-root:\s+(.+)$/m)?.[1]?.trim();
     return checkoutRoot ? isCurrentDirectoryInsideRepo(cwd, checkoutRoot) : false;
   } catch {
@@ -396,6 +401,7 @@ export function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null
   const content = readIfExists(filePath);
   if (!content) return null;
 
+  const headingMatch = content.match(/^#\s+Story\s+(\d+):\s*(.+)$/m);
   const statusMatch = content.match(/^\*\*Status:\*\*\s*(.+)$/m);
   const lastAccessedMatch = content.match(/^\*\*Last accessed:\*\*\s*(.+)$/m);
   const completedMatch = content.match(/^\*\*Completed:\*\*\s*(.+)$/m);
@@ -410,6 +416,7 @@ export function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null
     completed: completedMatch?.[1]?.trim() ?? "—",
     file: filePath,
     number: parseInt(numberMatch[1], 10),
+    title: headingMatch?.[2]?.trim() ?? "",
   };
 }
 

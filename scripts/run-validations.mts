@@ -5,29 +5,42 @@ import { cleanupStubModules, installCommonPiStubs } from "./lib/validation-harne
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.dirname(scriptDir);
+
+// Manual-only validations:
+// - validate-vazir-live-reload.mts depends on host fs.watch timing/debounce behavior and is kept
+//   as an explicit troubleshooting/manual check instead of part of the deterministic aggregate suite.
 const validations = [
+  "validate-learned-rule-draft-edge-cases.mts",
   "validate-vazir-checkpoint-labels.mts",
   "validate-vazir-complete-story.mts",
+  "validate-vazir-confidence-and-subsections.mts",
+  "validate-vazir-consolidate-handler-wiring.mts",
+  "validate-vazir-critical-helpers.mts",
   "validate-vazir-design-helpers.mts",
   "validate-vazir-edits-stream.mts",
-  "validate-vazir-implement-command.mts",
-  "validate-vazir-fix-routing.mts",
+  "validate-vazir-fallow-fossil-bridge.mts",
+  "validate-vazir-fallow-fossil-review.mts",
+  "validate-vazir-fallow-recurrence.mts",
   "validate-vazir-fallow-review-closeout.mts",
   "validate-vazir-fallow-signal-sources.mts",
-  "validate-vazir-fallow-fossil-review.mts",
+  "validate-vazir-fix-routing.mts",
+  "validate-vazir-fossil-footer.mts",
+  "validate-vazir-fossil-timeouts.mts",
+  "validate-vazir-implement-command.mts",
   "validate-vazir-init.mts",
   "validate-vazir-learning-loop.mts",
   "validate-vazir-memory-review.mts",
+  "validate-vazir-overlay-reader.mts",
   "validate-vazir-plan-seeding.mts",
   "validate-vazir-remember.mts",
   "validate-vazir-review-design-compliance.mts",
   "validate-vazir-review-loop.mts",
-  "validate-vazir-story-picker-order.mts",
   "validate-vazir-status-chrome.mts",
+  "validate-vazir-story-picker-order.mts",
   "validate-vazir-story-status-guard.mts",
+  "validate-vazir-tracker-resolution.mts",
   "validate-vazir-vcs-safety-policy.mts",
   "validate-vazir-vcs-tool-guard.mts",
-  "validate-vazir-critical-helpers.mts",
 ];
 const stubModuleDirs = installCommonPiStubs();
 

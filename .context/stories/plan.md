@@ -38,7 +38,13 @@ Story-close mini-consolidate runs automatically at `/complete-story`. Fallow rec
 | story-020 | Extract review lifecycle into `vazir-review` | not-started | story-019 |
 | story-021 | Extract story lifecycle into `vazir-story` | not-started | story-019, story-020 |
 | story-022 | Extract VCS workflow into `vazir-vcs` | not-started | story-019, story-018 |
+| story-024 | Map complete-story phases and centralize closeout state helpers | not-started | story-023 |
+| story-025 | Extract complete-story orchestration into a dedicated module | not-started | story-024 |
+| story-026 | Harden complete-story regression coverage and stress-test closeout flows | not-started | story-025 |
+| story-027 | Descriptive `/complete-story` commit messages | not-started | story-026 |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
 - **2026-05-15** — Replanned to add hard VCS safety rules, `.context` commit enforcement, and an incremental extension decomposition path. Preserved existing Addenda C/D queue and appended new follow-on stories starting at story-016.
+- **2026-05-24** — Replanned from the current `/complete-story` stabilization work to add a focused hardening track. Preserved all existing story history and appended story-024 through story-026 for phase mapping/state centralization, module extraction/lifecycle ownership cleanup, and regression-plus-stress-test hardening before any merge toward `main`.
+- **2026-05-26** — Replanned from the user request for descriptive `/complete-story` commit messages. Preserved the existing queue and appended story-027 to add short, story-aware closeout commit summaries across the supported VCS paths.
