@@ -96,6 +96,14 @@
     "5451c31f": "The user wants to plan their project.\nExisting story files already exist in .con",
     "f575d883": "ok lets commit this and write a short detailed message",
     "6750339f": "what was the full command you were running i can run it myself",
-    "2c3c065d": "Implement the in-progress story in .context/stories/story-028.md.\n\nYour job:\n1. "
+    "2c3c065d": "Implement the in-progress story in .context/stories/story-028.md.\n\nYour job:\n1. ",
+    "c8d3ec65": "how do we check story 28",
+    "60bdba59": "how do we check story 28",
+    "364bbdfe": "no i mean visially verify?",
+    "a7144290": "Implement the in-progress story in .context/stories/story-029.md.\n\nYour job:\n1. ",
+    "d64abdae": "how do i check this?",
+    "ff9e2359": "are we going to be wiring in the /checkpoint command eventually in the upcoming ",
+    "50051e79": "are we going to be wiring in the /checkpoint command eventually in the upcoming ",
+    "0d68dad9": "are we going to be wiring in the /checkpoint command eventually in the upcoming "
   }
 }
