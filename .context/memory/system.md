@@ -33,5 +33,9 @@
 - When moving workflow logic into a different lifecycle hook, add regression coverage that exercises that exact hook and the persisted state transitions it controls. <!-- source: story-023 --> <!-- confidence: high -->
 - When a workflow transition depends on both in-memory flags and persisted file frontmatter, centralize the transition in one shared helper so both state sources change together. <!-- source: story-023 --> <!-- confidence: high -->
 - When a closeout flow marks a story complete without relying on user prompt text, record that transition as explicitly approved before the status guard runs. <!-- source: story-025 --> <!-- confidence: high -->
+- After extracting a module, remove imports that are now only consumed by the extracted file. <!-- source: story-025 --> <!-- confidence: high -->
+- Do not commit merge-tool backup files (e.g., `.baseline`, `.merge`, `.original`) to the repository; delete them or add them to `.gitignore`. <!-- source: story-025 --> <!-- confidence: high -->
+- Regression tests should exercise the primary code path, not just the legacy fallback. <!-- source: story-026 --> <!-- confidence: high -->
+- When a checklist calls for coverage 'across' a set of states, verify more than one representative state. <!-- source: story-026 --> <!-- confidence: high -->
 ### From successes
 - When a closeout prompt aggregates work from multiple checklist sections, reuse the same aggregation helper in the action path so the selected work actually executes. <!-- source: story-020 --> <!-- confidence: low — no signal in last 5 stories -->

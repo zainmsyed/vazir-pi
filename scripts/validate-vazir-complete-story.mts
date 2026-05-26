@@ -540,7 +540,7 @@ async function runReadyCloseScenario() {
   assert(fs.readFileSync(path.join(cwd, ".context", "stories", "story-001.md"), "utf-8").includes("**Status:** in-progress"), "ready closeout should keep the story open until mini-consolidate finishes");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(path.join(cwd, ".context", "stories", "story-001.md"), "utf-8").includes("**Status:** complete"), "ready closeout should complete the story after mini-consolidate finishes");
 
@@ -575,7 +575,7 @@ async function runReadyCloseAndCommitScenario() {
   assert(harness.sentInternalMessages.length === 1, "close-and-commit scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "close-and-commit scenario should mark the story complete after mini-consolidate");
   assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "close-and-commit scenario should report the commit result");
@@ -615,7 +615,7 @@ async function runDirtyContextCommitScenario() {
   assert(harness.sentInternalMessages.length === 1, "dirty .context commit scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "dirty .context commit scenario should still complete the story after mini-consolidate");
   assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "dirty .context commit scenario should commit after the prompt");
@@ -654,7 +654,7 @@ async function runDirtyContextDeclineScenario() {
   assert(harness.sentInternalMessages.length === 1, "dirty .context decline scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "dirty .context decline scenario should complete the story after explicit opt-out");
   assert(notifications.some(note => note.message.includes("user explicitly declined the pending .context commit")), "dirty .context decline scenario should log the explicit opt-out");
@@ -694,7 +694,7 @@ async function runColocatedGitPreferredCommitScenario() {
   assert(harness.sentInternalMessages.length === 1, "colocated git-preferred scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated git-preferred scenario should complete the story after mini-consolidate");
   assert(notifications.some(note => note.message.includes("Committed with Git: complete story-001")), "colocated git-preferred scenario should honor Git instead of switching to JJ");
@@ -735,7 +735,7 @@ async function runColocatedJjPreferredCommitScenario() {
   assert(harness.sentInternalMessages.length === 1, "colocated JJ-preferred scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated JJ-preferred scenario should complete the story after mini-consolidate");
   assert(notifications.some(note => note.message.includes("Recorded JJ change: complete story-001")), "colocated JJ-preferred scenario should use JJ when explicitly preferred");
@@ -778,7 +778,7 @@ async function runFossilCloseAndCommitScenario() {
   assert(harness.sentInternalMessages.length === 1, "fossil close-and-commit scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "fossil close-and-commit scenario should complete the story after mini-consolidate");
   assert(notifications.some(note => note.message.includes("Committed with Fossil: complete story-001")), "fossil close-and-commit scenario should report the Fossil commit result");
@@ -817,7 +817,7 @@ async function runCandidatesPromoteScenario() {
   assert(harness.sentInternalMessages.length === 1, "candidates-promote scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "- high: Always validate user input before processing\n");
-  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "candidates-promote scenario should complete the story after promotion");
   assert(selectCalls.some(call => call.options.includes("Promote all candidates")), "candidates-promote scenario should offer a promote-all selection");
@@ -858,7 +858,7 @@ async function runCandidatesSkipScenario() {
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "candidates-skip scenario should keep the story open until mini-consolidate finishes");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "- medium: Use null-coalescing instead of ternary for defaults\n");
-  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("agent_end", {}, ctx);
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "candidates-skip scenario should complete the story after skipping");
   assert(notifications.some(note => note.message.includes("Mini-consolidate skipped for story-001")), "candidates-skip scenario should notify about skip");
@@ -912,6 +912,174 @@ async function runKeepWorkingScenario() {
   return { cwd, notifications, selectCalls };
 }
 
+async function runTurnEndIdempotencyScenario() {
+  const cwd = createProject("vazir-complete-story-idempotency-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story now"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+  assert(harness.sentInternalMessages.length === 1, "idempotency: should queue one mini-consolidate turn");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "idempotency: story should be open before agent_end");
+
+  // Emit turn_end repeatedly before agent_end runs — no duplicate messages or state corruption
+  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
+  assert(harness.sentInternalMessages.length === 1, "idempotency: repeated turn_end should not queue extra internal messages");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "idempotency: story should remain open until agent_end finalizes");
+
+  // Write a valid JSON draft (primary path) with no candidates so agent_end finalizes immediately
+  const draftPath = path.join(cwd, ".context", "reviews", "story-001-learned-rule-closeout.json");
+  fs.mkdirSync(path.dirname(draftPath), { recursive: true });
+  fs.writeFileSync(draftPath, JSON.stringify({ note: "No candidates found.", candidates: [] }, null, 2));
+  await harness.emit("agent_end", {}, ctx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "idempotency: story should complete after agent_end");
+  assert(selectCalls.length === 1, "idempotency: ready closeout should prompt exactly once");
+
+  return { cwd, notifications, selectCalls };
+}
+
+async function runLearnedRuleDraftRestartScenario() {
+  const cwd = createProject("vazir-complete-story-draft-restart-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story now"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "draft-restart: story should be open after command");
+
+  // Write a valid learned-rule closeout draft directly, simulating an agent that wrote it
+  const draftPath = path.join(cwd, ".context", "reviews", "story-001-learned-rule-closeout.json");
+  fs.mkdirSync(path.dirname(draftPath), { recursive: true });
+  fs.writeFileSync(draftPath, JSON.stringify({
+    note: "",
+    candidates: [
+      { text: "Always validate input before processing", confidence: "high", sources: ["review finding"], rationale: "" },
+    ],
+  }, null, 2));
+
+  // Simulate a fresh session restart: new harness = new pending-request Map
+  const restartHarness = makePi();
+  const restartSelectCalls: SelectCall[] = [];
+  const restartCtx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Promote all candidates"],
+    selectCalls: restartSelectCalls,
+  });
+
+  await restartHarness.completeStory.handler("", restartCtx);
+
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "draft-restart: rerunning /complete-story should resume and finish learned-rule closeout");
+  assert(restartSelectCalls.some(call => call.options.includes("Promote all candidates")), "draft-restart: should show promotion picker on resume");
+  const systemMd = fs.readFileSync(path.join(cwd, ".context", "memory", "system.md"), "utf-8");
+  assert(systemMd.includes("Always validate input before processing"), "draft-restart: should promote the resumed candidate to system.md");
+
+  return { cwd, notifications, selectCalls: restartSelectCalls };
+}
+
+async function runReadinessReviewIdempotencyScenario() {
+  const cwd = createProject("vazir-complete-story-readiness-idempotency-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: [],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [ ] Example task"],
+    issues: [
+      "### /fix — \"signup button broken\"",
+      "- **Reported:** 2026-03-25  ",
+      "- **Status:** pending  ",
+      "- **Agent note:** —  ",
+      "- **Solution:** —",
+    ],
+    completionSummary: "",
+  });
+
+  await harness.completeStory.handler("", ctx);
+  assert(harness.sentInternalMessages.length === 1, "readiness-idempotency: should queue one readiness instruction");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "readiness-idempotency: story should be open during readiness review");
+
+  // Emit turn_end repeatedly while the story still has blockers
+  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("turn_end", {}, ctx);
+  assert(harness.sentInternalMessages.length === 1, "readiness-idempotency: repeated turn_end should not queue extra readiness instructions");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "readiness-idempotency: story should remain open until blockers are resolved");
+
+  return { cwd, notifications, selectCalls };
+}
+
+async function runReviewCloseoutRestartGapScenario() {
+  const cwd = createProject("vazir-complete-story-review-restart-gap-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Start code review before closing"],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+  const reviewDir = path.join(cwd, ".context", "reviews");
+  const reviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name));
+  assert(reviewFiles.length === 1, "review-restart-gap: should create a review file");
+  const reviewPath = path.join(reviewDir, reviewFiles[0]);
+
+  // Mark the review complete
+  setReviewStatus(reviewPath, "complete");
+
+  // Simulate session restart: new harness loses pending request state
+  const restartHarness = makePi();
+  const restartSelectCalls: SelectCall[] = [];
+  const restartCtx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Close story now"],
+    selectCalls: restartSelectCalls,
+  });
+
+  await restartHarness.completeStory.handler("", restartCtx);
+
+  // Current behavior: it does NOT resume the existing review closeout;
+  // it goes back to ready-for-closeout and can create a second review.
+  // This test documents the gap rather than asserting desired behavior.
+  const hasReadyPrompt = restartSelectCalls.some(call => call.prompt.includes("What would you like to do?"));
+  assert(hasReadyPrompt, "review-restart-gap: after losing pending state, /complete-story should fall back to ready prompt (documented gap: review closeout is not restart-resumable)");
+
+  return { cwd, notifications, selectCalls: restartSelectCalls };
+}
+
 try {
   runCloseoutHelperAssertions();
   const reviewGated = await runReviewGatedScenario();
@@ -927,6 +1095,10 @@ try {
   const keepWorking = await runKeepWorkingScenario();
   const candidatesPromote = await runCandidatesPromoteScenario();
   const candidatesSkip = await runCandidatesSkipScenario();
+  const turnEndIdempotency = await runTurnEndIdempotencyScenario();
+  const readinessReviewIdempotency = await runReadinessReviewIdempotencyScenario();
+  const learnedRuleDraftRestart = await runLearnedRuleDraftRestartScenario();
+  const reviewCloseoutRestartGap = await runReviewCloseoutRestartGapScenario();
 
   console.log("Review Gated Closeout");
   console.log(`cwd: ${reviewGated.cwd}`);
@@ -1032,6 +1204,34 @@ try {
   console.log(`cwd: ${candidatesSkip.cwd}`);
   console.log("notifications:");
   for (const note of candidatesSkip.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Turn-End Idempotency");
+  console.log(`cwd: ${turnEndIdempotency.cwd}`);
+  console.log("notifications:");
+  for (const note of turnEndIdempotency.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Readiness-Review Idempotency");
+  console.log(`cwd: ${readinessReviewIdempotency.cwd}`);
+  console.log("notifications:");
+  for (const note of readinessReviewIdempotency.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Learned-Rule Draft Restart");
+  console.log(`cwd: ${learnedRuleDraftRestart.cwd}`);
+  console.log("notifications:");
+  for (const note of learnedRuleDraftRestart.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  console.log("Review Closeout Restart Gap");
+  console.log(`cwd: ${reviewCloseoutRestartGap.cwd}`);
+  console.log("notifications:");
+  for (const note of reviewCloseoutRestartGap.notifications) {
     console.log(`  - [${note.level}] ${note.message}`);
   }
 } finally {
