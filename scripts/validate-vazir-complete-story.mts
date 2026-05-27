@@ -13,6 +13,7 @@ const closeoutModule = await loadFileModule<{
   COMPLETE_STORY_PHASE_HANDOFFS: ReadonlyArray<{ phase: string }>;
   deriveCompleteStoryPhase: (input: { pendingRequest?: any; readinessBlocked?: boolean; reviewStatus?: string | null }) => { phase: string };
   resetCompleteStoryReviewForRemediation: (pending: Map<string, any>, cwd: string, storyFile: string, reviewFile: string) => void;
+  buildReviewRemediationInstruction: (cwd: string, reviewFilePath: string, mode: "high" | "all", targetedFixes: Array<{ severity: string; summary: string; checked: boolean }>, targetNoun: "story" | "review") => string;
   buildCompleteStoryCommitMessage: (storyPath: string) => string;
 }> (path.join(repoRoot, ".pi", "extensions", "vazir-context", "complete-story.ts"));
 const register = extensionModule.default;
@@ -307,6 +308,26 @@ function runCloseoutHelperAssertions(): void {
   assert(review.includes("**Status:** in-progress"), "closeout helper should rewrite review status during remediation");
   assert(review.includes("**Completed:** —"), "closeout helper should clear the review completed date during remediation");
 
+  const remediationInstruction = closeoutModule.buildReviewRemediationInstruction(
+    cwd,
+    reviewPath,
+    "all",
+    [{ severity: "medium", summary: "Finish the tracked remediation", checked: false }],
+    "story",
+  );
+  assert(
+    remediationInstruction.includes("setting `**Status:** complete` and `**Completed:**` to today's date"),
+    "review remediation instruction should require the review to be marked complete after fixes",
+  );
+  assert(
+    !remediationInstruction.includes("Do not close the review"),
+    "review remediation instruction should not trap the flow by forbidding review completion",
+  );
+  assert(
+    remediationInstruction.includes("Do not mark the story complete"),
+    "review remediation instruction should still keep story completion under Vazir control",
+  );
+
   const summaryStoryPath = writeStory(cwd, {
     title: "Ship onboarding flow",
     checklist: ["- [x] Wire the submit handler"],
@@ -404,6 +425,8 @@ async function runReviewGatedScenario() {
   assert(harness.sentInternalMessages[1].message.content.includes("Review .context/reviews/"), "review-gated closeout should dispatch remediation from turn_end");
   assert(harness.sentInternalMessages[1].message.content.includes("Only work the unchecked items marked `high` or `critical`"), "review-gated closeout should support high-priority-only remediation");
   assert(harness.sentInternalMessages[1].message.content.includes("high: Add a local error boundary around the login form"), "review-gated closeout should target the high-priority checklist item");
+  assert(harness.sentInternalMessages[1].message.content.includes("setting `**Status:** complete` and `**Completed:**` to today's date"), "review-gated remediation should explicitly tell the agent to finish the review after fixes");
+  assert(!harness.sentInternalMessages[1].message.content.includes("Do not close the review"), "review-gated remediation should not forbid review completion");
 
   markReviewFixResolved(reviewPath, "high — Add a local error boundary around the login form");
   assert((harness.sentInternalMessages.length as number) === 2, "agent_end alone should not queue more complete-story work while remediation is still in progress");

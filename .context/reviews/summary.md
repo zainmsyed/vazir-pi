@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-26T22:14:59Z
+**Last updated:** 2026-05-27T10:39:01Z
 
 ## Findings
 - Add extension-level validation whenever new safety logic is wired into a live event interception path, not just helper-level unit checks. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
@@ -9,6 +9,7 @@
 - After extracting helpers to a new module, delete the original copies to prevent drift and confusion. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Always verify runtime capability flags before returning a mode or state label; preference settings are intent, not proof of readiness. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Avoid committing editor or backup files (e.g. .bak, ~, .tmp). | count: 1 | status: tracked | sources: review-20260422-120959.md
+- Best-effort features should still surface failures via non-blocking notifications so users can distinguish "nothing happened" from "something broke." | count: 1 | status: tracked | sources: review-20260527-095822.md | stories: story-030
 - Consider adding a rule disallowing editor/backup artifacts (.bak, ~, .orig) in source tree (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Do not commit large binary backups into the main repository; use external storage or LFS. | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Do not persist fields in a schema until there is a committed consumer; if stored speculatively, document the planned consumer and target story. | count: 1 | status: tracked | sources: review-20260526-204100.md | stories: story-028
@@ -20,6 +21,7 @@
 - Footer should always include the active story slug for easy orientation. | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Make the team policy explicit about which .context subpaths (if any) are authoritative and tracked. | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Never hardcode story labels or temporal identifiers in reusable command handlers; always derive them from runtime state. | count: 1 | status: tracked | sources: review-20260518-145628.md
+- Picker labels used as lookup keys must be guaranteed unique; never rely solely on user-provided text and time-of-day for uniqueness. | count: 1 | status: tracked | sources: review-20260527-095822.md | stories: story-030
 - Prefer shared prompt-policy builders, but avoid injecting the same policy both from persisted memory and from an additional runtime block. | count: 1 | status: tracked | sources: review-20260515-125626.md | stories: story-016
 - Promote a rule requiring shared test harness utilities for repository validation scripts (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Regression tests should exercise the primary code path, not just the legacy fallback. | count: 1 | status: tracked | sources: review-20260526-121611.md | stories: story-026
@@ -28,6 +30,7 @@
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Silent catch blocks are acceptable for cosmetic or best-effort operations, but never for structural persistence that downstream user actions depend on. | count: 1 | status: tracked | sources: review-20260526-204100.md | stories: story-028
 - Substring-based approval detection must guard against negation prefixes; use word-boundary regexes or explicit allow-list tokens rather than naive `includes()`. | count: 1 | status: tracked | sources: review-20260518-145628.md
+- UI labels that describe a restore action must accurately describe what will be restored; fallbacks to broader categories need relabeling. | count: 1 | status: tracked | sources: review-20260527-095822.md | stories: story-030
 - When a checklist calls for coverage "across" a set of changed-file states, verify more than one representative state — include create, modify, delete, and rename. | count: 1 | status: tracked | sources: review-20260526-215055.md | stories: story-029
 - When a checklist calls for coverage "across" a set of states, verify more than one representative state. | count: 1 | status: tracked | sources: review-20260526-121611.md | stories: story-026
 - When a feature relies on auxiliary binaries beyond its primary tool, validate each dependency explicitly and emit a diagnostic that names the missing tool so users do not confuse it with a failure of the primary feature. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
@@ -50,6 +53,7 @@
 - When parsing VCS status output, include rename/move states explicitly; they are common and silently dropping them creates UI gaps. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When prompt builders interpolate file paths, add one regression assertion that the final prompt contains the concrete rendered path rather than a raw `${...}` placeholder. | count: 1 | status: tracked | sources: review-20260516-125356.md | stories: story-006
+- When the same logic block is pasted into two files, add a cross-reference comment linking both copies so the next editor knows to keep them in sync. | count: 1 | status: tracked | sources: review-20260527-095822.md | stories: story-030
 - When the same string-replacement sequence appears in two or more distinct code paths, extract it into a named helper so future changes to the output format happen in one place. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
 - When tracking async tool lifecycle, correlate start and end events with a unique call identifier, not just the tool name. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When validating tool input for security, always check every documented alias of a target field (`path` / `filePath`), not just the primary one. | count: 1 | status: tracked | sources: review-20260518-145628.md

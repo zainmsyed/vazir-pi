@@ -104,6 +104,11 @@
     "d64abdae": "how do i check this?",
     "ff9e2359": "are we going to be wiring in the /checkpoint command eventually in the upcoming ",
     "50051e79": "are we going to be wiring in the /checkpoint command eventually in the upcoming ",
-    "0d68dad9": "are we going to be wiring in the /checkpoint command eventually in the upcoming "
+    "0d68dad9": "are we going to be wiring in the /checkpoint command eventually in the upcoming ",
+    "a0315860": "no dude we fixed this this should not be happening. after the fix we should see ",
+    "1ac02a4d": "Implement the in-progress story in .context/stories/story-030.md.\n\nYour job:\n1. ",
+    "a6646349": "yes please this is a big bug adn the exact reason why we \"hardened this flow",
+    "5aed2287": "no i want to fix the flow! something got messed up this branch to where this is ",
+    "f9636f21": "no i want to fix the flow! something got messed up this branch to where this is "
   }
 }

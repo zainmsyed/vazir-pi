@@ -60,6 +60,7 @@ import {
   detectGitRepo,
   findOrphanedGitSessions,
   getLatestUndoableAgentRun,
+  getMilestoneChoices,
   gitRestoreCheckpoint,
   gitSnapshotFile,
   inspectVcsToolGuard,
@@ -70,11 +71,14 @@ import {
   jjRestoreCheckpoint,
   listGitCheckpoints,
   loadJjCheckpointLabels,
+  milestoneLabel,
   noteUserVcsApproval,
   persistCurrentJjCheckpointLabel,
   saveAgentRunCheckpoint,
+  saveMilestone,
   sessionCheckpointDir,
   syncChanges,
+  type Milestone,
 } from "./vcs.ts";
 
 // ── Session state ──────────────────────────────────────────────────────
@@ -620,6 +624,19 @@ export default function (pi: ExtensionAPI) {
       } catch (e: any) {
         ctx.ui?.notify?.(`Failed to save undo checkpoint: ${e.message}`, "warning");
       }
+
+      try {
+        const postRunOpId = currentJjOpId(ctx.cwd);
+        saveMilestone(ctx.cwd, {
+          id: `${postRunOpId}-${Date.now()}`,
+          opId: jjPreRunOpId,
+          label: lastUserPrompt.slice(0, 100),
+          timestamp: new Date().toISOString(),
+          kind: "agent-run",
+        });
+      } catch (e: any) {
+        ctx.ui?.notify?.(`Failed to save milestone: ${e.message}`, "warning");
+      }
     }
 
     // Reset per-run state for next agent run
@@ -887,15 +904,19 @@ export default function (pi: ExtensionAPI) {
 
     if (useJJ) {
       const latestRun = getLatestUndoableAgentRun(cwd);
-      const pickable = jjCheckpointChoices(cwd);
+      const milestones = getMilestoneChoices(cwd);
+      const rawPickable = jjCheckpointChoices(cwd);
 
       const undoLabel = latestRun
         ? `Undo last agent run — ${latestRun.prompt.slice(0, 40)}`
-        : "Previous checkpoint — undo last agent turn";
+        : milestones.length > 0
+          ? `Restore latest milestone — ${milestones[0].label.slice(0, 40)}`
+          : "No undo target available";
 
       const restoreChoice = await ctx.ui.select("Restore checkpoint?", [
         undoLabel,
-        "Choose checkpoint — pick from history",
+        "Browse milestones — pick from curated history",
+        "Save milestone — mark current state",
         "Cancel",
       ]);
 
@@ -909,10 +930,10 @@ export default function (pi: ExtensionAPI) {
           } catch (e: any) {
             ctx.ui.notify(`Restore failed: ${e.message}`, "error");
           }
-        } else if (pickable.length > 0) {
+        } else if (milestones.length > 0) {
           try {
-            jjRestoreCheckpoint(cwd, pickable[0].id);
-            ctx.ui.notify(`Restored to previous checkpoint (${checkpointLabel(pickable[0])})`, "info");
+            jjRestoreCheckpoint(cwd, milestones[0].opId);
+            ctx.ui.notify(`Restored to previous milestone (${milestones[0].label.slice(0, 50)})`, "info");
           } catch (e: any) {
             ctx.ui.notify(`Restore failed: ${e.message}`, "error");
           }
@@ -920,21 +941,47 @@ export default function (pi: ExtensionAPI) {
           ctx.ui.notify("No checkpoints available to restore", "info");
           return;
         }
-      } else if (restoreChoice === "Choose checkpoint — pick from history") {
-        if (pickable.length === 0) {
-          ctx.ui.notify("No checkpoints available to restore", "info");
-          return;
-        }
-        const labels = pickable.map(op => checkpointLabel(op));
-        const pick = await ctx.ui.select("Restore to which checkpoint?", labels);
-        if (pick != null) {
-          const chosen = pickable[labels.indexOf(pick)];
+      } else if (restoreChoice === "Browse milestones — pick from curated history") {
+        const labels = milestones.map(ms => milestoneLabel(ms));
+        const pick = await ctx.ui.select("Restore to which milestone?", [...labels, "Advanced — browse raw JJ history"]);
+        if (pick === "Advanced — browse raw JJ history") {
+          if (rawPickable.length === 0) {
+            ctx.ui.notify("No raw checkpoints available", "info");
+            return;
+          }
+          const rawLabels = rawPickable.map(op => checkpointLabel(op));
+          const rawPick = await ctx.ui.select("Restore to which raw checkpoint?", rawLabels);
+          if (rawPick != null) {
+            const chosen = rawPickable[rawLabels.indexOf(rawPick)];
+            try {
+              jjRestoreCheckpoint(cwd, chosen.id);
+              ctx.ui.notify(`Restored to raw checkpoint: ${checkpointLabel(chosen)}`, "info");
+            } catch (e: any) {
+              ctx.ui.notify(`Restore failed: ${e.message}`, "error");
+            }
+          }
+        } else if (pick != null) {
+          const chosen = milestones[labels.indexOf(pick)];
           try {
-            jjRestoreCheckpoint(cwd, chosen.id);
-            ctx.ui.notify(`Restored to checkpoint: ${checkpointLabel(chosen)}`, "info");
+            jjRestoreCheckpoint(cwd, chosen.opId);
+            ctx.ui.notify(`Restored to milestone: ${milestoneLabel(chosen)}`, "info");
           } catch (e: any) {
             ctx.ui.notify(`Restore failed: ${e.message}`, "error");
           }
+        }
+      } else if (restoreChoice === "Save milestone — mark current state") {
+        try {
+          const opId = currentJjOpId(cwd);
+          saveMilestone(cwd, {
+            id: `${opId}-${Date.now()}`,
+            opId,
+            label: lastUserPrompt.trim() ? `Manual save — ${lastUserPrompt.slice(0, 80)}` : "Manual save",
+            timestamp: new Date().toISOString(),
+            kind: "explicit-save",
+          });
+          ctx.ui.notify("Current state saved as milestone", "info");
+        } catch (e: any) {
+          ctx.ui.notify(`Failed to save milestone: ${e.message}`, "error");
         }
       }
 
