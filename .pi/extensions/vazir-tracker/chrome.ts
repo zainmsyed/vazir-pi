@@ -136,7 +136,7 @@ let _vcsOverridden = false;
 export function setVcsFlags(
   hasGitRepo: boolean,
   useJJ: boolean,
-  vcsKind: "none" | "git" | "jj" | "fossil" = useJJ ? "jj" : hasGitRepo ? "git" : "none",
+  vcsKind: "none" | "git" | "jj" | "fossil" = hasGitRepo ? "git" : "none",
   display: { refLabel: string; workingLabel: string; syncLabel: string } = { refLabel: "workspace", workingLabel: "", syncLabel: "" },
   isOverridden: boolean = false,
 ): void {
