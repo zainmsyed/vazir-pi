@@ -1,7 +1,7 @@
 # Vazir POC — Addenda C & D Implementation Plan
 
-**Created:** 2026-05-05  
-**Last updated:** 2026-05-26
+**Created:** 2026-05-05
+**Last updated:** 2026-05-27
 
 ---
 
@@ -24,6 +24,9 @@ Story-close mini-consolidate runs automatically at `/complete-story`. Fallow rec
 ### Feature 3: JJ checkpoint and restore hardening
 Trustworthy JJ undo should target one completed agent run that changed files, not raw JJ operation spam. User-facing checkpoint browsing should center on exact undo-last-run and curated milestones, while restore paths keep code and relevant `.context` workflow state aligned.
 
+### Feature 4: VCS commit semantics hardening
+`active_vcs_mode` should own the commit operation. `vcs_preference` should control display and checkpoints only. In colocated git+jj repos with `vcs_preference: "jj"`, "commit all" must create a real git commit, not run `jj describe`.
+
 ## JJ replan addendum
 ### Problem summary
 JJ checkpoint restore is currently too noisy and not trustworthy: the primary history is flooded with low-value snapshots, and restore behavior can produce mixed or surprising state.
@@ -33,6 +36,16 @@ JJ checkpoint restore is currently too noisy and not trustworthy: the primary hi
 - **Curated milestones:** show explicit user checkpoints and selected workflow-boundary milestones instead of raw JJ snapshot history.
 - **Exact restore:** use one exact restore procedure for both default undo and milestone restore so rollbacks are unsurprising.
 - **Restore-safe workflow state:** keep relevant `.context` story/review state synchronized with restored code and resumed sessions.
+
+## VCS commit replan addendum
+### Problem summary
+In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryCloseChanges` function bypasses `git commit` and runs `jj describe` instead. `jj describe` does not create a git commit, so the user sees files remain uncommitted after choosing "commit all".
+
+### Proposed behavior/spec
+- When `active_vcs_mode === "git"`, always use `git commit` regardless of `vcs_preference`.
+- Remove the `detectJJ(cwd)` fallback commit path that uses `jj describe` when `active_vcs_mode === "none"`.
+- Clean up dead duplicate condition in `resolvePreferredVcsKind`.
+- Preserve Fossil commit path, JJ install/setup flow, footer display, and checkpoint/undo behavior.
 
 ## Story queue
 | Story | Title | Status | Blocks |
@@ -59,6 +72,8 @@ JJ checkpoint restore is currently too noisy and not trustworthy: the primary hi
 | story-029 | Exact JJ restore semantics | not-started | story-028 |
 | story-030 | Milestone checkpoint curation and restore UX | not-started | story-028, story-029 |
 | story-031 | Restore-safe `.context` workflow state and end-to-end hardening | not-started | story-028, story-029, story-030 |
+| story-032 | Fix git commit bypass when `vcs_preference` is `jj` in colocated repos | not-started | — |
+| story-033 | Normalize footer VCS identity to git or fossil only | not-started | story-032 |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
@@ -66,3 +81,5 @@ JJ checkpoint restore is currently too noisy and not trustworthy: the primary hi
 - **2026-05-24** — Replanned from the current `/complete-story` stabilization work to add a focused hardening track. Preserved all existing story history and appended story-024 through story-026 for phase mapping/state centralization, module extraction/lifecycle ownership cleanup, and regression-plus-stress-test hardening before any merge toward `main`.
 - **2026-05-26** — Replanned from the user request for descriptive `/complete-story` commit messages. Preserved the existing queue and appended story-027 to add short, story-aware closeout commit summaries across the supported VCS paths.
 - **2026-05-26** — Replanned from the user request to fix JJ checkpoint/restore UX and reliability. Preserved existing story history and appended story-028 through story-031 for agent-run undo modeling, exact JJ restore semantics, curated milestone UX, and restore-safe `.context` workflow hardening.
+- **2026-05-27** — Replanned from the user request to fix git commit bypass when `vcs_preference` is `"jj"`. Preserved existing queue and appended story-032 to remove the `vcsPreference === "jj"` bypass in `commitStoryCloseChanges`, remove the `detectJJ` fallback commit path, and clean up the dead duplicate condition in `resolvePreferredVcsKind`.
+- **2026-05-27** — Replanned from the user request to normalize the footer so only git or fossil appear as active VCS identities. Preserved the existing queue and appended story-033 to keep JJ available for checkpoints while rendering Git+JJ repos as git in the footer/chrome.

@@ -894,7 +894,7 @@ function footerBranchSegment(
   const hostBranch = _vcsKind === "git" && _hasGitRepo ? footerData.getGitBranch() : null;
   const rawBranch = hostBranch || (_vcsKind === "git" ? liveGitBranchLabel(cwd) : null) || branchLabel(cwd);
   const icon = vcsIcon(_vcsKind);
-  const branch = clipInline(icon ? `${icon} ${rawBranch}` : rawBranch, 24);
+  const branch = clipInline(icon ? `${icon}  ${rawBranch}` : rawBranch, 24);
   const branchPart = paint(branch, "branch");
   const vcsPart = footerVcsStatusSegment();
   return vcsPart ? `${branchPart}${separatorDot()}${vcsPart}` : branchPart;

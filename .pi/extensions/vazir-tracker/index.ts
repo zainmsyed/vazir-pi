@@ -319,7 +319,6 @@ function resolvePreferredVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" 
     if (vcsPreference === "git" && hasGitRepo) return "git";
     // If preference doesn't match detected repos, still honor it for explicit user choice
     if (vcsPreference === "fossil") return "fossil";
-    if (vcsPreference === "jj" && useJJ) return "jj";
     if (vcsPreference === "git") return "git";
   }
 
@@ -327,7 +326,6 @@ function resolvePreferredVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" 
     // Settings are the source of truth
     if (activeMode === "fossil") return hasFossilRepo ? "fossil" : "none";
     if (activeMode === "git") {
-      if (useJJ) return "jj";
       return hasGitRepo ? "git" : "none";
     }
     return "none"; // activeMode === "none"

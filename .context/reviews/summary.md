@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-27T11:14:41Z
+**Last updated:** 2026-05-27T22:20:46Z
 
 ## Findings
 - Add extension-level validation whenever new safety logic is wired into a live event interception path, not just helper-level unit checks. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
@@ -37,6 +37,7 @@
 - When a feature relies on auxiliary binaries beyond its primary tool, validate each dependency explicitly and emit a diagnostic that names the missing tool so users do not confuse it with a failure of the primary feature. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
 - When a safety approval flow instructs the user to approve in one turn and retry in another, store the approval state independently from the latest natural-language prompt. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
+- When a story’s final verification depends on a manual or integration validation step, record the exact validation evidence in the story file or keep the checklist item unchecked until it is performed. | count: 1 | status: tracked | sources: review-20260527-221829.md | stories: story-032
 - When a workflow persists an intermediate closeout artifact, `/complete-story` must check for it and resume that phase before offering a fresh closeout prompt. | count: 1 | status: tracked | sources: review-20260526-004914.md | stories: story-026
 - When adding a new backend-specific code path, cover at least the happy path and one error-path branch in the same validation script. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
 - When adding a new signal source to an instruction-driven workflow, validate at least one real consumer path end-to-end instead of only checking that the prompt mentions the source. | count: 1 | status: tracked | sources: review-20260516-125356.md | stories: story-006
