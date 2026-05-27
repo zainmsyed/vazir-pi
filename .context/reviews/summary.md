@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-27T22:20:46Z
+**Last updated:** 2026-05-27T22:37:06Z
 
 ## Findings
 - Add extension-level validation whenever new safety logic is wired into a live event interception path, not just helper-level unit checks. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
@@ -34,6 +34,7 @@
 - UI labels that describe a restore action must accurately describe what will be restored; fallbacks to broader categories need relabeling. | count: 1 | status: tracked | sources: review-20260527-095822.md | stories: story-030
 - When a checklist calls for coverage "across" a set of changed-file states, verify more than one representative state — include create, modify, delete, and rename. | count: 1 | status: tracked | sources: review-20260526-215055.md | stories: story-029
 - When a checklist calls for coverage "across" a set of states, verify more than one representative state. | count: 1 | status: tracked | sources: review-20260526-121611.md | stories: story-026
+- When a checklist says validation covers multiple environments or backends, do not mark it complete unless each named environment was actually verified or the checklist text is narrowed to match the evidence. | count: 1 | status: tracked | sources: review-20260527-223502.md | stories: story-033
 - When a feature relies on auxiliary binaries beyond its primary tool, validate each dependency explicitly and emit a diagnostic that names the missing tool so users do not confuse it with a failure of the primary feature. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
 - When a safety approval flow instructs the user to approve in one turn and retry in another, store the approval state independently from the latest natural-language prompt. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -52,6 +53,7 @@
 - When extracting lifecycle handlers into a new extension, remove the original registration to avoid duplicate event processing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When generating numbered requirement lists in instruction builders, scan for duplicate ordinals before committing. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When normalising tool input paths, always use the same helper at every consumption site; do not re-implement partial extracts that drift from the canonical fallback logic. | count: 1 | status: tracked | sources: review-20260526-204100.md | stories: story-028
+- When normalizing a user-visible backend identity, do not let a stale preference override advertise a backend that is not actually available in the current repo. | count: 1 | status: tracked | sources: review-20260527-223502.md | stories: story-033
 - When parsing VCS status output, include rename/move states explicitly; they are common and silently dropping them creates UI gaps. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When prompt builders interpolate file paths, add one regression assertion that the final prompt contains the concrete rendered path rather than a raw `${...}` placeholder. | count: 1 | status: tracked | sources: review-20260516-125356.md | stories: story-006

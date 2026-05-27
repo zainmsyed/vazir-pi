@@ -312,14 +312,13 @@ function resolvePreferredVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" 
   const hasExplicitMode = "active_vcs_mode" in settings;
   const activeMode = readActiveVcsMode(cwd);
 
-  // vcs_preference acts as an override when explicitly set to a non-auto value
+  // Footer/chrome identity shows the backend VCS only: git or fossil.
+  // JJ remains a helper for checkpoints/undo when Git is active.
   if (vcsPreference && vcsPreference !== "auto") {
     if (vcsPreference === "fossil" && hasFossilRepo) return "fossil";
-    if (vcsPreference === "jj" && useJJ) return "jj";
-    if (vcsPreference === "git" && hasGitRepo) return "git";
-    // If preference doesn't match detected repos, still honor it for explicit user choice
-    if (vcsPreference === "fossil") return "fossil";
-    if (vcsPreference === "git") return "git";
+    if (((vcsPreference === "jj" && useJJ) || vcsPreference === "git") && hasGitRepo) {
+      return "git";
+    }
   }
 
   if (hasExplicitMode) {
@@ -332,9 +331,8 @@ function resolvePreferredVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" 
   }
 
   // Legacy fallback for pre-story-014 projects without active_vcs_mode
-  // Prefer Git over Fossil when both are present
-  if (useJJ) return "jj";
-  if (hasGitRepo) return "git";
+  // Prefer Git over Fossil when both are present. Colocated Git+JJ still renders as Git.
+  if (useJJ || hasGitRepo) return "git";
   if (hasFossilRepo) return "fossil";
   return "none";
 }
@@ -343,8 +341,7 @@ function computeAutoDetectedVcsKind(cwd: string): "none" | "git" | "jj" | "fossi
   const git = detectGitRepo(cwd);
   const jj = git ? detectJJ(cwd) : false;
   const fossil = detectFossil(cwd);
-  if (jj) return "jj";
-  if (git) return "git";
+  if (jj || git) return "git";
   if (fossil) return "fossil";
   return "none";
 }

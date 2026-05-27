@@ -2341,7 +2341,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     useJJ = jjActive;
-    const resolvedPreference = requestedPreference === "jj" && jjActive ? "jj" : "git";
+    const resolvedPreference = "git";
     persistVcsSettings(cwd, resolvedPreference, "git");
     ctx.ui.notify(`VCS preference set to ${resolvedPreference}`, "info");
   }
