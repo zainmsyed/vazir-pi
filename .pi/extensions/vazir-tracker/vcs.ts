@@ -424,6 +424,64 @@ export function getLatestUndoableAgentRun(cwd: string): AgentRunCheckpoint | nul
   return null;
 }
 
+// ── Milestone helpers ──────────────────────────────────────────────────
+// NOTE: This block is mirrored in .pi/lib/vazir-vcs-helpers.ts.
+// Any change here should be applied there as well (or the duplication
+// should be removed by importing from a single source of truth).
+
+export interface Milestone {
+  id: string;
+  opId: string;
+  label: string;
+  timestamp: string;
+  kind: "agent-run" | "explicit-save" | "workflow-boundary";
+}
+
+interface MilestoneStore {
+  milestones: Milestone[];
+}
+
+const MILESTONE_MAX = 30;
+
+function milestonesPath(cwd: string): string {
+  return path.join(cwd, ".context", "settings", "jj-milestones.json");
+}
+
+export function loadMilestones(cwd: string): Milestone[] {
+  const storePath = milestonesPath(cwd);
+  if (!fs.existsSync(storePath)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(storePath, "utf-8")) as Partial<MilestoneStore>;
+    if (Array.isArray(parsed.milestones)) return parsed.milestones;
+  } catch {
+    /* ignore corrupt store */
+  }
+  return [];
+}
+
+function pruneMilestones(milestones: Milestone[]): Milestone[] {
+  return milestones.slice(-MILESTONE_MAX);
+}
+
+export function saveMilestone(cwd: string, milestone: Milestone): void {
+  const storePath = milestonesPath(cwd);
+  fs.mkdirSync(path.dirname(storePath), { recursive: true });
+  const existing = loadMilestones(cwd);
+  existing.push(milestone);
+  const pruned = pruneMilestones(existing);
+  fs.writeFileSync(storePath, JSON.stringify({ milestones: pruned }, null, 2));
+}
+
+export function milestoneLabel(ms: Milestone): string {
+  const t = new Date(ms.timestamp).toLocaleTimeString();
+  const kindPrefix = ms.kind === "agent-run" ? "Run" : ms.kind === "explicit-save" ? "Save" : "Boundary";
+  return `${t} · ${kindPrefix} · ${ms.label.slice(0, 50)} · ${ms.id.slice(-4)}`;
+}
+
+export function getMilestoneChoices(cwd: string): Milestone[] {
+  return loadMilestones(cwd).slice().reverse();
+}
+
 // ── VCS sync ───────────────────────────────────────────────────────────
 
 function syncFromGit(cwd: string): void {
