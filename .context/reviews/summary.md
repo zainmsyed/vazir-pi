@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-27T10:39:01Z
+**Last updated:** 2026-05-27T11:14:41Z
 
 ## Findings
 - Add extension-level validation whenever new safety logic is wired into a live event interception path, not just helper-level unit checks. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017
@@ -28,6 +28,7 @@
 - Remove no-op registration hooks once the real behavior has migrated to the owning extension. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Require an automated integration test for any change touching .context persistence or extension APIs (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
+- Restart/restore regression coverage for persisted workflow state should verify both same-story phase rewinds and cross-story state replacement, because stale memory can point at a different entity than the restored disk state. | count: 1 | status: tracked | sources: review-20260527-105437.md | stories: story-031
 - Silent catch blocks are acceptable for cosmetic or best-effort operations, but never for structural persistence that downstream user actions depend on. | count: 1 | status: tracked | sources: review-20260526-204100.md | stories: story-028
 - Substring-based approval detection must guard against negation prefixes; use word-boundary regexes or explicit allow-list tokens rather than naive `includes()`. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - UI labels that describe a restore action must accurately describe what will be restored; fallbacks to broader categories need relabeling. | count: 1 | status: tracked | sources: review-20260527-095822.md | stories: story-030
@@ -53,6 +54,7 @@
 - When parsing VCS status output, include rename/move states explicitly; they are common and silently dropping them creates UI gaps. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When prompt builders interpolate file paths, add one regression assertion that the final prompt contains the concrete rendered path rather than a raw `${...}` placeholder. | count: 1 | status: tracked | sources: review-20260516-125356.md | stories: story-006
+- When reconciling restored disk state with stale in-memory workflow state, do not stop after clearing the stale entry; continue searching for the restored authoritative state in the same pass. | count: 1 | status: tracked | sources: review-20260527-105437.md | stories: story-031
 - When the same logic block is pasted into two files, add a cross-reference comment linking both copies so the next editor knows to keep them in sync. | count: 1 | status: tracked | sources: review-20260527-095822.md | stories: story-030
 - When the same string-replacement sequence appears in two or more distinct code paths, extract it into a named helper so future changes to the output format happen in one place. | count: 1 | status: tracked | sources: review-20260516-131516.md | stories: story-006
 - When tracking async tool lifecycle, correlate start and end events with a unique call identifier, not just the tool name. | count: 1 | status: tracked | sources: review-20260518-145628.md
