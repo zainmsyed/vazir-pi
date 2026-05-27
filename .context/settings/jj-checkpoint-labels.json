@@ -143,6 +143,9 @@
     "a3e12296": "yes create this into story 033 using the vazir template for stories",
     "639e9fed": "Implement the in-progress story in .context/stories/story-033.md.\n\nYour job:\n1. ",
     "4f80325c": "Implement the in-progress story in .context/stories/story-033.md.\n\nYour job:\n1. ",
-    "9badda63": "yes please"
+    "9badda63": "yes please",
+    "5bab3a26": "commit all",
+    "fb961b06": "did you update the fossil ignore blob as well. i forgot to ask prior to the comm",
+    "8b3174e8": "yes please up the ignore blob and commit"
   }
 }

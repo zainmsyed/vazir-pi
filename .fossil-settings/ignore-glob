@@ -26,6 +26,8 @@ _FOSSIL_
 *.sublime-workspace
 *.sublime-project
 *.log
+output.txt
+ci-comment-*.txt
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
