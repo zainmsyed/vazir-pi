@@ -50,30 +50,34 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 ## Story queue
 | Story | Title | Status | Blocks |
 |---|---|---|---|
-| story-001 | Design system folder, UI story detection, and seeding | not-started | — |
-| story-002 | Design context injection and lazy first-UI-story questions | not-started | story-001 |
-| story-003 | `/design` command and chrome registration | not-started | story-001 |
-| story-004 | Design compliance in `/review` | not-started | story-001 |
-| story-005 | Story-close mini-consolidate and promotion UX | not-started | — |
-| story-006 | Fallow recurrence tracking in complaints-log | not-started | story-005 |
-| story-007 | Enhanced manual `/consolidate` with positive patterns and confidence scoring | not-started | story-005 |
-| story-016 | VCS safety policy and protected-target detection | not-started | — |
-| story-017 | Runtime guardrails for destructive VCS operations | not-started | story-016 |
-| story-018 | `.context` persistence enforcement in closeout flows | not-started | story-016, story-017 |
-| story-019 | Extension split scaffolding and ownership boundaries | not-started | story-016, story-018 |
+| story-001 | Design system folder, UI story detection, and seeding | archived | — |
+| story-002 | Design context injection and lazy first-UI-story questions | complete | story-001 |
+| story-003 | `/design` command and chrome registration | complete | story-001 |
+| story-004 | Design compliance in `/review` | complete | story-001 |
+| story-005 | Story-close mini-consolidate and promotion UX | complete | — |
+| story-006 | Fallow recurrence tracking in complaints-log | complete | story-005 |
+| story-007 | Enhanced manual `/consolidate` with positive patterns and confidence scoring | complete | story-005 |
+| story-014 | `/vazir-init` version control system (VCS) repo-scan setup and active-mode settings | complete | — |
+| story-015 | VCS preference discoverability and override | complete | story-014 |
+| story-016 | VCS safety policy and protected-target detection | complete | — |
+| story-017 | Runtime guardrails for destructive VCS operations | complete | story-016 |
+| story-018 | `.context` persistence enforcement in closeout flows | archived | story-016, story-017 |
+| story-019 | Extension split scaffolding and ownership boundaries | archived | story-016, story-018 |
 | story-020 | Extract review lifecycle into `vazir-review` | not-started | story-019 |
-| story-021 | Extract story lifecycle into `vazir-story` | not-started | story-019, story-020 |
-| story-022 | Extract VCS workflow into `vazir-vcs` | not-started | story-019, story-018 |
-| story-024 | Map complete-story phases and centralize closeout state helpers | not-started | story-023 |
-| story-025 | Extract complete-story orchestration into a dedicated module | not-started | story-024 |
-| story-026 | Harden complete-story regression coverage and stress-test closeout flows | not-started | story-025 |
-| story-027 | Descriptive `/complete-story` commit messages | not-started | story-026 |
-| story-028 | Agent-run undo checkpoints for JJ | not-started | — |
-| story-029 | Exact JJ restore semantics | not-started | story-028 |
-| story-030 | Milestone checkpoint curation and restore UX | not-started | story-028, story-029 |
-| story-031 | Restore-safe `.context` workflow state and end-to-end hardening | not-started | story-028, story-029, story-030 |
-| story-032 | Fix git commit bypass when `vcs_preference` is `jj` in colocated repos | not-started | — |
-| story-033 | Normalize footer VCS identity to git or fossil only | not-started | story-032 |
+| story-021 | Extract story lifecycle into `vazir-story` | archived | story-019, story-020 |
+| story-022 | Extract VCS workflow into `vazir-vcs` | archived | story-019, story-018 |
+| story-023 | Fix review closeout remediation to trigger new agent turns | archived | story-021 |
+| story-024 | Map complete-story phases and centralize closeout state helpers | archived | story-023 |
+| story-025 | Extract complete-story orchestration into a dedicated module | complete | story-024 |
+| story-026 | Harden complete-story regression coverage and stress-test closeout flows | complete | story-025 |
+| story-027 | Descriptive `/complete-story` commit messages | complete | story-026 |
+| story-028 | Agent-run undo checkpoints for JJ | complete | — |
+| story-029 | Exact JJ restore semantics | complete | story-028 |
+| story-030 | Milestone checkpoint curation and restore UX | complete | story-028, story-029 |
+| story-031 | Restore-safe `.context` workflow state and end-to-end hardening | complete | story-028, story-029, story-030 |
+| story-032 | Fix git commit bypass when `vcs_preference` is `jj` in colocated repos | complete | — |
+| story-033 | Normalize footer VCS identity to git or fossil only | complete | story-032 |
+| story-034 | Fix `/plan` intake question flow to ask one question at a time | not-started | — |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
@@ -83,3 +87,4 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-05-26** — Replanned from the user request to fix JJ checkpoint/restore UX and reliability. Preserved existing story history and appended story-028 through story-031 for agent-run undo modeling, exact JJ restore semantics, curated milestone UX, and restore-safe `.context` workflow hardening.
 - **2026-05-27** — Replanned from the user request to fix git commit bypass when `vcs_preference` is `"jj"`. Preserved existing queue and appended story-032 to remove the `vcsPreference === "jj"` bypass in `commitStoryCloseChanges`, remove the `detectJJ` fallback commit path, and clean up the dead duplicate condition in `resolvePreferredVcsKind`.
 - **2026-05-27** — Replanned from the user request to normalize the footer so only git or fossil appear as active VCS identities. Preserved the existing queue and appended story-033 to keep JJ available for checkpoints while rendering Git+JJ repos as git in the footer/chrome.
+- **2026-05-27** — Replanned from the user request to fix the `/plan` intake question flow. Updated queue statuses to reflect completed/archived stories. Appended story-034 to fix the one-at-a-time question behavior in `/plan`.
