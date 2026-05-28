@@ -1754,12 +1754,6 @@ export default function (pi: ExtensionAPI) {
         );
       }
 
-      const planWriteStep = planExists
-        ? "Step 7. Update .context/stories/plan.md as an addendum: preserve existing story queue entries, add only new story rows needed for the updated scope, and append a replanning log entry."
-        : "Step 7. Rewrite .context/stories/plan.md completely — replace all placeholder text with real content.";
-      const storyWriteStep = existingStoryFiles.length > 0
-        ? `Step 8. Preserve existing story files: ${existingStoryFiles.join(", ")}. Do NOT overwrite, repurpose, or renumber them. If follow-up work is needed, express it as new story-NNN.md files.`
-        : "Step 8. Create as many story-NNN.md files as needed for the scoped work. There is NO preset cap.";
       const planModeNote = planExists
         ? existingStoryFiles.length > 0
           ? "NOTE: This is a replan. Preserve every existing story file, keep existing story queue rows in plan.md, append only new stories needed for the added scope, and append a replanning log entry. If older work is invalidated, retire or supersede it without overwriting the original story file."
@@ -1772,71 +1766,32 @@ export default function (pi: ExtensionAPI) {
         "The user wants to plan their project.",
         existingStoryFiles.length > 0
           ? `Existing story files already exist in .context/stories/: ${existingStoryFiles.join(", ")}. Treat them as preserved history, not scaffolds.`
-          : "No story files are pre-seeded in .context/stories/. Create the final story set in Phase 2.",
+          : "No story files are pre-seeded in .context/stories/. Create the final story set after clarifying questions.",
         "",
-        "GUIDING PRINCIPLE",
-        "When user-authored planning material exists, your job is extraction and story generation, not discovery.",
-        "Questions are the exception. Ask only when a genuine implementation-blocking gap remains after careful reading and safe default assumptions.",
-        "",
-        "THIS IS A STRICT TWO-PHASE PROCESS. Follow the phases in order.",
-        "",
-        "━━ PHASE 1 — DETECT, READ, AND ONLY ASK IF BLOCKED (ask questions only if needed, write nothing) ━━",
+        "Your job:",
+        `1. Read .context/stories/intake-brief.md first.${planningSources.length > 0 ? ` Sources: ${planningSourcesList}.` : ""}`,
         planningSources.length > 0
-          ? `Step 1. intake_found = true. User-authored planning sources detected: ${planningSourcesList}.`
-          : "Step 1. intake_found = false. No user-authored planning sources were detected.",
-        "        Primary intake sources are repo-root plan.md or .context/plan.md when user-authored, files in .context/intake/, and top-level *.prd.md or PRD.md.",
-        "        Do NOT treat .context/stories/plan.md, story-NNN.md, or .context/stories/intake-brief.md as primary intake. They are Vazir-generated replan context only unless the user explicitly asks to replan from them.",
-        planningSources.length > 0
-          ? `Step 2. Read .context/stories/intake-brief.md first, then read every detected user-authored planning source before asking anything. Sources listed in the brief: ${planningSourcesList}.`
-          : "Step 2. No user-authored planning material exists. Start a discovery conversation from scratch.",
-        planningSources.length > 0
-          ? "        For text-based files, read them fully. For very large files, read enough to extract evidence for every planning field before asking. Skip unsupported binary files with a note."
-          : "Step 3. Ask about what they are building, who it is for, what problem it solves, what success looks like, what is out of scope for v1, what stack exists, and any hard constraints or deadlines.",
-        planningSources.length > 0
-          ? "Step 3. Internally extract these fields from the intake before deciding whether to ask anything: objectives, success_metrics, users, user_journeys, inputs_outputs, integrations, auth_security, acceptance_criteria, constraints_non_goals, edge_cases, monitoring, deployment, timeline_stakeholders."
-          : "        Group related questions, ask the most important ones first, label blocking questions clearly, and do not dump the full list at once.",
-        planningSources.length > 0
-          ? "Step 4. For each field ask: 'If I wrote story files right now, would I be forced to make an assumption that could be wrong in a way that materially affects implementation?'"
-          : "Step 4. Once you have enough to write stories, say 'I have what I need — writing the plan and stories now.' Then move immediately to Phase 2.",
-        planningSources.length > 0
-          ? "        Default to present when the intake is clear enough for a developer to act. Do not mark a field incomplete or missing just because wording is informal or lacks precise numbers."
+          ? "   Read intake sources before asking anything. Skim large files selectively."
           : "",
-        planningSources.length > 0
-          ? "Step 5. For any field that still seems incomplete, missing, or conflicting, ask: 'Can I answer this by reading the intake more carefully, or by making a safe, reasonable default assumption?'"
-          : "",
-        planningSources.length > 0
-          ? "        If yes, do not ask. Note the assumption briefly and continue. If no, ask exactly one concise implementation-blocking question for that field."
-          : "",
-        planningSources.length > 0
-          ? "Step 6. Never ask about a field classified present. Never ask more than one question per field. Never ask a question whose answer is already in the intake or can be safely defaulted. Do not present field-by-field classification to the user. Surface only the assumptions and questions that matter."
-          : "",
-        planningSources.length > 0
-          ? "Step 7. Ask any surviving questions ONE AT A TIME in the chat conversation and wait for the user's full answer before the next question. If no questions survive, say: 'I have what I need — writing the plan and stories now.' Then move immediately to Phase 2."
-          : "",
-        "RULE: Do NOT write or edit any files — not intake-brief.md, not plan.md, not story files — until Phase 2.",
-        "RULE: Do NOT put questions or open issues inside checklist items in story files.",
-        "",
-        "━━ PHASE 2 — WRITE FILES (after ALL questions answered) ━━",
-        planningSources.length > 0
-          ? `Step 8. Update .context/stories/intake-brief.md to reflect the final distilled answers and any assumptions you made. Brief so far: ${planningBrief}`
-          : `Step 5. Update .context/stories/intake-brief.md to reflect the final distilled answers. Brief so far: ${planningBrief}`,
-        planningSources.length > 0 ? planWriteStep.replace("Step 7.", "Step 9.") : planWriteStep.replace("Step 7.", "Step 6."),
-        planningSources.length > 0 ? storyWriteStep.replace("Step 8.", "Step 10.") : storyWriteStep.replace("Step 8.", "Step 7."),
-        planningSources.length > 0
-          ? "Step 11. Every story must use the exact template: Status, Created, Last accessed, Completed, Goal, Verification,"
-          : "Step 8. Every story must use the exact template: Status, Created, Last accessed, Completed, Goal, Verification,",
-        "        Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary.",
-        "        Checklist items must be concrete implementation tasks — not questions, not open issues.",
-        "        Story size rule: target 4–7 checklist tasks per story; 7 checklist tasks is a hard cap. If a story needs more than 7 tasks, split it into multiple smaller stories instead of growing the checklist.",
-        planningSources.length > 0
-          ? `Step 12. Number any new stories from ${nextStoryNumber(cwd)}.`
-          : `Step 9. Number any new stories from ${nextStoryNumber(cwd)}.`,
-        planningSources.length > 0
-          ? "Step 13. Each story must be completable in one focused session with one clear, observable verification step."
-          : "Step 10. Each story must be completable in one focused session with one clear, observable verification step.",
-        planningSources.length > 0
-          ? "Step 14. Present the final story list to the user and ask if anything needs adjusting."
-          : "Step 11. Present the final story list to the user and ask if anything needs adjusting.",
+        "2. Ask exactly ONE clarifying question at a time. Wait for the answer before asking the next. Do NOT ask multiple questions in one turn.",
+        "   Only ask about genuinely missing or conflicting information. Do not list, number, or categorize questions.",
+        "   Default questions if still unclear after review:",
+        "   - Who are the users?",
+        "   - What's the most important thing to get right in v1?",
+        "   - What are we explicitly NOT building in v1?",
+        "   - What stack are we using / what already exists?",
+        "3. Once you have enough to write stories, say: 'I have what I need — writing the plan and stories now.' Then proceed.",
+        `4. Update .context/stories/intake-brief.md with the final distilled answers. Current brief: ${planningBrief}`,
+        planExists
+          ? "5. Update .context/stories/plan.md as an addendum: keep existing queue rows, append only new rows, and add a replanning log entry."
+          : "5. Rewrite .context/stories/plan.md completely — replace all placeholder text with real content.",
+        existingStoryFiles.length > 0
+          ? `6. Preserve existing story files: ${existingStoryFiles.join(", ")}. Do NOT overwrite or renumber them. Add new story-NNN.md files only for follow-up work.`
+          : "6. Create as many story-NNN.md files as needed for the scoped work. There is NO preset cap.",
+        "7. Every story must use the exact template: Status, Created, Last accessed, Goal, Verification, Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary.",
+        "   Checklist items must be concrete tasks — not questions. Target 4–7 tasks per story; 7 is a hard cap.",
+        `8. Number any new stories from ${nextStoryNumber(cwd)}.`,
+        "9. Present the final story list to the user and ask if anything needs adjusting.",
         "",
         planModeNote,
       ].filter(Boolean).join("\n");
