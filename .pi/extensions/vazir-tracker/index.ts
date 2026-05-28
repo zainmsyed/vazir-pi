@@ -270,8 +270,8 @@ async function resolveStoryForImplementation(
   const pickStoryLabel = "Pick story — choose an existing story to implement";
 
   const choice = await ui.select("No in-progress story found. What would you like to do?", [
-    pickStoryLabel,
     startNextStoryLabel,
+    pickStoryLabel,
     "Cancel",
   ]);
 
