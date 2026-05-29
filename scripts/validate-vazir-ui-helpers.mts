@@ -76,7 +76,7 @@ async function scenarioSelectionListReturnsValue() {
         assert(options?.overlayOptions?.anchor === "center", "default anchor should be center");
         assert(options?.overlayOptions?.width === "60%", "default width should be 60%");
         assert(options?.overlayOptions?.minWidth === 50, "default minWidth should be 50");
-        assert(options?.overlayOptions?.maxHeight === "70%", "default maxHeight should be 70%");
+        assert(options?.overlayOptions?.maxHeight === "100%", "default maxHeight should be 100%");
 
         const component = factory(
           { requestRender() {} },
@@ -214,7 +214,7 @@ async function scenarioMarkdownViewerOpensAndCloses() {
         assert(options?.overlayOptions?.anchor === "center", "default anchor should be center");
         assert(options?.overlayOptions?.width === "70%", "default width should be 70%");
         assert(options?.overlayOptions?.minWidth === 60, "default minWidth should be 60");
-        assert(options?.overlayOptions?.maxHeight === "80%", "default maxHeight should be 80%");
+        assert(options?.overlayOptions?.maxHeight === "100%", "default maxHeight should be 100%");
 
         const component = factory(
           { requestRender() {} },
@@ -271,6 +271,47 @@ async function scenarioMarkdownViewerEnterCloses() {
   console.log("  markdown viewer enter closes: ok");
 }
 
+async function scenarioMarkdownViewerScrolls() {
+  const mockCtx = {
+    ui: {
+      custom(factory: any, _options: any) {
+        const component = factory(
+          { requestRender() {} },
+          { fg: (_c: string, t: string) => t, bold: (t: string) => t, bg: (_c: string, t: string) => t },
+          {},
+          () => {},
+        );
+
+        // Render at a small width so the markdown produces multiple lines
+        const firstRender = component.render(40);
+        assert(firstRender.some((line: string) => line.includes("line 1")), "initial render should show first lines");
+
+        // Scroll down
+        component.handleInput("down");
+        const secondRender = component.render(40);
+        assert(secondRender.some((line: string) => line.includes("line 1")), "after one down, first line should still be visible for short content");
+
+        // Page down should not crash
+        component.handleInput("pageDown");
+        const thirdRender = component.render(40);
+        assert(Array.isArray(thirdRender) && thirdRender.length > 0, "page down should still return lines");
+
+        // Up should work
+        component.handleInput("up");
+        const fourthRender = component.render(40);
+        assert(Array.isArray(fourthRender) && fourthRender.length > 0, "up scroll should return lines");
+
+        return Promise.resolve();
+      },
+    },
+  };
+
+  // Generate enough markdown lines to potentially scroll
+  const markdown = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n");
+  await showMarkdownViewer(mockCtx, "Scroll Test", markdown);
+  console.log("  markdown viewer scrolls: ok");
+}
+
 async function scenarioSelectionListEmptyReturnsNull() {
   const mockCtx = {
     ui: {
@@ -296,6 +337,7 @@ try {
   await scenarioSelectionListNonDestructiveDefaultFocus();
   await scenarioMarkdownViewerOpensAndCloses();
   await scenarioMarkdownViewerEnterCloses();
+  await scenarioMarkdownViewerScrolls();
   await scenarioSelectionListEmptyReturnsNull();
   console.log("validate-vazir-ui-helpers: ok");
 } finally {

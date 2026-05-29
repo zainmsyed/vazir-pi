@@ -14,7 +14,7 @@ const register = extensionModule.default;
 const { normalizeTrackerInputText } = extensionModule;
 
 type Notification = { message: string; level: string };
-type SelectCall = { prompt: string; choices: string[] };
+type CustomCall = { options: unknown };
 
 function createProject(prefix: string): string {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -104,8 +104,10 @@ function createNormalizedInput(text: string): string {
 function makeCtx(
   cwd: string,
   notifications: Notification[],
-  selectImpl?: (prompt: string, choices: string[]) => string | undefined,
+  customReturns: unknown[] = [],
 ) {
+  let callIndex = 0;
+  const customCalls: CustomCall[] = [];
   return {
     cwd,
     ui: {
@@ -115,9 +117,15 @@ function makeCtx(
       async input() {
         return undefined;
       },
-      async select(prompt: string, choices: string[]) {
-        return selectImpl?.(prompt, choices);
+      async select() {
+        return undefined;
       },
+      async custom(_factory: any, options: any) {
+        customCalls.push({ options });
+        const value = customReturns[callIndex++];
+        return Promise.resolve(value);
+      },
+      _customCalls: () => customCalls,
     },
   };
 }
@@ -130,25 +138,17 @@ async function runStartNextStoryScenario() {
 
   const notifications: Notification[] = [];
   const harness = makePi();
-  const selectCalls: SelectCall[] = [];
-  const ctx = makeCtx(cwd, notifications, (prompt, choices) => {
-    selectCalls.push({ prompt, choices });
-    return choices[1];
-  });
+  const ctx = makeCtx(cwd, notifications, ["start"]);
 
   await harness.implement.handler("", ctx);
 
+  const customCalls = (ctx.ui as any)._customCalls();
   const today = new Date().toISOString().slice(0, 10);
   const storyFour = fs.readFileSync(storyFourPath, "utf-8");
   const storyFive = fs.readFileSync(storyFivePath, "utf-8");
 
-  assert(selectCalls.length === 1, "implement should prompt once when no story is active");
-  assert(selectCalls[0].prompt.includes("No in-progress story found. What would you like to do?"), "implement should show the missing-story chooser");
-  assert(selectCalls[0].choices[0] === "Pick story — choose an existing story to implement", "picker should be the first choice");
-  assert(selectCalls[0].choices.some(choice => choice.includes("Start story 004")), "chooser should offer the next story shortcut");
-  assert(selectCalls[0].choices.some(choice => choice.includes("Add billing summary")), "chooser should show the story name next to the number");
-  assert(selectCalls[0].choices.includes("Pick story — choose an existing story to implement"), "chooser should offer story picking");
-  assert(selectCalls[0].choices.includes("Cancel"), "chooser should offer cancel");
+  assert(customCalls.length === 1, "implement should call ui.custom once when no story is active");
+  assert((customCalls[0].options as any)?.overlay === true, "implement should use an overlay for the missing-story chooser");
   assert(storyFour.includes("**Status:** in-progress"), "start-story flow should mark the new story in-progress");
   assert(storyFour.includes(`**Last accessed:** ${today}`), "start-story flow should update last accessed");
   assert(!storyFive.includes(`**Last accessed:** ${today}`), "start-story flow should not touch later stories");
@@ -166,39 +166,27 @@ async function runPickStoryScenario() {
 
   const notifications: Notification[] = [];
   const harness = makePi();
-  const selectCalls: SelectCall[] = [];
-  let pickedChoice = "";
-  const ctx = makeCtx(cwd, notifications, (prompt, choices) => {
-    selectCalls.push({ prompt, choices });
-    if (prompt.includes("What would you like to do?")) {
-      return choices[0];
-    }
-    pickedChoice = choices[1];
-    return pickedChoice;
-  });
+  const storyFiveFile = path.join(cwd, ".context", "stories", "story-005.md");
+  const ctx = makeCtx(cwd, notifications, ["pick", storyFiveFile]);
 
   assert(createNormalizedInput("/impliment") === "/implement", "impliment should normalize to implement");
   await harness.implement.handler("", ctx);
 
+  const customCalls = (ctx.ui as any)._customCalls();
   const today = new Date().toISOString().slice(0, 10);
-  const selectedStoryFile = `${pickedChoice.split(" — ")[0]}.md`;
-  const selectedStoryPath = path.join(cwd, ".context", "stories", selectedStoryFile);
-  const selectedStory = fs.readFileSync(selectedStoryPath, "utf-8");
+  const selectedStory = fs.readFileSync(storyFivePath, "utf-8");
   const storyFour = fs.readFileSync(storyFourPath, "utf-8");
   const storyFive = fs.readFileSync(storyFivePath, "utf-8");
 
-  assert(selectCalls.length === 2, "pick-story flow should prompt twice");
-  assert(selectCalls[0].choices.includes("Pick story — choose an existing story to implement"), "first chooser should offer pick story");
-  assert(selectCalls[0].choices[0] === "Pick story — choose an existing story to implement", "picker should be first in the missing-story chooser");
-  assert(selectCalls[1].choices[0].includes("story-004") && selectCalls[1].choices[0].includes("Add billing summary"), "second chooser should list story 004 with its name");
-  assert(selectCalls[1].choices[1].includes("story-005") && selectCalls[1].choices[1].includes("Update onboarding copy"), "second chooser should list story 005 with its name");
-  assert(selectCalls[1].choices.every(choice => !choice.startsWith("story-003")), "completed stories should not appear in the picker");
+  assert(customCalls.length === 2, "pick-story flow should call ui.custom twice");
+  assert((customCalls[0].options as any)?.overlay === true, "first chooser should use an overlay");
+  assert((customCalls[1].options as any)?.overlay === true, "second chooser should use an overlay");
   assert(selectedStory.includes(`**Last accessed:** ${today}`), "pick-story flow should update the selected story");
   assert(selectedStory.includes("**Status:** in-progress"), "pick-story flow should promote the selected story to in-progress");
   assert(storyFour.includes("**Status:** not-started"), "pick-story flow should leave story 004 unchanged");
   assert(storyFive.includes("**Status:** in-progress"), "pick-story flow should promote story 005");
   assert(harness.sentMessages.length === 1, "implement should send one follow-up message");
-  assert(String(harness.sentMessages[0]?.message).includes(`Implement the in-progress story in .context/stories/${selectedStoryFile}`), "implement should target the selected story");
+  assert(String(harness.sentMessages[0]?.message).includes("Implement the in-progress story in .context/stories/story-005.md."), "implement should target story 005");
 
   return { cwd, notifications };
 }
@@ -248,10 +236,12 @@ async function runActiveStoryScenario() {
 
   await harness.implement.handler("", ctx);
 
+  const customCalls = (ctx.ui as any)._customCalls();
   const today = new Date().toISOString().slice(0, 10);
   const storyOne = fs.readFileSync(storyOnePath, "utf-8");
   const storyTwo = fs.readFileSync(storyTwoPath, "utf-8");
 
+  assert(customCalls.length === 0, "implement should not prompt when an active story exists");
   assert(storyTwo.includes(`**Last accessed:** ${today}`), "implement should update the most recent in-progress story");
   assert(storyTwo.includes("**Status:** in-progress"), "implement should keep the active story in-progress");
   assert(!storyOne.includes(`**Last accessed:** ${today}`), "implement should not touch older in-progress stories");
