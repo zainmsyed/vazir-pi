@@ -20,6 +20,7 @@ import {
   type StoryFrontmatter,
   updateStoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
+import { showMarkdownViewer, showSelectionList } from "../../lib/vazir-ui.ts";
 import {
   applyWorkingMessage,
   beginToolActivity,
@@ -42,7 +43,6 @@ import {
   storyPickerChoices,
   tearDownChromeSession,
   toolPathFromInput,
-  viewSelectedStoryOrPlan,
 } from "./chrome.ts";
 import {
   brandPath,
@@ -255,7 +255,7 @@ function implementStoryStartLabel(cwd: string, storyFile: string): string {
 
 async function resolveStoryForImplementation(
   cwd: string,
-  ui: { select: (prompt: string, choices: string[]) => Promise<string | undefined> },
+  ui: { custom: any },
 ): Promise<StoryFrontmatter | null> {
   const active = findActiveStory(cwd);
   if (active) return active;
@@ -269,15 +269,19 @@ async function resolveStoryForImplementation(
     : "Start story — begin the earliest open story";
   const pickStoryLabel = "Pick story — choose an existing story to implement";
 
-  const choice = await ui.select("No in-progress story found. What would you like to do?", [
-    startNextStoryLabel,
-    pickStoryLabel,
-    "Cancel",
-  ]);
+  const choice = await showSelectionList(
+    { ui },
+    "No in-progress story found. What would you like to do?",
+    [
+      { value: "start", label: startNextStoryLabel },
+      { value: "pick", label: pickStoryLabel },
+      { value: "cancel", label: "Cancel" },
+    ],
+  );
 
-  if (!choice || choice === "Cancel") return null;
+  if (!choice || choice === "cancel") return null;
 
-  if (choice === startNextStoryLabel) {
+  if (choice === "start") {
     if (!firstStory) return null;
 
     const now = todayDate();
@@ -285,18 +289,25 @@ async function resolveStoryForImplementation(
     return { ...firstStory, status: "in-progress", lastAccessed: now };
   }
 
-  if (choice !== pickStoryLabel || candidates.length === 0) {
+  if (choice !== "pick" || candidates.length === 0) {
     return null;
   }
 
-  const labels = candidates.map(story => implementStoryPickerLabel(cwd, story.file));
-  const pick = await ui.select("Which story should /implement use?", [...labels, "Cancel"]);
-  if (!pick || pick === "Cancel") return null;
+  const items = candidates.map(story => ({
+    value: story.file,
+    label: implementStoryPickerLabel(cwd, story.file),
+  }));
 
-  const selectedIndex = labels.indexOf(pick);
-  if (selectedIndex < 0) return null;
+  const pick = await showSelectionList(
+    { ui },
+    "Which story should /implement use?",
+    [...items, { value: "cancel", label: "Cancel" }],
+  );
+  if (!pick || pick === "cancel") return null;
 
-  const selected = candidates[selectedIndex];
+  const selected = candidates.find(story => story.file === pick);
+  if (!selected) return null;
+
   if (selected.status === "not-started") {
     const now = todayDate();
     updateStoryFrontmatter(selected.file, { status: "in-progress", lastAccessed: now });
@@ -748,14 +759,21 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const labels = choices.map(choice => choice.label);
-      const pick = await ctx.ui.select("Which plan or story do you want to view?", labels);
-      if (pick == null) return;
+      const items = choices.map(choice => ({
+        value: choice.file,
+        label: choice.label,
+      }));
 
-      const selected = choices[labels.indexOf(pick)];
+      const selectedFile = await showSelectionList(ctx, "Which plan or story do you want to view?", items);
+      if (!selectedFile) return;
+
+      const selected = choices.find(choice => choice.file === selectedFile);
       if (!selected) return;
 
-      await viewSelectedStoryOrPlan(ctx, selected.file, selected.label);
+      const content = readIfExists(selected.file);
+      if (content) {
+        await showMarkdownViewer(ctx, path.basename(selected.file), content);
+      }
     },
   });
 
