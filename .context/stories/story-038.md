@@ -3,6 +3,7 @@
 **Status:** not-started  
 **Created:** 2026-05-29  
 **Last accessed:** 2026-05-29  
+**Completed:** —
 
 ---
 
@@ -12,12 +13,12 @@ Add a compact persistent HUD above the editor, owned by `vazir-tracker/chrome.ts
 ## Verification
 Start pi in representative repo states and confirm the HUD renders above the editor, updates after story/VCS-visible changes, collapses safely on narrow terminals, and shows the same backend identity conventions already used by tracker chrome for Fossil and Git/JJ repos.
 
-## Scope
+## Scope — files this story may touch
 - `.pi/extensions/vazir-tracker/chrome.ts`
 - Supporting tracker helpers needed to feed bounded HUD data
 - Validation coverage for HUD rendering states
 
-## Out of scope
+## Out of scope — do not touch
 - A two-column dashboard layout
 - Clickable command interactions
 - New repo-detection logic separate from existing VCS helper/chrome state

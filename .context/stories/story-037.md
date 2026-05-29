@@ -3,6 +3,7 @@
 **Status:** not-started  
 **Created:** 2026-05-29  
 **Last accessed:** 2026-05-29  
+**Completed:** —
 
 ---
 
@@ -12,7 +13,7 @@ Extend the shared selection overlay across the remaining structured Vazir workfl
 ## Verification
 Exercise representative command paths in pi for `/complete-story`, `/unlearn`, `/fix`, `/memory-review`, and `/checkpoint`/`/reset`. Confirm each uses the shared overlay, destructive confirms default to the safe option, and the command behavior and persisted state transitions remain unchanged apart from presentation.
 
-## Scope
+## Scope — files this story may touch
 - `.pi/extensions/vazir-context/index.ts`
 - `.pi/extensions/vazir-context/complete-story.ts`
 - `.pi/extensions/vazir-tracker/index.ts`
@@ -20,7 +21,7 @@ Exercise representative command paths in pi for `/complete-story`, `/unlearn`, `
 - `.pi/lib/vazir-ui.ts`
 - Validation coverage for the migrated command flows
 
-## Out of scope
+## Out of scope — do not touch
 - Adding new commands
 - Reworking closeout, review, or checkpoint semantics beyond UI presentation
 - Persistent HUD rendering

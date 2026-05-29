@@ -3,6 +3,7 @@
 **Status:** not-started  
 **Created:** 2026-05-29  
 **Last accessed:** 2026-05-29  
+**Completed:** —
 
 ---
 
@@ -12,13 +13,13 @@ Adopt the shared TUI helpers for the highest-visibility Vazir flows so `/story` 
 ## Verification
 In pi, run `/story`, `/plan`, and `/implement` in representative states. Confirm `/story` opens the active story directly or shows a picker first, `/plan` opens `plan.md` in the markdown viewer, and `/implement` uses the shared selection overlay for fallback choices while preserving current story-state behavior.
 
-## Scope
+## Scope — files this story may touch
 - `.pi/extensions/vazir-tracker/index.ts`
 - `.pi/extensions/vazir-context/index.ts`
 - `.pi/lib/vazir-ui.ts`
 - Validation coverage for these command paths
 
-## Out of scope
+## Out of scope — do not touch
 - Remaining command overlay adoption beyond `/story`, `/plan`, and `/implement`
 - Persistent HUD rendering
 - Rewriting story-selection semantics

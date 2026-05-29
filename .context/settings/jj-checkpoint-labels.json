@@ -1,5 +1,6 @@
 {
   "labels": {
+    "23374394": "please commit all",
     "48826955": "hey",
     "f803d99d": "commit all",
     "281ad117": "can we put in the system prompt to not commit anything unless specifically asked",
@@ -168,6 +169,9 @@
     "f398a210": "yes lets do that. you can edit addendum E directly. that way i can just use /pla",
     "54beaf65": "The user wants to plan their project.\nExisting story files already exist in .con",
     "db83d503": "please include those as well",
-    "ee0e096b": "can we merge this branch with the main/trunk first and then commit these to a ne"
+    "ee0e096b": "can we merge this branch with the main/trunk first and then commit these to a ne",
+    "cebdeb1e": "ok lets commit all and merge with main/trunk and then start a new branch for the",
+    "5ac3f66c": "Run Vazir consolidation using the currently selected Pi model.\n\nTasks:\n1. Read .",
+    "6604dc4d": "Run Vazir consolidation using the currently selected Pi model.\n\nTasks:\n1. Read ."
   }
 }
