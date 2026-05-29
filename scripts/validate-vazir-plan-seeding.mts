@@ -73,13 +73,12 @@ async function runFreshPlanScenario() {
   );
   assert(String(sentMessages[0].message).includes(".context/intake/prd/product-brief.md"), "planning instruction did not list the intake file");
   assert(
-    String(sentMessages[0].message).includes("ONE AT A TIME"),
+    String(sentMessages[0].message).includes("ONE clarifying question at a time"),
     "planning instruction did not request sequential questions",
   );
-  assert(String(sentMessages[0].message).includes("Questions are the exception"), "planning instruction did not include the intake-first rule");
   assert(
-    String(sentMessages[0].message).includes("Do NOT treat .context/stories/plan.md, story-NNN.md, or .context/stories/intake-brief.md as primary intake"),
-    "planning instruction did not exclude generated artifacts from primary intake",
+    String(sentMessages[0].message).includes("Read .context/stories/intake-brief.md"),
+    "planning instruction did not include the intake-first rule",
   );
   const intakeBrief = fs.readFileSync(intakeBriefPath, "utf-8");
   assert(intakeBrief.includes("# Intake Brief"), "intake-brief.md did not use the expected heading");
@@ -147,7 +146,7 @@ async function runReuseScenario() {
   assert(storyFiles.length === 1, "replan should reuse existing stories instead of reseeding duplicates");
   assert(sentMessages.length === 1, "replan should send one follow-up message to the model");
   assert(String(sentMessages[0].message).includes("Preserve existing story files"), "replan instruction did not preserve existing stories");
-  assert(String(sentMessages[0].message).includes("Do NOT overwrite, repurpose, or renumber them."), "replan instruction did not forbid overwriting preserved stories");
+  assert(String(sentMessages[0].message).includes("Do NOT overwrite or renumber them"), "replan instruction did not forbid overwriting preserved stories");
   assert(String(sentMessages[0].message).includes("append a replanning log entry"), "replan instruction did not require replanning log updates");
   assert(notifications.some(note => note.message.startsWith("Existing story files preserved for replanning:")), "missing preserved-story notification");
 

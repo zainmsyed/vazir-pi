@@ -13,6 +13,10 @@ const closeoutModule = await loadFileModule<{
   COMPLETE_STORY_PHASE_HANDOFFS: ReadonlyArray<{ phase: string }>;
   deriveCompleteStoryPhase: (input: { pendingRequest?: any; readinessBlocked?: boolean; reviewStatus?: string | null }) => { phase: string };
   resetCompleteStoryReviewForRemediation: (pending: Map<string, any>, cwd: string, storyFile: string, reviewFile: string) => void;
+  createCompleteStoryController: (deps: any) => { handleCommand: (ctx: any) => Promise<void>; handleTurnEnd: (ctx: any) => Promise<boolean> };
+  enterCompleteStoryReview: (pending: Map<string, any>, cwd: string, storyFile: string, reviewFile: string) => any;
+  enterLearnedRuleCloseout: (pending: Map<string, any>, cwd: string, options: { storyFile: string; draftFile: string; closeIntent: "close" | "close-commit"; reviewFile?: string }) => any;
+  buildReviewRemediationInstruction: (cwd: string, reviewFilePath: string, mode: "high" | "all", targetedFixes: Array<{ severity: string; summary: string; checked: boolean }>, targetNoun: "story" | "review") => string;
   buildCompleteStoryCommitMessage: (storyPath: string) => string;
 }> (path.join(repoRoot, ".pi", "extensions", "vazir-context", "complete-story.ts"));
 const register = extensionModule.default;
@@ -75,6 +79,20 @@ function createColocatedGitJjProject(prefix: string, activeMode: "git" | "jj"): 
   childProcess.execSync("git add -A", { cwd, stdio: "pipe" });
   childProcess.execSync("git commit --allow-empty -qm init", { cwd, stdio: "pipe" });
   return cwd;
+}
+
+function createJjProject(prefix: string): string {
+  const cwd = createProject(prefix);
+  fs.mkdirSync(path.join(cwd, ".context", "settings"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, ".context", "settings", "project.json"), JSON.stringify({ active_vcs_mode: "jj", vcs_preference: "jj" }, null, 2));
+  childProcess.execSync("git init -q", { cwd, stdio: "pipe" });
+  childProcess.execSync("jj git init --colocate", { cwd, stdio: "pipe" });
+  childProcess.execSync("jj bookmark create main", { cwd, stdio: "pipe" });
+  return cwd;
+}
+
+function currentJjOpId(cwd: string): string {
+  return childProcess.execSync("jj op log --no-graph --limit 1 --template 'id.short(8)'", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
 }
 
 function createFossilProject(prefix: string): string {
@@ -273,6 +291,98 @@ function writeCompletedReview(reviewPath: string): void {
   );
 }
 
+function writeStoryAtPath(
+  filePath: string,
+  options: { title?: string; storyNumber?: string; checklist: string[]; issues: string[]; completionSummary: string },
+): string {
+  const storyNumber = options.storyNumber ?? "001";
+  const content = [
+    `# Story ${storyNumber}: ${options.title ?? "Example"}`,
+    "",
+    "**Status:** in-progress  ",
+    "**Created:** 2026-03-25  ",
+    "**Last accessed:** 2026-03-25  ",
+    "**Completed:** —",
+    "",
+    "---",
+    "",
+    "## Goal",
+    "Example goal.",
+    "",
+    "## Verification",
+    "Example verification.",
+    "",
+    "## Scope — files this story may touch",
+    "- src/example.ts",
+    "",
+    "## Out of scope — do not touch",
+    "- src/other.ts",
+    "",
+    "## Dependencies",
+    "- ",
+    "",
+    "---",
+    "",
+    "## Checklist",
+    ...options.checklist,
+    "",
+    "---",
+    "",
+    "## Issues",
+    ...options.issues,
+    "",
+    "---",
+    "",
+    "## Completion Summary",
+    options.completionSummary,
+    "",
+  ].join("\n");
+  fs.writeFileSync(filePath, content);
+  return filePath;
+}
+
+function writeInProgressReview(reviewPath: string): void {
+  fs.writeFileSync(
+    reviewPath,
+    [
+      "# Code Review 2026-04-08T14:06:53Z",
+      "",
+      "**Status:** in-progress  ",
+      "**Created:** 2026-04-08T14:06:53Z  ",
+      "**Completed:** —  ",
+      "**Scope:** story  ",
+      "**Story:** story-001  ",
+      "**Focus:** story-001 completion review  ",
+      "**Trigger:** complete-story",
+      "",
+      "---",
+      "",
+      "## Goal",
+      "Review the requested scope.",
+      "",
+      "## Checklist",
+      "- [x] Inspect the relevant diff and touched files",
+      "- [ ] Write the completion summary and mark the review complete",
+      "",
+      "---",
+      "",
+      "## Findings",
+      "No findings.",
+      "",
+      "---",
+      "",
+      "## Recommended Fixes",
+      "- [x] No follow-up fixes required.",
+      "",
+      "---",
+      "",
+      "## Completion Summary",
+      "Still in progress.",
+      "",
+    ].join("\n"),
+  );
+}
+
 function runCloseoutHelperAssertions(): void {
   assert(
     closeoutModule.COMPLETE_STORY_PHASE_HANDOFFS.map(entry => entry.phase).join(",")
@@ -306,6 +416,26 @@ function runCloseoutHelperAssertions(): void {
   const review = fs.readFileSync(reviewPath, "utf-8");
   assert(review.includes("**Status:** in-progress"), "closeout helper should rewrite review status during remediation");
   assert(review.includes("**Completed:** —"), "closeout helper should clear the review completed date during remediation");
+
+  const remediationInstruction = closeoutModule.buildReviewRemediationInstruction(
+    cwd,
+    reviewPath,
+    "all",
+    [{ severity: "medium", summary: "Finish the tracked remediation", checked: false }],
+    "story",
+  );
+  assert(
+    remediationInstruction.includes("setting `**Status:** complete` and `**Completed:**` to today's date"),
+    "review remediation instruction should require the review to be marked complete after fixes",
+  );
+  assert(
+    !remediationInstruction.includes("Do not close the review"),
+    "review remediation instruction should not trap the flow by forbidding review completion",
+  );
+  assert(
+    remediationInstruction.includes("Do not mark the story complete"),
+    "review remediation instruction should still keep story completion under Vazir control",
+  );
 
   const summaryStoryPath = writeStory(cwd, {
     title: "Ship onboarding flow",
@@ -343,6 +473,12 @@ function setReviewStatus(reviewPath: string, status: "in-progress" | "complete")
   } else {
     updated = updated.replace(/^\*\*Completed:\*\*\s*.+$/m, "**Completed:** —");
   }
+  fs.writeFileSync(reviewPath, updated);
+}
+
+function setReviewCompletionSummary(reviewPath: string, summary: string): void {
+  const content = fs.readFileSync(reviewPath, "utf-8");
+  const updated = content.replace(/(\n## Completion Summary\n)[\s\S]*?(?=\n## |\n---\s*$|$)/, `$1${summary}\n`);
   fs.writeFileSync(reviewPath, updated);
 }
 
@@ -404,6 +540,8 @@ async function runReviewGatedScenario() {
   assert(harness.sentInternalMessages[1].message.content.includes("Review .context/reviews/"), "review-gated closeout should dispatch remediation from turn_end");
   assert(harness.sentInternalMessages[1].message.content.includes("Only work the unchecked items marked `high` or `critical`"), "review-gated closeout should support high-priority-only remediation");
   assert(harness.sentInternalMessages[1].message.content.includes("high: Add a local error boundary around the login form"), "review-gated closeout should target the high-priority checklist item");
+  assert(harness.sentInternalMessages[1].message.content.includes("setting `**Status:** complete` and `**Completed:**` to today's date"), "review-gated remediation should explicitly tell the agent to finish the review after fixes");
+  assert(!harness.sentInternalMessages[1].message.content.includes("Do not close the review"), "review-gated remediation should not forbid review completion");
 
   markReviewFixResolved(reviewPath, "high — Add a local error boundary around the login form");
   assert((harness.sentInternalMessages.length as number) === 2, "agent_end alone should not queue more complete-story work while remediation is still in progress");
@@ -430,6 +568,49 @@ async function runReviewGatedScenario() {
   assert(!selectCalls.some(call => call.prompt.includes("Did you mean to close this story?")), "review-gated complete-story should not route approved closeout completion through the agent_end status guard");
 
   return { cwd, notifications, selectCalls, customCalls, reviewFiles, story };
+}
+
+async function runReviewAutoFinalizeAfterRemediationScenario() {
+  const cwd = createProject("vazir-complete-story-review-auto-finalize-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: [
+      "Start code review before closing",
+      "Keep story open and fix all recommended items",
+      "Close story now",
+      "Skip for now",
+    ],
+    selectCalls,
+  });
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  await harness.completeStory.handler("", ctx);
+  const reviewDir = path.join(cwd, ".context", "reviews");
+  const reviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name)).sort();
+  const reviewPath = path.join(reviewDir, reviewFiles[0]);
+
+  writeCompletedReview(reviewPath);
+  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("agent_end", {}, ctx);
+
+  markReviewFixResolved(reviewPath, "high — Add a local error boundary around the login form");
+  markReviewFixResolved(reviewPath, "low — Remove the unused import from useSession.ts");
+  setReviewCompletionSummary(reviewPath, "All targeted remediation is complete and the review is ready to close.");
+  await harness.emit("turn_end", {}, ctx);
+
+  const updatedReview = fs.readFileSync(reviewPath, "utf-8");
+  assert(updatedReview.includes("**Status:** complete"), "review auto-finalize scenario should mark the review complete once remediation content is finished");
+  assert(updatedReview.includes("- [x] Write the completion summary and mark the review complete"), "review auto-finalize scenario should check the final review checklist item when auto-finalizing");
+
+  assert(selectCalls.some(call => call.prompt.includes("Review complete.")), "review auto-finalize scenario should reopen the review-closeout prompt after auto-finalizing the review");
+  return { cwd, notifications };
 }
 
 async function runReviewInProgressPromptScenario() {
@@ -1121,9 +1302,169 @@ async function runReviewCloseoutRestartResumeScenario() {
   return { cwd, notifications, selectCalls: restartSelectCalls };
 }
 
+async function runJjRestoreResyncReviewCloseoutScenario() {
+  if (!jjAvailable()) return null;
+
+  const cwd = createJjProject("vazir-complete-story-jj-restore-review-closeout-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+  const reviewPath = path.join(cwd, ".context", "reviews", "review-restore.md");
+  fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
+  writeCompletedReview(reviewPath);
+
+  const pending = new Map<string, any>();
+  const controller = closeoutModule.createCompleteStoryController({
+    pendingRequests: pending,
+    sendInternalAgentMessage() {},
+    async startReviewFlow() {
+      throw new Error("restore-resync scenario should not start a new review");
+    },
+  });
+
+  closeoutModule.enterCompleteStoryReview(pending, cwd, storyPath, reviewPath);
+  childProcess.execSync("jj describe -m 'restore-safe review closeout state'", { cwd, stdio: "pipe" });
+  const restoreTargetOpId = currentJjOpId(cwd);
+
+  const draftPath = path.join(cwd, ".context", "reviews", "story-001-learned-rule-closeout.json");
+  fs.writeFileSync(draftPath, JSON.stringify({ note: "No candidates found.", candidates: [] }, null, 2));
+  closeoutModule.enterLearnedRuleCloseout(pending, cwd, {
+    storyFile: storyPath,
+    draftFile: draftPath,
+    closeIntent: "close",
+    reviewFile: reviewPath,
+  });
+  childProcess.execSync("jj describe -m 'stale learned-rule state'", { cwd, stdio: "pipe" });
+
+  childProcess.execFileSync("jj", ["op", "restore", restoreTargetOpId], { cwd, stdio: "pipe" });
+
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Not yet, keep working"],
+    selectCalls,
+  });
+  await controller.handleTurnEnd(ctx);
+
+  assert(selectCalls.some(call => call.prompt.includes("Review complete.")), "jj restore should resync stale learned-rule closeout memory back to the restored review-closeout prompt during turn_end");
+  assert(!pending.get(cwd)?.learnedRuleCloseoutFile, "jj restore should replace stale in-memory learned-rule closeout state with the restored pending review state");
+
+  return { cwd, notifications, selectCalls };
+}
+
+async function runJjRestoreCrossStoryPendingSwapScenario() {
+  if (!jjAvailable()) return null;
+
+  const cwd = createJjProject("vazir-complete-story-jj-restore-cross-story-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const storyOnePath = writeStory(cwd, {
+    title: "First story",
+    checklist: ["- [x] Example task"],
+    issues: [],
+    completionSummary: "Implemented the first story and verified the expected flow.",
+  });
+  const storyTwoPath = writeStoryAtPath(
+    path.join(cwd, ".context", "stories", "story-002.md"),
+    {
+      storyNumber: "002",
+      title: "Second story",
+      checklist: ["- [x] Example task"],
+      issues: [],
+      completionSummary: "Implemented the second story and verified the expected flow.",
+    },
+  );
+
+  const reviewTwoPath = path.join(cwd, ".context", "reviews", "review-story-002.md");
+  fs.mkdirSync(path.dirname(reviewTwoPath), { recursive: true });
+  writeCompletedReview(reviewTwoPath);
+
+  const pending = new Map<string, any>();
+  closeoutModule.enterCompleteStoryReview(pending, cwd, storyTwoPath, reviewTwoPath);
+  childProcess.execSync("jj describe -m 'restore-safe story-002 pending closeout'", { cwd, stdio: "pipe" });
+  const restoreTargetOpId = currentJjOpId(cwd);
+
+  const reviewOnePath = path.join(cwd, ".context", "reviews", "review-story-001.md");
+  writeInProgressReview(reviewOnePath);
+  closeoutModule.enterCompleteStoryReview(pending, cwd, storyOnePath, reviewOnePath);
+  childProcess.execSync("jj describe -m 'stale story-001 pending closeout'", { cwd, stdio: "pipe" });
+
+  const controller = closeoutModule.createCompleteStoryController({
+    pendingRequests: pending,
+    sendInternalAgentMessage() {},
+    async startReviewFlow() {
+      throw new Error("cross-story restore scenario should not start a new review");
+    },
+  });
+
+  childProcess.execFileSync("jj", ["op", "restore", restoreTargetOpId], { cwd, stdio: "pipe" });
+
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Not yet, keep working"],
+    selectCalls,
+  });
+  await controller.handleTurnEnd(ctx);
+
+  assert(selectCalls.some(call => call.prompt.includes("Review complete.")), "jj restore should resume the restored story-002 review-closeout prompt even when stale memory still points at story-001");
+  assert(pending.get(cwd)?.storyFile === storyTwoPath, "jj restore should replace stale story-001 in-memory pending state with restored story-002 state");
+
+  return { cwd, notifications, selectCalls };
+}
+
+async function runJjRestoreClearsStalePendingScenario() {
+  if (!jjAvailable()) return null;
+
+  const cwd = createJjProject("vazir-complete-story-jj-restore-clear-pending-");
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const storyPath = writeStory(cwd, {
+    checklist: ["- [x] Example task"],
+    issues: [],
+    completionSummary: "Implemented the story and verified the expected flow.",
+  });
+
+  childProcess.execSync("jj describe -m 'restore-safe ready state'", { cwd, stdio: "pipe" });
+  const restoreTargetOpId = currentJjOpId(cwd);
+
+  const reviewPath = path.join(cwd, ".context", "reviews", "review-stale.md");
+  fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
+  writeInProgressReview(reviewPath);
+
+  const pending = new Map<string, any>();
+  closeoutModule.enterCompleteStoryReview(pending, cwd, storyPath, reviewPath);
+  childProcess.execSync("jj describe -m 'stale review in progress state'", { cwd, stdio: "pipe" });
+
+  const controller = closeoutModule.createCompleteStoryController({
+    pendingRequests: pending,
+    sendInternalAgentMessage() {},
+    async startReviewFlow() {
+      throw new Error("restore-clear scenario should not start a new review");
+    },
+  });
+
+  childProcess.execFileSync("jj", ["op", "restore", restoreTargetOpId], { cwd, stdio: "pipe" });
+
+  const ctx = makeCtx(cwd, notifications, {
+    hasUI: true,
+    selectResponses: ["Not yet, keep working"],
+    selectCalls,
+  });
+  await controller.handleCommand(ctx);
+
+  assert(selectCalls.some(call => call.prompt.includes("is ready. What would you like to do?")), "jj restore should clear stale pending closeout memory when the restored .context state has no pending closeout file");
+  assert(!pending.has(cwd), "jj restore should drop stale in-memory pending closeout state when no restored pending marker remains");
+
+  return { cwd, notifications, selectCalls };
+}
+
 try {
   runCloseoutHelperAssertions();
   const reviewGated = await runReviewGatedScenario();
+  const reviewAutoFinalize = await runReviewAutoFinalizeAfterRemediationScenario();
   const reviewInProgressPrompt = await runReviewInProgressPromptScenario();
   const restartedReviewCloseout = await runRestartedReviewCloseoutScenario();
   const readyClose = await runReadyCloseScenario();
@@ -1140,6 +1481,9 @@ try {
   const readinessReviewIdempotency = await runReadinessReviewIdempotencyScenario();
   const learnedRuleDraftRestart = await runLearnedRuleDraftRestartScenario();
   const reviewCloseoutRestartResume = await runReviewCloseoutRestartResumeScenario();
+  const jjRestoreReviewCloseoutResync = await runJjRestoreResyncReviewCloseoutScenario();
+  const jjRestoreCrossStoryPendingSwap = await runJjRestoreCrossStoryPendingSwapScenario();
+  const jjRestoreClearsStalePending = await runJjRestoreClearsStalePendingScenario();
 
   console.log("Review Gated Closeout");
   console.log(`cwd: ${reviewGated.cwd}`);
@@ -1150,6 +1494,13 @@ try {
   console.log("reviewFiles:");
   for (const file of reviewGated.reviewFiles) {
     console.log(`  - ${file}`);
+  }
+
+  console.log("Review Auto-Finalize After Remediation");
+  console.log(`cwd: ${reviewAutoFinalize.cwd}`);
+  console.log("notifications:");
+  for (const note of reviewAutoFinalize.notifications) {
+    console.log(`  - [${note.level}] ${note.message}`);
   }
 
   console.log("Review In-Progress Prompt");
@@ -1274,6 +1625,39 @@ try {
   console.log("notifications:");
   for (const note of reviewCloseoutRestartResume.notifications) {
     console.log(`  - [${note.level}] ${note.message}`);
+  }
+
+  if (jjRestoreReviewCloseoutResync) {
+    console.log("JJ Restore Review-Closeout Resync");
+    console.log(`cwd: ${jjRestoreReviewCloseoutResync.cwd}`);
+    console.log("notifications:");
+    for (const note of jjRestoreReviewCloseoutResync.notifications) {
+      console.log(`  - [${note.level}] ${note.message}`);
+    }
+  } else {
+    console.log("JJ Restore Review-Closeout Resync skipped — jj binary not installed");
+  }
+
+  if (jjRestoreCrossStoryPendingSwap) {
+    console.log("JJ Restore Cross-Story Pending Swap");
+    console.log(`cwd: ${jjRestoreCrossStoryPendingSwap.cwd}`);
+    console.log("notifications:");
+    for (const note of jjRestoreCrossStoryPendingSwap.notifications) {
+      console.log(`  - [${note.level}] ${note.message}`);
+    }
+  } else {
+    console.log("JJ Restore Cross-Story Pending Swap skipped — jj binary not installed");
+  }
+
+  if (jjRestoreClearsStalePending) {
+    console.log("JJ Restore Clears Stale Pending State");
+    console.log(`cwd: ${jjRestoreClearsStalePending.cwd}`);
+    console.log("notifications:");
+    for (const note of jjRestoreClearsStalePending.notifications) {
+      console.log(`  - [${note.level}] ${note.message}`);
+    }
+  } else {
+    console.log("JJ Restore Clears Stale Pending State skipped — jj binary not installed");
   }
 } finally {
   cleanupStubModules(stubModuleDirs);

@@ -10,7 +10,6 @@ export {
   buildVcsSafetyGuidanceText,
   detectFossil,
   detectGitRepo,
-  detectJJ,
   hasPendingContextChanges,
   hasVcsSafetyPolicyText,
   isProtectedVcsTarget,
@@ -25,7 +24,6 @@ import {
   complaintsLogPath,
   detectFossil,
   detectGitRepo,
-  detectJJ,
   findActiveStory,
   hasPendingContextChanges,
   listPendingContextChanges,
@@ -34,7 +32,6 @@ import {
   nowISO,
   readActiveVcsMode,
   readIfExists,
-  readProjectSettings,
   storiesDir,
   todayDate,
   type StoryFrontmatter,
@@ -318,15 +315,7 @@ function shellSummary(error: unknown): string {
 
 function gitHasPendingChanges(cwd: string): boolean {
   try {
-    return childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim() !== "";
-  } catch {
-    return false;
-  }
-}
-
-function jjHasPendingChangesForCommit(cwd: string): boolean {
-  try {
-    return childProcess.execSync("jj diff --summary", { cwd, encoding: "utf-8", stdio: "pipe" }).trim() !== "";
+    return childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim() !== "";
   } catch {
     return false;
   }
@@ -334,8 +323,8 @@ function jjHasPendingChangesForCommit(cwd: string): boolean {
 
 function fossilHasPendingChanges(cwd: string): boolean {
   try {
-    const changed = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-    const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const changed = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
+    const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
     return changed !== "" || extras !== "";
   } catch {
     return false;
@@ -364,17 +353,6 @@ export function commitStoryCloseChanges(cwd: string, message: string): StoryClos
 
   try {
     if (activeMode === "git") {
-      const settings = readProjectSettings(cwd);
-      const vcsPreference = typeof settings.vcs_preference === "string" ? settings.vcs_preference.trim().toLowerCase() : "";
-
-      if (vcsPreference === "jj" && detectJJ(cwd)) {
-        if (!jjHasPendingChangesForCommit(cwd)) {
-          return { ok: true, summary: "No pending JJ changes to describe." };
-        }
-        childProcess.execFileSync("jj", ["describe", "-m", message], { cwd, stdio: "pipe" });
-        return { ok: true, summary: `Recorded JJ change: ${message}` };
-      }
-
       if (!detectGitRepo(cwd)) {
         return { ok: false, summary: "Commit failed: active VCS mode is Git, but no Git repo is active here." };
       }
@@ -394,14 +372,6 @@ export function commitStoryCloseChanges(cwd: string, message: string): StoryClos
       }
       childProcess.execSync(`fossil addremove && fossil commit -m ${quoteShellArg(message)}`, { cwd, encoding: "utf-8", stdio: "pipe" });
       return { ok: true, summary: `Committed with Fossil: ${message}` };
-    }
-
-    if (detectJJ(cwd)) {
-      if (!jjHasPendingChangesForCommit(cwd)) {
-        return { ok: true, summary: "No pending JJ changes to describe." };
-      }
-      childProcess.execFileSync("jj", ["describe", "-m", message], { cwd, stdio: "pipe" });
-      return { ok: true, summary: `Recorded JJ change: ${message}` };
     }
 
     if (detectGitRepo(cwd)) {

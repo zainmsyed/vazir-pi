@@ -116,7 +116,7 @@ export function inspectVcsToolGuard(
 
 export function isGitClean(cwd: string): boolean {
   try {
-    return childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim() === "";
+    return childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim() === "";
   } catch {
     return true;
   }
@@ -243,7 +243,7 @@ export function persistCurrentJjCheckpointLabel(cwd: string, prompt: string): vo
 export function autoDescribeCurrentJjChange(cwd: string, prompt: string): void {
   const trimmedPrompt = prompt.trim();
   if (!trimmedPrompt) return;
-  childProcess.execFileSync("jj", ["describe", "-m", trimmedPrompt.slice(0, 72)], { cwd, stdio: "pipe" });
+  childProcess.execFileSync("jj", ["describe", "-m", trimmedPrompt.slice(0, 72)], { cwd, stdio: "pipe", timeout: 5000 });
 }
 
 function isJjDescribeOperation(op: { description: string }): boolean {
@@ -255,7 +255,7 @@ function jjOpLog(cwd: string, limit = 15): Array<{ id: string; description: stri
     const raw = childProcess
       .execSync(
         `jj op log --no-graph --limit ${limit} --template 'id.short(8) ++ "||" ++ description ++ "||" ++ time.start().ago() ++ "\\n"'`,
-        { cwd, encoding: "utf-8" },
+        { cwd, encoding: "utf-8", timeout: 5000 },
       )
       .trim();
     return raw
@@ -285,10 +285,10 @@ export function checkpointLabel(op: { id: string; description: string; ago: stri
   return `${op.ago} · ${label}`;
 }
 
-function currentJjOpId(cwd: string): string {
+export function currentJjOpId(cwd: string): string {
   try {
     return childProcess
-      .execSync(`jj op log --no-graph --limit 1 --template 'id.short(8)'`, { cwd, encoding: "utf-8" })
+      .execSync(`jj op log --no-graph --limit 1 --template 'id.short(8)'`, { cwd, encoding: "utf-8", timeout: 5000 })
       .trim();
   } catch {
     return "";
@@ -345,7 +345,7 @@ export function jjCheckpointChoices(
 
 export function jjDiffStat(cwd: string): string {
   try {
-    return childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8" }).trim();
+    return childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8", timeout: 5000 }).trim();
   } catch {
     return "";
   }
@@ -353,7 +353,7 @@ export function jjDiffStat(cwd: string): string {
 
 export function jjDiffFile(cwd: string, file: string): string {
   try {
-    return childProcess.execFileSync("jj", ["diff", "--no-color", "--", file], { cwd, encoding: "utf-8" });
+    return childProcess.execFileSync("jj", ["diff", "--no-color", "--", file], { cwd, encoding: "utf-8", timeout: 5000 });
   } catch {
     return "";
   }
@@ -361,22 +361,132 @@ export function jjDiffFile(cwd: string, file: string): string {
 
 export function jjHasChanges(cwd: string): boolean {
   try {
-    return childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8" }).trim() !== "";
+    return childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8", timeout: 5000 }).trim() !== "";
   } catch {
     return false;
   }
 }
 
 export function jjRestoreCheckpoint(cwd: string, opId: string): void {
-  childProcess.execFileSync("jj", ["op", "restore", opId], { cwd, stdio: "pipe" });
-  childProcess.execFileSync("jj", ["restore", "--from", "@-"], { cwd, stdio: "pipe" });
+  childProcess.execFileSync("jj", ["op", "restore", opId], { cwd, stdio: "pipe", timeout: 5000 });
+}
+
+// ── Agent-run checkpoint helpers ───────────────────────────────────────
+
+export interface AgentRunCheckpoint {
+  preRunOpId: string;
+  prompt: string;
+  files: string[];
+  timestamp: string;
+  hasChanges: boolean;
+}
+
+interface AgentRunCheckpointStore {
+  checkpoints: AgentRunCheckpoint[];
+}
+
+const AGENT_RUN_CHECKPOINT_MAX = 20;
+
+function agentRunCheckpointsPath(cwd: string): string {
+  return path.join(cwd, ".context", "settings", "jj-agent-run-checkpoints.json");
+}
+
+export function loadAgentRunCheckpoints(cwd: string): AgentRunCheckpoint[] {
+  const storePath = agentRunCheckpointsPath(cwd);
+  if (!fs.existsSync(storePath)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(storePath, "utf-8")) as Partial<AgentRunCheckpointStore>;
+    if (Array.isArray(parsed.checkpoints)) return parsed.checkpoints;
+  } catch {
+    /* ignore corrupt store */
+  }
+  return [];
+}
+
+function pruneAgentRunCheckpoints(checkpoints: AgentRunCheckpoint[]): AgentRunCheckpoint[] {
+  return checkpoints.slice(-AGENT_RUN_CHECKPOINT_MAX);
+}
+
+export function saveAgentRunCheckpoint(cwd: string, checkpoint: AgentRunCheckpoint): void {
+  const storePath = agentRunCheckpointsPath(cwd);
+  fs.mkdirSync(path.dirname(storePath), { recursive: true });
+  const existing = loadAgentRunCheckpoints(cwd);
+  existing.push(checkpoint);
+  const pruned = pruneAgentRunCheckpoints(existing);
+  fs.writeFileSync(storePath, JSON.stringify({ checkpoints: pruned }, null, 2));
+}
+
+export function getLatestUndoableAgentRun(cwd: string): AgentRunCheckpoint | null {
+  const checkpoints = loadAgentRunCheckpoints(cwd);
+  for (let i = checkpoints.length - 1; i >= 0; i--) {
+    if (checkpoints[i].hasChanges) return checkpoints[i];
+  }
+  return null;
+}
+
+// ── Milestone helpers ──────────────────────────────────────────────────
+// NOTE: This block is mirrored in .pi/lib/vazir-vcs-helpers.ts.
+// Any change here should be applied there as well (or the duplication
+// should be removed by importing from a single source of truth).
+
+export interface Milestone {
+  id: string;
+  opId: string;
+  label: string;
+  timestamp: string;
+  kind: "agent-run" | "explicit-save" | "workflow-boundary";
+}
+
+interface MilestoneStore {
+  milestones: Milestone[];
+}
+
+const MILESTONE_MAX = 30;
+
+function milestonesPath(cwd: string): string {
+  return path.join(cwd, ".context", "settings", "jj-milestones.json");
+}
+
+export function loadMilestones(cwd: string): Milestone[] {
+  const storePath = milestonesPath(cwd);
+  if (!fs.existsSync(storePath)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(storePath, "utf-8")) as Partial<MilestoneStore>;
+    if (Array.isArray(parsed.milestones)) return parsed.milestones;
+  } catch {
+    /* ignore corrupt store */
+  }
+  return [];
+}
+
+function pruneMilestones(milestones: Milestone[]): Milestone[] {
+  return milestones.slice(-MILESTONE_MAX);
+}
+
+export function saveMilestone(cwd: string, milestone: Milestone): void {
+  const storePath = milestonesPath(cwd);
+  fs.mkdirSync(path.dirname(storePath), { recursive: true });
+  const existing = loadMilestones(cwd);
+  existing.push(milestone);
+  const pruned = pruneMilestones(existing);
+  fs.writeFileSync(storePath, JSON.stringify({ milestones: pruned }, null, 2));
+}
+
+export function milestoneLabel(ms: Milestone): string {
+  const t = new Date(ms.timestamp).toLocaleTimeString();
+  const kindPrefix = ms.kind === "agent-run" ? "Run" : ms.kind === "explicit-save" ? "Save" : "Boundary";
+  return `${t} · ${kindPrefix} · ${ms.label.slice(0, 50)} · ${ms.id.slice(-4)}`;
+}
+
+export function getMilestoneChoices(cwd: string): Milestone[] {
+  return loadMilestones(cwd).slice().reverse();
 }
 
 // ── VCS sync ───────────────────────────────────────────────────────────
 
 function syncFromGit(cwd: string): void {
   try {
-    const statusOut = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" });
+    const statusOut = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 });
     const statusMap = new Map<string, string>();
 
     for (const line of statusOut.split("\n")) {
@@ -395,7 +505,7 @@ function syncFromGit(cwd: string): void {
     let statOut = "";
     try {
       statOut = childProcess
-        .execSync("git diff --stat HEAD", { cwd, encoding: "utf-8", stdio: "pipe" })
+        .execSync("git diff --stat HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 })
         .trim();
     } catch {
       statOut = "";
@@ -544,17 +654,17 @@ function syncFromFossil(cwd: string): void {
 
 function gitRefLabel(cwd: string): string {
   try {
-    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
     if (branch && branch !== "HEAD") return branch;
     if (branch === "HEAD") {
       try {
-        const sha = childProcess.execSync("git rev-parse --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        const sha = childProcess.execSync("git rev-parse --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
         if (sha) return `detached@${sha}`;
       } catch {
         // ignore
       }
       try {
-        const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
         if (symRef) return symRef;
       } catch {
         // ignore
@@ -569,7 +679,7 @@ function gitRefLabel(cwd: string): string {
 
 function jjRefLabel(cwd: string): string {
   try {
-    const label = childProcess.execSync("jj bookmark list --revision @ --no-graph", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const label = childProcess.execSync("jj bookmark list --revision @ --no-graph", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
     if (label) return label;
   } catch {
     // ignore

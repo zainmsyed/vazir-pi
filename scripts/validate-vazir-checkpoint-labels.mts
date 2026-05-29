@@ -198,14 +198,15 @@ async function runPersistedLabelScenario() {
     assert(Boolean(harness.checkpointCommand), "checkpoint command was not registered");
 
     const { ctx, prompts } = makeCtx(cwd, [
-      "Choose checkpoint — pick from history",
+      "Browse milestones — pick from curated history",
+      "Advanced — browse raw JJ history",
       "1 hour ago · Fix auth refresh flow",
     ]);
 
     await harness.emit("session_start", {}, ctx);
     await harness.checkpointCommand!.handler("", ctx);
 
-    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which checkpoint?");
+    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which raw checkpoint?");
     assert(Boolean(historyPrompt), "checkpoint history prompt was not shown");
     assert(historyPrompt!.options.length === 2, "checkpoint history should only include human-labeled entries");
     assert(historyPrompt!.options[0] === "1 hour ago · Fix auth refresh flow", "first human label did not match persisted prompt");
@@ -243,14 +244,15 @@ async function runDescribeBackfillScenario() {
     assert(Boolean(harness.checkpointCommand), "checkpoint command was not registered");
 
     const { ctx, prompts } = makeCtx(cwd, [
-      "Choose checkpoint — pick from history",
+      "Browse milestones — pick from curated history",
+      "Advanced — browse raw JJ history",
       "1 minute ago · Make retry labels readable",
     ]);
 
     await harness.emit("session_start", {}, ctx);
     await harness.checkpointCommand!.handler("", ctx);
 
-    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which checkpoint?");
+    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which raw checkpoint?");
     assert(Boolean(historyPrompt), "describe-backfill checkpoint prompt was not shown");
     assert(historyPrompt!.options[0] === "1 minute ago · Make retry labels readable", "snapshot checkpoint did not inherit the adjacent describe label");
     assert(historyPrompt!.options[1] === "2 minutes ago · Checkpoint", "fallback checkpoint order was not preserved after describe backfill");
@@ -279,14 +281,15 @@ async function runUnlabeledFallbackScenario() {
     assert(Boolean(harness.checkpointCommand), "checkpoint command was not registered");
 
     const { ctx, prompts } = makeCtx(cwd, [
-      "Choose checkpoint — pick from history",
+      "Browse milestones — pick from curated history",
+      "Advanced — browse raw JJ history",
       "1 hour ago · Checkpoint",
     ]);
 
     await harness.emit("session_start", {}, ctx);
     await harness.checkpointCommand!.handler("", ctx);
 
-    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which checkpoint?");
+    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which raw checkpoint?");
     assert(Boolean(historyPrompt), "fallback checkpoint history prompt was not shown");
     assert(historyPrompt!.options.length === 2, "fallback checkpoint history should hide JJ internal import operations");
     assert(historyPrompt!.options[0] === "1 hour ago · Checkpoint", "snapshot fallback label was not humanized");
@@ -317,14 +320,15 @@ async function runLongHistoryScenario() {
     assert(Boolean(harness.checkpointCommand), "checkpoint command was not registered");
 
     const { ctx, prompts } = makeCtx(cwd, [
-      "Choose checkpoint — pick from history",
+      "Browse milestones — pick from curated history",
+      "Advanced — browse raw JJ history",
       "1 hour ago · Checkpoint",
     ]);
 
     await harness.emit("session_start", {}, ctx);
     await harness.checkpointCommand!.handler("", ctx);
 
-    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which checkpoint?");
+    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which raw checkpoint?");
     assert(Boolean(historyPrompt), "long-history checkpoint prompt was not shown");
     assert(historyPrompt!.options.length === 12, "checkpoint history should include a longer capped list");
     assert(historyPrompt!.options[0] === "1 hour ago · Checkpoint", "long-history list should stay sorted by recency");
@@ -366,14 +370,15 @@ async function runRecencyOrderingScenario() {
     assert(Boolean(harness.checkpointCommand), "checkpoint command was not registered");
 
     const { ctx, prompts } = makeCtx(cwd, [
-      "Choose checkpoint — pick from history",
+      "Browse milestones — pick from curated history",
+      "Advanced — browse raw JJ history",
       "1 minute ago · Checkpoint",
     ]);
 
     await harness.emit("session_start", {}, ctx);
     await harness.checkpointCommand!.handler("", ctx);
 
-    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which checkpoint?");
+    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which raw checkpoint?");
     assert(Boolean(historyPrompt), "recency-order checkpoint prompt was not shown");
     assert(historyPrompt!.options[0] === "1 minute ago · Checkpoint", "most recent visible checkpoint should stay first");
     assert(historyPrompt!.options[1] === "2 minutes ago · Older labeled checkpoint", "labeled checkpoints should remain in recency order");
@@ -413,14 +418,15 @@ async function runSkipCurrentSnapshotScenario() {
     assert(Boolean(harness.checkpointCommand), "checkpoint command was not registered");
 
     const { ctx, prompts } = makeCtx(cwd, [
-      "Choose checkpoint — pick from history",
+      "Browse milestones — pick from curated history",
+      "Advanced — browse raw JJ history",
       "2 minutes ago · Restored checkpoint",
     ]);
 
     await harness.emit("session_start", {}, ctx);
     await harness.checkpointCommand!.handler("", ctx);
 
-    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which checkpoint?");
+    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which raw checkpoint?");
     assert(Boolean(historyPrompt), "skip-current-snapshot checkpoint prompt was not shown");
     assert(historyPrompt!.options[0] === "2 minutes ago · Restored checkpoint", "current turn snapshot should not appear as the first restorable checkpoint");
     assert(historyPrompt!.options[1] === "4 minutes ago · Good previous checkpoint", "previous good checkpoint should remain available after skipping current snapshot");
@@ -480,14 +486,15 @@ async function runNestedCwdScenario() {
     assert(Boolean(harness.checkpointCommand), "checkpoint command was not registered");
 
     const { ctx, prompts } = makeCtx(nestedCwd, [
-      "Choose checkpoint — pick from history",
+      "Browse milestones — pick from curated history",
+      "Advanced — browse raw JJ history",
       "1 hour ago · Checkpoint",
     ]);
 
     await harness.emit("session_start", {}, ctx);
     await harness.checkpointCommand!.handler("", ctx);
 
-    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which checkpoint?");
+    const historyPrompt = prompts.find(entry => entry.prompt === "Restore to which raw checkpoint?");
     assert(Boolean(historyPrompt), "nested-cwd checkpoint prompt was not shown");
     assert(historyPrompt!.options[0] === "1 hour ago · Checkpoint", "nested-cwd checkpoint history did not remain available");
 

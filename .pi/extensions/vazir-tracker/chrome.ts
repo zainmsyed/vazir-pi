@@ -136,7 +136,7 @@ let _vcsOverridden = false;
 export function setVcsFlags(
   hasGitRepo: boolean,
   useJJ: boolean,
-  vcsKind: "none" | "git" | "jj" | "fossil" = useJJ ? "jj" : hasGitRepo ? "git" : "none",
+  vcsKind: "none" | "git" | "jj" | "fossil" = hasGitRepo ? "git" : "none",
   display: { refLabel: string; workingLabel: string; syncLabel: string } = { refLabel: "workspace", workingLabel: "", syncLabel: "" },
   isOverridden: boolean = false,
 ): void {
@@ -813,11 +813,11 @@ function branchLabel(cwd: string): string {
   let baseLabel = _vcsDisplay.refLabel || _vcsKind;
   if (_vcsKind === "git" && (!baseLabel || baseLabel === "workspace")) {
     try {
-      const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+      const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
       if (branch && branch !== "HEAD") {
         baseLabel = branch;
       } else {
-        const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+        const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
         if (symRef) baseLabel = symRef;
       }
     } catch {
@@ -871,14 +871,14 @@ function footerVcsStatusSegment(): string {
 
 function liveGitBranchLabel(cwd: string): string | null {
   try {
-    const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const symRef = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
     if (symRef) return clipInline(symRef, 24);
   } catch {
     /* fall through */
   }
 
   try {
-    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
     if (branch && branch !== "HEAD") return clipInline(branch, 24);
   } catch {
     /* fall through */
@@ -894,7 +894,7 @@ function footerBranchSegment(
   const hostBranch = _vcsKind === "git" && _hasGitRepo ? footerData.getGitBranch() : null;
   const rawBranch = hostBranch || (_vcsKind === "git" ? liveGitBranchLabel(cwd) : null) || branchLabel(cwd);
   const icon = vcsIcon(_vcsKind);
-  const branch = clipInline(icon ? `${icon} ${rawBranch}` : rawBranch, 24);
+  const branch = clipInline(icon ? `${icon}  ${rawBranch}` : rawBranch, 24);
   const branchPart = paint(branch, "branch");
   const vcsPart = footerVcsStatusSegment();
   return vcsPart ? `${branchPart}${separatorDot()}${vcsPart}` : branchPart;
