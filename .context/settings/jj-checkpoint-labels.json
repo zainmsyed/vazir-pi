@@ -162,6 +162,12 @@
     "9d31c71f": "on the /implement command can we swap the pick story and start story xxx for bet",
     "051416ef": "commit all",
     "475c5fa5": "yes commit everything includig the .context files",
-    "dbf320cd": "yes commit everything includig the .context files"
+    "dbf320cd": "yes commit everything includig the .context files",
+    "35d7646c": "just commit the 3 uncommited files.",
+    "a686ff32": "just commit the 3 uncommited files.",
+    "f398a210": "yes lets do that. you can edit addendum E directly. that way i can just use /pla",
+    "54beaf65": "The user wants to plan their project.\nExisting story files already exist in .con",
+    "db83d503": "please include those as well",
+    "ee0e096b": "can we merge this branch with the main/trunk first and then commit these to a ne"
   }
 }

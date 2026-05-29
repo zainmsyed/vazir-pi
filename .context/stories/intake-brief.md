@@ -1,31 +1,34 @@
 # Intake Brief
 
-**Last updated:** 2026-05-27
+**Last updated:** 2026-05-29
 
 ## Planning brief
-The `/plan` command handler currently batches all surviving Phase 1 questions into a single turn. The intended behavior is to ask them one at a time, waiting for the user’s full answer before the next question, and only proceeding to Phase 2 after all questions are answered or explicitly skipped.
-
-Addenda C and D define the design-system context layer (`.context/design/`, UI story detection, `/design` command, design compliance in `/review`) and the enhanced consolidation system (story-close mini-consolidate, Fallow recurrence tracking, positive patterns, rule confidence scoring). Both addenda are already implemented in the active story files.
-
-Remaining work consists of:
-1. Fixing the `/plan` question flow so it asks one question at a time.
-2. Completing the pending manual end-to-end validations for the VCS commit and footer fixes delivered in stories 032 and 033.
+Implement Addendum E's TUI layer for Vazir using pi built-ins and the current modular extension architecture.
 
 ## Source files
-- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_C.md (13039 bytes)
-- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_D.md (12436 bytes)
+- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_E.md (11418 bytes)
+
+## Distilled answers
+- Users are Vazir users working inside pi's terminal UI who currently need stronger command discoverability and lower-friction structured interactions.
+- v1 must get right: reliable, low-risk TUI improvements that fit pi's documented primitives and Vazir's current ownership boundaries.
+- v1 includes the full Addendum E baseline plus the follow-on overlay wiring the user explicitly requested: shared UI helpers, `/story`, `/plan`, `/implement` fallback, compact HUD, and overlay wiring for `/complete-story`, `/unlearn`, `/fix`, `/memory-review`, and `/checkpoint`/`/reset`.
+- v1 should not change command semantics, `.context/` file contracts, story workflow, review workflow, or VCS safety policy.
+- The stack already exists: current modular Vazir extensions under `.pi/extensions/`, shared helpers under `.pi/lib`, and pi TUI built-ins such as `SelectList`, `Markdown`, `DynamicBorder`, `Text`, `Container`, `matchesKey`, and `ctx.ui.setWidget` / `ctx.ui.custom`.
+- Implementation should prefer built-in pi components over custom low-level renderers.
+- Shared TUI helpers should live in `.pi/lib/vazir-ui.ts`, not inside a consuming extension.
+- HUD ownership belongs in `.pi/extensions/vazir-tracker/chrome.ts` so rendering stays centralized with existing chrome/footer state.
+- HUD phase 1 should be a compact single-column widget above the editor, with narrow-terminal collapse, not a fragile fake two-column dashboard.
+- HUD state must stay VCS-aware and reuse existing tracker/footer VCS identity logic so Fossil, Git, and Git+JJ helper paths are represented correctly.
+- Delivery should be phased: shared helpers first, then story/plan viewers, then picker/confirm overlays, then compact HUD, then remaining command overlay adoption.
 
 ## Distilled notes
-### .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_C.md
-Design system context: `.context/design/` folder with `design-system.md`, `brand.md`, `components.md`. UI story detection via scope-path extensions (`.tsx`, `.jsx`, `.css`, `.scss`, `.html`, `.svelte`) or explicit `Type: ui` frontmatter. Silent seeding during `/plan`. Lazy surface-level questions on first UI story when design-system.md is empty. `/design` update command with 300-token soft cap and trim priority. Design compliance checklist in `/review` for UI stories.
-
-### .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_D.md
-Two-tier consolidation: automatic story-close mini-consolidate at `/complete-story` and manual `/consolidate`. Mini-consolidate reads story issues, review findings, and Fallow output; proposes rule candidates with confidence; user approves/skips/selects. Fallow recurrence tracking in `complaints-log.md` with deduplication and 3-story threshold. Enhanced manual `/consolidate` reads completion summaries and decisions for positive patterns. Rule confidence scoring and `### From failures` / `### From successes` subsections in `system.md`.
-
-## Assumptions
-- The `/plan` fix is a targeted behavioral change to the existing handler, not a redesign of Phase 1 analysis logic.
-- End-to-end validation stories assume the code fixes from stories 032 and 033 are correct; if live validation reveals regressions, those are fixed within the validation story scope rather than spawning additional stories.
-- No new Addenda C/D features are needed beyond what is already implemented.
+### .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_E.md
+- Addendum E defines TUI overlays and HUD polish only; it does not change workflow semantics.
+- `showSelectionList` should wrap pi `SelectList` for selection and confirmation flows.
+- `showMarkdownViewer` should wrap pi `Markdown` for story/plan viewing.
+- `/story`, `/plan`, `/implement`, `/complete-story`, `/unlearn`, `/fix`, `/memory-review`, `/checkpoint`, and `/reset` are the primary consumers.
+- The HUD should surface active story, queue summary, VCS identity/status, and a compact command strip using cheap local data.
+- Tracker chrome is the correct owner for persistent HUD refreshes.
 
 ## Planning rules
 - Treat listed source files as user-authored planning inputs unless they are explicitly marked as generated artifacts.

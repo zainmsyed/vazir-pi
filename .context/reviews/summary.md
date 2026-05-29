@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-28T20:17:57Z
+**Last updated:** 2026-05-29T01:17:33Z
 
 ## Findings
 - Add extension-level validation whenever new safety logic is wired into a live event interception path, not just helper-level unit checks. | count: 1 | status: tracked | sources: review-20260515-160336.md | stories: story-017

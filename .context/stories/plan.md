@@ -78,6 +78,10 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-032 | Fix git commit bypass when `vcs_preference` is `jj` in colocated repos | complete | — |
 | story-033 | Normalize footer VCS identity to git or fossil only | complete | story-032 |
 | story-034 | Fix `/plan` intake question flow to ask one question at a time | not-started | — |
+| story-035 | Shared pi TUI overlay helpers for Vazir selection lists and markdown viewers | not-started | — |
+| story-036 | Wire `/story`, `/plan`, and `/implement` to shared TUI overlays | not-started | story-035 |
+| story-037 | Wire remaining Vazir picker and confirmation flows to shared TUI overlays | not-started | story-035, story-036 |
+| story-038 | Add compact persistent Vazir HUD in tracker chrome | not-started | story-035, story-036 |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
@@ -88,3 +92,4 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-05-27** — Replanned from the user request to fix git commit bypass when `vcs_preference` is `"jj"`. Preserved existing queue and appended story-032 to remove the `vcsPreference === "jj"` bypass in `commitStoryCloseChanges`, remove the `detectJJ` fallback commit path, and clean up the dead duplicate condition in `resolvePreferredVcsKind`.
 - **2026-05-27** — Replanned from the user request to normalize the footer so only git or fossil appear as active VCS identities. Preserved the existing queue and appended story-033 to keep JJ available for checkpoints while rendering Git+JJ repos as git in the footer/chrome.
 - **2026-05-27** — Replanned from the user request to fix the `/plan` intake question flow. Updated queue statuses to reflect completed/archived stories. Appended story-034 to fix the one-at-a-time question behavior in `/plan`.
+- **2026-05-29** — Replanned from Addendum E after revising the spec toward pi built-ins and current extension ownership. Preserved all existing story history and appended story-035 through story-038 for shared `SelectList`/`Markdown` helpers, story/plan/implement overlay adoption, remaining command picker and confirmation overlays, and a compact VCS-aware HUD in tracker chrome.
