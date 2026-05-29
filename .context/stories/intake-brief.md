@@ -1,29 +1,34 @@
 # Intake Brief
 
-**Last updated:** 2026-05-26
+**Last updated:** 2026-05-29
 
 ## Planning brief
-I want `/complete-story` commit paths to use a short descriptive commit message instead of only `complete story-026`. Include the story name/title and a concise description of what was done.
+Implement Addendum E's TUI layer for Vazir using pi built-ins and the current modular extension architecture.
 
 ## Source files
-- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_C.md (13039 bytes)
-- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_D.md (12436 bytes)
+- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_E.md (11418 bytes)
+
+## Distilled answers
+- Users are Vazir users working inside pi's terminal UI who currently need stronger command discoverability and lower-friction structured interactions.
+- v1 must get right: reliable, low-risk TUI improvements that fit pi's documented primitives and Vazir's current ownership boundaries.
+- v1 includes the full Addendum E baseline plus the follow-on overlay wiring the user explicitly requested: shared UI helpers, `/story`, `/plan`, `/implement` fallback, compact HUD, and overlay wiring for `/complete-story`, `/unlearn`, `/fix`, `/memory-review`, and `/checkpoint`/`/reset`.
+- v1 should not change command semantics, `.context/` file contracts, story workflow, review workflow, or VCS safety policy.
+- The stack already exists: current modular Vazir extensions under `.pi/extensions/`, shared helpers under `.pi/lib`, and pi TUI built-ins such as `SelectList`, `Markdown`, `DynamicBorder`, `Text`, `Container`, `matchesKey`, and `ctx.ui.setWidget` / `ctx.ui.custom`.
+- Implementation should prefer built-in pi components over custom low-level renderers.
+- Shared TUI helpers should live in `.pi/lib/vazir-ui.ts`, not inside a consuming extension.
+- HUD ownership belongs in `.pi/extensions/vazir-tracker/chrome.ts` so rendering stays centralized with existing chrome/footer state.
+- HUD phase 1 should be a compact single-column widget above the editor, with narrow-terminal collapse, not a fragile fake two-column dashboard.
+- HUD state must stay VCS-aware and reuse existing tracker/footer VCS identity logic so Fossil, Git, and Git+JJ helper paths are represented correctly.
+- Delivery should be phased: shared helpers first, then story/plan viewers, then picker/confirm overlays, then compact HUD, then remaining command overlay adoption.
 
 ## Distilled notes
-### Requested change
-- Add a follow-up story for descriptive `/complete-story` commit messages.
-- Keep the message short and concise.
-- Include the story label/title and a brief summary of completed work.
-
-### Relevant intake context
-- Addendum D makes `/complete-story` the owner of story-close mini-consolidate and closeout completion, so this follow-up belongs on that closeout path.
-- Existing closeout flows already support Git, JJ, and Fossil commit paths; the message-format change should preserve that behavior.
-- Story history through `story-026` is preserved; the new scope should be added as a fresh follow-up story starting at `story-027`.
-
-### Safe planning assumptions
-- The descriptive message should be derived from existing story metadata/content rather than by asking the user for a custom message during closeout.
-- Fallback behavior is still needed when the completion summary is weak or absent, so validation should cover both rich and sparse story content.
-- This request changes only `/complete-story` closeout commit messaging, not unrelated manual commit flows.
+### .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_E.md
+- Addendum E defines TUI overlays and HUD polish only; it does not change workflow semantics.
+- `showSelectionList` should wrap pi `SelectList` for selection and confirmation flows.
+- `showMarkdownViewer` should wrap pi `Markdown` for story/plan viewing.
+- `/story`, `/plan`, `/implement`, `/complete-story`, `/unlearn`, `/fix`, `/memory-review`, `/checkpoint`, and `/reset` are the primary consumers.
+- The HUD should surface active story, queue summary, VCS identity/status, and a compact command strip using cheap local data.
+- Tracker chrome is the correct owner for persistent HUD refreshes.
 
 ## Planning rules
 - Treat listed source files as user-authored planning inputs unless they are explicitly marked as generated artifacts.

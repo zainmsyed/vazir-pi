@@ -107,7 +107,7 @@ function isCurrentDirectoryInsideRepo(cwd: string, repoRoot: string): boolean {
 
 export function detectGitRepo(cwd: string): boolean {
   try {
-    const topLevel = childProcess.execSync("git rev-parse --show-toplevel", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const topLevel = childProcess.execSync("git rev-parse --show-toplevel", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 3000 }).trim();
     return topLevel ? isCurrentDirectoryInsideRepo(cwd, topLevel) : false;
   } catch {
     return false;
@@ -116,7 +116,7 @@ export function detectGitRepo(cwd: string): boolean {
 
 export function detectJJ(cwd: string): boolean {
   try {
-    const root = childProcess.execSync("jj root", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+    const root = childProcess.execSync("jj root", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 3000 }).trim();
     return root ? isCurrentDirectoryInsideRepo(cwd, root) : false;
   } catch {
     return false;
@@ -357,14 +357,14 @@ export function listPendingContextChanges(cwd: string): PendingContextChanges {
   if (activeMode === "fossil" && detectFossil(cwd)) {
     const files = new Set<string>();
     try {
-      for (const file of parseFossilStatusPaths(childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe" }))) {
+      for (const file of parseFossilStatusPaths(childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }))) {
         if (file === ".context" || file.startsWith(".context/")) files.add(file);
       }
     } catch {
       /* ignore */
     }
     try {
-      for (const file of parseFossilStatusPaths(childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe" }))) {
+      for (const file of parseFossilStatusPaths(childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }))) {
         if (file === ".context" || file.startsWith(".context/")) files.add(file);
       }
     } catch {
@@ -375,7 +375,7 @@ export function listPendingContextChanges(cwd: string): PendingContextChanges {
 
   if (detectGitRepo(cwd) || detectJJ(cwd) || activeMode === "git") {
     try {
-      const output = childProcess.execSync("git status --porcelain -- .context", { cwd, encoding: "utf-8", stdio: "pipe" });
+      const output = childProcess.execSync("git status --porcelain -- .context", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 });
       return { activeMode, files: parseGitStatusPaths(output).filter(file => file === ".context" || file.startsWith(".context/")).sort() };
     } catch {
       return { activeMode, files: [] };
