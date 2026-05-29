@@ -48,6 +48,8 @@
 - When normalizing a user-visible backend identity, do not let a stale preference advertise a backend that is not actually available in the current repo. <!-- source: story-033 --> <!-- confidence: low — no signal in last 5 stories -->
 - After simplifying an instruction or prompt, scan for orphaned variable declarations that were only consumed by the old text. <!-- source: story-034 --> <!-- confidence: low — no signal in last 5 stories -->
 - When removing an input-transformation feature, add a regression test proving the default passthrough path still works. <!-- source: story-034 --> <!-- confidence: low — no signal in last 5 stories -->
+- Any `String.repeat(n)` in TUI render paths must guard against `n < 0` because terminal width can be arbitrarily small. <!-- source: story-035 --> <!-- confidence: high -->
+- When a validation stub replaces a real function, the stub must support every parameter that production code calls; otherwise the test suite gives false confidence. <!-- source: story-035 --> <!-- confidence: high -->
 ### From successes
 - When a closeout prompt aggregates work from multiple checklist sections, reuse the same aggregation helper in the action path so the selected work actually executes. <!-- source: story-020 --> <!-- confidence: low — no signal in last 5 stories -->
-- When redesigning a noisy restore workflow, layer curated user-facing choices on top of one exact restore helper so every entry point keeps the same semantics. <!-- source: story-029, story-030 -->
+- When redesigning a noisy restore workflow, layer curated user-facing choices on top of one exact restore helper so every entry point keeps the same semantics. <!-- source: story-029, story-030 --> <!-- confidence: high -->
