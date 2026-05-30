@@ -561,9 +561,9 @@ async function runReviewGatedScenario() {
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "selecting remediation should keep the story open");
   assert(fs.readFileSync(reviewPath, "utf-8").includes("**Status:** in-progress"), "fix-path selection should move the review back to in-progress until remediation finishes");
-  const reviewViewerCalls = customCalls.filter(call => !/^─+$/.test(call.title.trim()) && call.body.includes(path.basename(reviewPath)));
+  const reviewViewerCalls = customCalls.filter(call => (call.options as any)?.overlay === true && call.body.includes(path.basename(reviewPath)));
   assert(reviewViewerCalls.length === 1, "review-gated closeout should allow opening the review document and returning to the choices");
-  assert(reviewViewerCalls[0].title.includes(path.basename(reviewPath)), "review document viewer should show the review file title");
+  assert(reviewViewerCalls[0].subtitle.includes(path.basename(reviewPath)), "review document viewer should show the review file title in the overlay header");
   assert((harness.sentInternalMessages.length as number) === 2, "review-gated closeout should queue a remediation turn after the user selects a fix path");
   assert(harness.sentInternalMessages[1].message.content.includes("Review .context/reviews/"), "review-gated closeout should dispatch remediation from turn_end");
   assert(harness.sentInternalMessages[1].message.content.includes("Only work the unchecked items marked `high` or `critical`"), "review-gated closeout should support high-priority-only remediation");
@@ -675,9 +675,9 @@ async function runReviewInProgressPromptScenario() {
 
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "review-in-progress scenario should keep the story open while the review is still in progress");
   assert(harness.sentInternalMessages.length === 1, "review-in-progress scenario should not queue extra internal turns before the review completes");
-  const inProgressReviewViewers = customCalls.filter(call => !/^─+$/.test(call.title.trim()) && call.body.includes(path.basename(reviewPath)));
+  const inProgressReviewViewers = customCalls.filter(call => (call.options as any)?.overlay === true && call.body.includes(path.basename(reviewPath)));
   assert(inProgressReviewViewers.length === 1, "review-in-progress scenario should allow opening the in-progress review document");
-  assert(inProgressReviewViewers[0].title.includes(path.basename(reviewPath)), "in-progress review viewer should show the review file title");
+  assert(inProgressReviewViewers[0].subtitle.includes(path.basename(reviewPath)), "in-progress review viewer should show the review file title in the overlay header");
   assert(selectCalls.some(call => call.options.includes("Keep story open and stay in review")), "review-in-progress scenario should offer an explicit keep-open-and-stay option");
   assert(selectCalls.some(call => call.prompt.includes("still marked in progress")), "review-in-progress scenario should explain why fix/close choices are not available yet");
 
@@ -734,8 +734,9 @@ async function runRestartedReviewCloseoutScenario() {
   assert(resumedReviewFiles.length === 1, "restart scenario should resume the existing review instead of creating a replacement review file");
   assert(resumedSelectCalls.some(call => call.options.includes("Open review document")), "restart scenario should reopen the completed review closeout choices on rerun");
   assert(resumedSelectCalls.some(call => call.prompt.includes("Review complete.")), "restart scenario should resume from the completed review closeout prompt");
-  const resumedReviewViewers = resumedCustomCalls.filter(call => !/^─+$/.test(call.title.trim()) && call.body.includes(path.basename(reviewPath)));
+  const resumedReviewViewers = resumedCustomCalls.filter(call => (call.options as any)?.overlay === true && call.body.includes(path.basename(reviewPath)));
   assert(resumedReviewViewers.length === 1, "restart scenario should still allow reopening the prior review document");
+  assert(resumedReviewViewers[0].subtitle.includes(path.basename(reviewPath)), "restart scenario should reopen the review in an overlay with the review title in the header");
   assert(harness.sentInternalMessages.length === 2, "restart scenario should continue into learned-rule closeout after the resumed review prompt");
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "restart scenario should allow the story to close after the resumed review prompt finishes");
 
@@ -982,11 +983,12 @@ async function runColocatedJjPreferredCommitScenario() {
 
   const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated JJ-preferred scenario should complete the story after mini-consolidate");
-  assert(notifications.some(note => note.message.includes(`Recorded JJ change: ${expectedMessage}`)), "colocated JJ-preferred scenario should use JJ when explicitly preferred");
-  const describedMessage = childProcess.execSync("jj log -r @ -T description --no-graph", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-  assert(describedMessage === expectedMessage, "colocated JJ-preferred scenario should describe the current JJ change with the descriptive message");
-  const jjStatus = childProcess.execSync("jj status", { cwd, encoding: "utf-8", stdio: "pipe" });
-  assert(jjStatus.includes("Working copy  (@)") && jjStatus.includes(expectedMessage), "colocated JJ-preferred scenario should keep the described JJ working copy active");
+  assert(notifications.some(note => note.message.includes(`Committed with Git: ${expectedMessage}`)), "colocated JJ-preferred scenario should keep using Git commits even when JJ is the preference");
+  assert(!notifications.some(note => note.message.includes("Recorded JJ change")), "colocated JJ-preferred scenario should not replace the commit with a JJ describe operation");
+  const gitMessage = childProcess.execSync("git log -1 --pretty=%B", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(gitMessage === expectedMessage, "colocated JJ-preferred scenario should create a real Git commit with the descriptive message");
+  const gitStatus = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
+  assert(gitStatus === "", "colocated JJ-preferred scenario should leave the colocated Git checkout clean after commit all");
 
   return { cwd, notifications, selectCalls };
 }

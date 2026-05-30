@@ -40,13 +40,13 @@ Exercise representative command paths in pi for `/story`, `/plan`, `/implement`,
 - [x] Update validation coverage and story text to reflect the revert-to-standard-picker decision
 
 ## Issues
-- None yet.
+- `/complete-story` does not open the review in an overlay when choosing the review-open path, so the story is not ready to close.
 
 ## Completion Summary
-Vazir is reverting to Pi's standard selection lists for now, while keeping markdown documents in overlays.
+Most of the revert-to-standard-picker work is in place, but story closeout is still blocked by one remaining regression.
 
 - `/story`, `/plan`, and `/implement` use the normal Pi picker path for choices, while selected story and plan markdown still open in overlay viewers.
-- `/complete-story`, `/unlearn`, `/fix`, `/memory-review`, `/checkpoint`, and `/reset` also use the normal Pi picker path again, preserving existing closeout, memory, and restore semantics.
+- `/complete-story`, `/unlearn`, `/fix`, `/memory-review`, `/checkpoint`, and `/reset` were reverted to the normal Pi picker path, but `/complete-story` still needs its review-open path fixed so opened review markdown appears in an overlay.
 - Temporary selector preview commands were removed after deciding not to ship the custom picker chrome in this pass.
-- The current UX rule is now: standard picker for choices, overlay for opened documents.
+- The intended UX rule remains: standard picker for choices, overlay for opened documents.
 - Theme exploration for a broader Pi-wide visual refresh is deferred to follow-up planning instead of being bundled into this story.

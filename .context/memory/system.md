@@ -52,6 +52,8 @@
 - When a validation stub replaces a real function, the stub must support every parameter that production code calls; otherwise the test suite gives false confidence. <!-- source: story-035 --> <!-- confidence: high -->
 - When reverting a shipped UI interaction model, update or remove the regression expectations for the abandoned behavior in the same change so the targeted test suite still matches the shipped product. <!-- source: story-037 --> <!-- confidence: high -->
 - After rolling back a shared helper rollout, remove or reset the orphaned helper implementation so future callers cannot accidentally reintroduce the abandoned behavior. <!-- source: story-037 --> <!-- confidence: high -->
+- When a review or closeout flow aggregates items from multiple checklist or fix sections, the remediation dispatch must include every section so no category is silently skipped during the fix pass. <!-- source: story-037 --> <!-- confidence: high -->
+- When parsing LLM-generated structured markdown sections into workflow state, deduplicate entries by a stable semantic key before surfacing them to the user so duplicate or regenerated content cannot inflate the closeout workload. <!-- source: story-037 --> <!-- confidence: high -->
 ### From successes
 - When a closeout prompt aggregates work from multiple checklist sections, reuse the same aggregation helper in the action path so the selected work actually executes. <!-- source: story-020 --> <!-- confidence: low — no signal in last 5 stories -->
 - When redesigning a noisy restore workflow, layer curated user-facing choices on top of one exact restore helper so every entry point keeps the same semantics. <!-- source: story-029, story-030 --> <!-- confidence: high -->
