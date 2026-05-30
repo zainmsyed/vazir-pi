@@ -39,4 +39,11 @@ for (const cmd of docCommands) {
 assert(source.includes("export function getCommandDoc"), "getCommandDoc should be exported");
 assert(source.includes("export function validateCommandDocsComplete"), "validateCommandDocsComplete should be exported");
 
+// Check that the help overlay uses the registry and detail overlay
+assert(source.includes("getCommandDoc(pick)"), "showCommandHelp should use getCommandDoc to look up selected command");
+assert(source.includes("showCommandDetailOverlay(ctx, doc)"), "showCommandHelp should open showCommandDetailOverlay for selected command");
+assert(source.includes('"Quickstart: "'), "showCommandHelp should include a quickstart banner");
+assert(source.includes("new piTui.SelectList"), "showCommandHelp should use piTui.SelectList for the selectable list");
+assert(source.includes("while (true)"), "showCommandHelp should loop back to the list after detail closes");
+
 console.log(`validate-vazir-command-docs: ${helpCommands.length} commands, all matched: ok`);

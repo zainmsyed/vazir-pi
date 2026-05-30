@@ -13,7 +13,7 @@ import {
   storiesDir,
   type StoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
-import { CommandDoc, VazirPanel } from "../../lib/vazir-ui.ts";
+import { CommandDoc, showCommandDetailOverlay, VazirPanel } from "../../lib/vazir-ui.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -319,6 +319,7 @@ export function tearDownChromeSession(ui: any): void {
   stopWorkingMessageTicker(ui);
   commandHelpInputUnsubscribe?.();
   commandHelpInputUnsubscribe = null;
+  commandHelpOpen = false;
   setFooterComponent(ui, undefined);
   statusWidgetTui = null;
   currentFooterSnapshot = null;
@@ -779,109 +780,6 @@ export async function showScrollableText(
   });
 }
 
-export async function showScrollableOverlay(
-  ctx: { ui: any },
-  title: string,
-  subtitle: string,
-  body: string,
-): Promise<void> {
-  if ((process.stdout.columns || 0) < 80) {
-    await showScrollableText(ctx, title, subtitle, body);
-    return;
-  }
-
-  const lines = body.split("\n");
-  let scrollOffset = 0;
-
-  await ctx.ui.custom((tui: { requestRender(): void }, theme: any, _kb: unknown, done: () => void) => {
-    const borderFg = (s: string) => theme.fg("borderAccent", s);
-    const bg = (s: string) => theme.bg("customMessageBg", s);
-
-    const panel = new VazirPanel(
-      theme.fg("accent", theme.bold(`${title} · ${subtitle}`)),
-      borderFg,
-      bg,
-    );
-
-    class ScrollableLines extends piTui.Container {
-      private maxVisible = 10;
-
-      setScrollOffset(offset: number) {
-        scrollOffset = Math.max(0, offset);
-      }
-
-      setMaxVisible(maxVisible: number) {
-        this.maxVisible = maxVisible;
-      }
-
-      getScrollOffset(): number {
-        return scrollOffset;
-      }
-
-      getTotalLines(): number {
-        return lines.length;
-      }
-
-      render(width: number): string[] {
-        const visible = lines
-          .slice(scrollOffset, scrollOffset + this.maxVisible)
-          .map(line => line.slice(0, width));
-        while (visible.length < this.maxVisible) {
-          visible.push("");
-        }
-        return visible;
-      }
-    }
-
-    const scrollable = new ScrollableLines();
-    panel.addChild(scrollable);
-
-    function computeVisibleRows(): number {
-      return Math.max(5, Math.min(lines.length || 1, (process.stdout.rows || 24) - 10));
-    }
-
-    return {
-      render(width: number): string[] {
-        const visibleRows = computeVisibleRows();
-        scrollable.setMaxVisible(visibleRows);
-        return panel.render(width);
-      },
-      invalidate(): void {
-        panel.invalidate();
-      },
-      handleInput(data: string): void {
-        const visibleRows = computeVisibleRows();
-        scrollable.setMaxVisible(visibleRows);
-        const totalLines = lines.length;
-        const pageSize = Math.max(1, visibleRows - 1);
-
-        if (piTui.matchesKey(data, piTui.Key.up)) {
-          scrollOffset = Math.max(0, scrollOffset - 1);
-        } else if (piTui.matchesKey(data, piTui.Key.down)) {
-          scrollOffset = Math.min(Math.max(0, totalLines - visibleRows), scrollOffset + 1);
-        } else if (piTui.matchesKey(data, piTui.Key.pageUp) || piTui.matchesKey(data, piTui.Key.home)) {
-          scrollOffset = Math.max(0, scrollOffset - pageSize);
-        } else if (piTui.matchesKey(data, piTui.Key.pageDown) || piTui.matchesKey(data, piTui.Key.end)) {
-          scrollOffset = Math.min(Math.max(0, totalLines - visibleRows), scrollOffset + pageSize);
-        } else if (piTui.matchesKey(data, piTui.Key.escape)) {
-          done();
-          return;
-        }
-        tui.requestRender();
-      },
-    };
-  }, {
-    overlay: true,
-    overlayOptions: {
-      anchor: "center",
-      width: "60%",
-      minWidth: 60,
-      maxHeight: "80%",
-      margin: 1,
-    },
-  });
-}
-
 function isCommandHelpShortcut(data: string): boolean {
   return [
     piTui.Key.ctrl("?"),
@@ -891,19 +789,87 @@ function isCommandHelpShortcut(data: string): boolean {
   ].some(key => piTui.matchesKey(data, key));
 }
 
-function commandHelpBody(): string {
-  const lines = [
-    "Vazir command list",
-    "",
-    ...VAZIR_COMMAND_HELP.map(entry => `${entry.command.padEnd(14)} ${entry.description}`),
-    "",
-    "Use Esc to close and PgUp/PgDn to scroll if the list grows.",
-  ];
-  return lines.join("\n");
-}
-
 async function showCommandHelp(ctx: { ui: any }): Promise<void> {
-  await showScrollableOverlay(ctx, "Vazir commands", "Ctrl+? or Esc to close", commandHelpBody());
+  if (!ctx.hasUI || typeof ctx.ui?.custom !== "function") {
+    ctx.ui?.notify("Help overlay requires a TUI session", "info");
+    return;
+  }
+
+  const items = VAZIR_COMMAND_HELP.map(entry => ({
+    value: entry.command,
+    label: entry.command,
+    description: entry.description,
+  }));
+
+  while (true) {
+    const pick = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
+      const borderFg = (s: string) => theme.fg("borderAccent", s);
+      const bg = (s: string) => theme.bg("customMessageBg", s);
+
+      const panel = new VazirPanel(
+        theme.fg("accent", theme.bold("Vazir commands")),
+        borderFg,
+        bg,
+      );
+
+      const bannerText = theme.fg("success", "Quickstart: ")
+        + theme.fg("text", "/plan → /implement → /complete-story");
+      panel.addChild(new piTui.Text(bannerText, 1, 0));
+      panel.addChild(new piTui.Spacer(1));
+
+      const selectList = new piTui.SelectList(items, Math.min(items.length, 12), {
+        selectedPrefix: (text: string) => theme.fg("accent", text),
+        selectedText: (text: string) => theme.fg("accent", text),
+        description: (text: string) => theme.fg("muted", text),
+        scrollInfo: (text: string) => theme.fg("dim", text),
+        noMatch: (text: string) => theme.fg("warning", text),
+      });
+
+      selectList.onSelect = (item: any) => done(item.value as string);
+      selectList.onCancel = () => done(null);
+
+      panel.addChild(selectList);
+      panel.addChild(new piTui.Spacer(1));
+      panel.addChild(new piTui.Text(
+        theme.fg("dim", "↑↓ navigate • enter select • esc cancel"),
+        1,
+        0,
+      ));
+
+      return {
+        render(width: number): string[] {
+          return panel.render(width);
+        },
+        invalidate(): void {
+          panel.invalidate();
+        },
+        handleInput(data: string): void {
+          if (piTui.matchesKey(data, piTui.Key.escape)) {
+            done(null);
+            return;
+          }
+          selectList.handleInput(data);
+          tui.requestRender();
+        },
+      };
+    }, {
+      overlay: true,
+      overlayOptions: {
+        anchor: "center",
+        width: "60%",
+        minWidth: 60,
+        maxHeight: "80%",
+        margin: 1,
+      },
+    });
+
+    if (pick == null) return;
+
+    const doc = getCommandDoc(pick);
+    if (!doc) return;
+
+    await showCommandDetailOverlay(ctx, doc);
+  }
 }
 
 export function registerCommandHelpShortcut(ctx: { ui: { onTerminalInput(handler: (data: string) => { consume?: boolean; data?: string } | undefined): () => void } }): void {

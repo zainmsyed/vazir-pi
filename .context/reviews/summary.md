@@ -1,11 +1,12 @@
 # Review Summary
 
-**Last updated:** 2026-05-30T14:52:50Z
+**Last updated:** 2026-05-30T15:50:28Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - After extracting helpers to a new module, delete the original copies to prevent drift and confusion. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - After extracting or migrating UI behavior to a new helper, remove the now-unused import from the original consumer so the compiler/loader doesn't drag in dead code. | count: 1 | status: tracked | sources: review-20260529-215920.md | stories: story-036
+- After removing a public function, update or delete validation scripts that reference it so the test suite does not produce false failures. | count: 1 | status: tracked | sources: review-20260530-153400.md | stories: story-041
 - After reverting a shared helper rollout, delete or reset the orphaned helper implementation so future callers cannot accidentally reintroduce the abandoned behavior. | count: 1 | status: tracked | sources: review-20260530-020034.md | stories: story-037
 - Always verify runtime capability flags before returning a mode or state label; preference settings are intent, not proof of readiness. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Any `String.repeat(n)` in TUI render paths must guard against `n < 0` because terminal width can be arbitrarily small. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
@@ -30,8 +31,10 @@
 - Temporary validation extensions or scripts must be deleted before story closeout; if they must persist, move them to a `tests/` or `scripts/` directory and document their purpose. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - UI labels that describe a restore action must accurately describe what will be restored; fallbacks to broader categories need relabeling. | count: 1 | status: tracked | sources: review-20260527-095822.md | stories: story-030
 - When a checklist calls for coverage "across" a set of changed-file states, verify more than one representative state — include create, modify, delete, and rename. | count: 1 | status: tracked | sources: review-20260526-215055.md | stories: story-029
+- When a feature introduces stateful guards or input consumption, add a regression test that exercises the guard directly rather than only asserting static source patterns. | count: 1 | status: tracked | sources: review-20260530-153400.md | stories: story-041
 - When a handler chains multiple overlay helpers, verify that the required UI primitives are available before starting the flow, especially when one helper has a fallback path that the next helper lacks. | count: 1 | status: tracked | sources: review-20260530-141131.md | stories: story-039
 - When a prototype validates a schema, extract the schema type and rendering helper into a shared module as part of the production follow-up story so the prototype knowledge is preserved. | count: 1 | status: tracked | sources: review-20260530-141131.md | stories: story-039
+- When a session teardown cleans up subscription state, also reset any module-level guard flags that were set by the active session so they do not leak into the next session. | count: 1 | status: tracked | sources: review-20260530-153400.md | stories: story-041
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - When a validation stub replaces a real function, the stub must support every parameter that production code calls; otherwise the test suite gives false confidence. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - When adding or tightening VCS detection, validate extension behavior from both the repo root and a nested project directory. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -48,5 +51,6 @@
 - When the same literal union appears more than once in a module, extract a named type alias to reduce drift during future changes. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - When the same logic block is pasted into two files, add a cross-reference comment linking both copies so the next editor knows to keep them in sync. | count: 1 | status: tracked | sources: review-20260527-095822.md | stories: story-030
 - When tracking async tool lifecycle, correlate start and end events with a unique call identifier, not just the tool name. | count: 1 | status: tracked | sources: review-20260518-145628.md
+- When using optional chaining to guard a property access, ensure all subsequent accesses on the same object inside the guarded block also use optional chaining or an explicit null check. | count: 1 | status: tracked | sources: review-20260530-153400.md | stories: story-041
 - When validating bidirectional consistency between two parallel data structures, check both directions so drift in either direction is caught. | count: 1 | status: tracked | sources: review-20260530-144453.md | stories: story-040
 - When validating tool input for security, always check every documented alias of a target field (`path` / `filePath`), not just the primary one. | count: 1 | status: tracked | sources: review-20260518-145628.md
