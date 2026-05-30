@@ -21,3 +21,4 @@ types/pi-runtime-ambient.d.ts — Minimal ambient Pi SDK and pi-tui module typin
 .pi/extensions/vazir-vcs/index.ts — Scaffold for future VCS/settings extraction; target owner for VCS mode selection, checkpoint restore/sync, and VCS guardrails.
 
 .pi/extensions/vazir-context/complete-story.ts — Complete-story orchestration module owning phase detection, closeout prompting, remediation dispatch, learned-rule closeout, and final story close/commit handoff.
+.pi/lib/vazir-ui.ts — (undescribed)

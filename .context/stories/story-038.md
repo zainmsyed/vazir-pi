@@ -1,8 +1,9 @@
 # Story 038: Add compact persistent Vazir HUD in tracker chrome
 
-**Status:** not-started  
+**Status:** retired  
 **Created:** 2026-05-29  
-**Last accessed:** 2026-05-29  
+**Last accessed:** 2026-05-30  
+**Completed:** —
 
 ---
 
@@ -12,12 +13,12 @@ Add a compact persistent HUD above the editor, owned by `vazir-tracker/chrome.ts
 ## Verification
 Start pi in representative repo states and confirm the HUD renders above the editor, updates after story/VCS-visible changes, collapses safely on narrow terminals, and shows the same backend identity conventions already used by tracker chrome for Fossil and Git/JJ repos.
 
-## Scope
+## Scope — files this story may touch
 - `.pi/extensions/vazir-tracker/chrome.ts`
 - Supporting tracker helpers needed to feed bounded HUD data
 - Validation coverage for HUD rendering states
 
-## Out of scope
+## Out of scope — do not touch
 - A two-column dashboard layout
 - Clickable command interactions
 - New repo-detection logic separate from existing VCS helper/chrome state
@@ -35,7 +36,11 @@ Start pi in representative repo states and confirm the HUD renders above the edi
 - [ ] Add regression coverage for multiple HUD states, including Fossil-aware identity output and narrow-terminal collapse
 
 ## Issues
-- None yet.
+### Retired — not needed
+- **Reported:** 2026-05-30  
+- **Status:** retired  
+- **Agent note:** Story was implemented and then reverted by user decision. Work discarded via `fossil revert`.  
+- **Solution:** —
 
 ## Completion Summary
-Not completed yet.
+Retired by user request after revert. The HUD work was implemented in `.pi/extensions/vazir-tracker/chrome.ts` and validated, but the user chose to discard it with `fossil revert`. The existing `vazir-story-status` widget above the editor remains the primary story surface.

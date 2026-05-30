@@ -25,14 +25,21 @@ function ensureStubModule(moduleName: string, content: string): string | null {
 export function installCommonPiStubs(): string[] {
   return [
     ensureStubModule("@mariozechner/pi-tui", [
-      "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape', ctrl: value => value, ctrlShift: value => value, shiftCtrl: value => value };",
+      "exports.__esModule = true;",
+      "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape', enter: 'enter', ctrl: value => value, ctrlShift: value => value, shiftCtrl: value => value };",
       "exports.matchesKey = (data, key) => data === key;",
-      "exports.Container = class {};",
-      "exports.Text = class {};",
+      "exports.Container = class { constructor() { this.children = []; } addChild(c) { this.children.push(c); } invalidate() {} render(w) { return this.children.flatMap(c => c.render ? c.render(w) : []); } };",
+      "exports.Text = class { constructor(t, px, py) { this.text = t; this.px = px; this.py = py; } render(w) { return [this.text]; } };",
+      "exports.Spacer = class { constructor(n) { this.n = n; } render(w) { return Array(this.n).fill(''); } };",
+      "exports.Markdown = class { constructor(md, px, py, theme) { this.md = md; } render(w) { return this.md.split('\\n').slice(0, w); } };",
+      "exports.SelectList = class { constructor(items, maxVisible, theme, layout) { this.items = items; this.maxVisible = maxVisible; this.theme = theme; this.layout = layout || {}; this.selectedIndex = 0; } setSelectedIndex(i) { this.selectedIndex = i; } getSelectedItem() { return this.items[this.selectedIndex] || null; } onSelect = null; onCancel = null; handleInput(data) { if (data === 'escape' && this.onCancel) this.onCancel(); } invalidate() {} render(w) { return this.items.slice(0, this.maxVisible).map(i => '  ' + i.label); } };",
+      "exports.truncateToWidth = (str, width, ellipsis = '…', pad = false) => { const len = str.length; if (len > width) return str.slice(0, width - ellipsis.length) + ellipsis; return pad ? str + ' '.repeat(Math.max(0, width - len)) : str; };",
       "",
     ].join("\n")),
     ensureStubModule("@mariozechner/pi-coding-agent", [
-      "exports.DynamicBorder = class {};",
+      "exports.__esModule = true;",
+      "exports.DynamicBorder = class { constructor(fn) { this.fn = fn; } render(w) { return ['─'.repeat(Math.max(2, w - 2))]; } };",
+      "exports.getMarkdownTheme = () => ({});",
       "",
     ].join("\n")),
   ].filter((dir): dir is string => dir !== null);
