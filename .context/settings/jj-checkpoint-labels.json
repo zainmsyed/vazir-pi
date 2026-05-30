@@ -228,6 +228,9 @@
     "58d0ebb6": "yes and lets wire that ui to a /test-help command to invoke it in the tui",
     "525de9e6": "Implement the in-progress story in .context/stories/story-039.md.\n\nYour job:\n1. ",
     "e1219715": "ok one thing i just thought off we need to be abel to go back to the list. esc c",
-    "0b404f20": "love it this is great. we can use this exactly as is and make the remaining task"
+    "0b404f20": "love it this is great. we can use this exactly as is and make the remaining task",
+    "4c9b7082": "love it this is great. we can use this exactly as is and make the remaining task",
+    "269f6865": "the commit message on complete sgtory is still broken. pasted it below. why is t",
+    "062e0169": "08f95e409684b277\n\nthe commit message here is very long and looks fine why is tha"
   }
 }
