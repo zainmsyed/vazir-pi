@@ -75,10 +75,8 @@ function writeStory(
 function makeCtx(
   cwd: string,
   notifications: Notification[],
-  customReturns: unknown[] = [],
-  selectReturns: string | undefined = undefined,
+  selectReturn: string | undefined = undefined,
 ) {
-  let callIndex = 0;
   const customCalls: CustomCall[] = [];
   return {
     cwd,
@@ -91,12 +89,11 @@ function makeCtx(
         return undefined;
       },
       async select() {
-        return selectReturns;
+        return selectReturn;
       },
       async custom(_factory: any, options: any) {
         customCalls.push({ options });
-        const value = customReturns[callIndex++];
-        return Promise.resolve(value);
+        return Promise.resolve();
       },
       _customCalls: () => customCalls,
     },
@@ -114,13 +111,12 @@ async function runStoryPickerWithActiveStoryScenario() {
   assert(Boolean(storyCommand), "story command was not registered");
 
   const notifications: Notification[] = [];
-  const ctx = makeCtx(cwd, notifications, [storyPath]);
+  const ctx = makeCtx(cwd, notifications, "story-002 — in-progress — Active Story · 2026-04-22");
   await storyCommand!.handler("", ctx);
 
   const customCalls = (ctx.ui as any)._customCalls();
-  assert(customCalls.length === 2, "story should always show picker, then viewer, even when a story is active");
-  assert((customCalls[0].options as any)?.overlay === true, "story picker should use an overlay");
-  assert((customCalls[1].options as any)?.overlay === true, "story viewer should use an overlay");
+  assert(customCalls.length === 1, "story should only open the viewer after the standard picker resolves a choice");
+  assert((customCalls[0].options as any)?.overlay === true, "story viewer should use an overlay");
   assert(notifications.length === 0, "story with files should not notify");
 
   return { cwd, notifications };
@@ -136,13 +132,12 @@ async function runStoryPickerScenario() {
   assert(Boolean(storyCommand), "story command was not registered");
 
   const notifications: Notification[] = [];
-  const ctx = makeCtx(cwd, notifications, [storyPath]);
+  const ctx = makeCtx(cwd, notifications, "story-001 — not-started — First Story · 2026-04-20");
   await storyCommand!.handler("", ctx);
 
   const customCalls = (ctx.ui as any)._customCalls();
-  assert(customCalls.length === 2, "story with no active story should call ui.custom twice (picker then viewer)");
-  assert((customCalls[0].options as any)?.overlay === true, "story picker should use an overlay");
-  assert((customCalls[1].options as any)?.overlay === true, "story viewer should use an overlay");
+  assert(customCalls.length === 1, "story with no active story should call ui.custom once for the viewer after selection");
+  assert((customCalls[0].options as any)?.overlay === true, "story viewer should use an overlay");
 
   return { cwd, notifications };
 }
@@ -158,13 +153,12 @@ async function runStoryPickPlanScenario() {
   assert(Boolean(storyCommand), "story command was not registered");
 
   const notifications: Notification[] = [];
-  const ctx = makeCtx(cwd, notifications, [planPath]);
+  const ctx = makeCtx(cwd, notifications, "plan.md — plan");
   await storyCommand!.handler("", ctx);
 
   const customCalls = (ctx.ui as any)._customCalls();
-  assert(customCalls.length === 2, "story plan-pick should call ui.custom twice (picker then viewer)");
-  assert((customCalls[0].options as any)?.overlay === true, "story picker should use an overlay");
-  assert((customCalls[1].options as any)?.overlay === true, "plan viewer should use an overlay");
+  assert(customCalls.length === 1, "story plan-pick should call ui.custom once for the plan viewer after selection");
+  assert((customCalls[0].options as any)?.overlay === true, "plan viewer should use an overlay");
 
   return { cwd, notifications };
 }
@@ -198,11 +192,11 @@ async function runPlanViewScenario() {
   assert(Boolean(planCommand), "plan command was not registered");
 
   const notifications: Notification[] = [];
-  const ctx = makeCtx(cwd, notifications, [], "View current plan");
+  const ctx = makeCtx(cwd, notifications, "View current plan");
   await planCommand!.handler("", ctx);
 
   const customCalls = (ctx.ui as any)._customCalls();
-  assert(customCalls.length === 1, "plan view should call ui.custom once (markdown viewer)");
+  assert(customCalls.length === 1, "plan view should call ui.custom once for the markdown viewer");
   assert((customCalls[0].options as any)?.overlay === true, "plan viewer should use an overlay");
 
   return { cwd, notifications };

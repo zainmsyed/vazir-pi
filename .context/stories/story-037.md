@@ -1,17 +1,17 @@
-# Story 037: Adopt approved inline selector chrome for remaining Vazir pickers
+# Story 037: Keep standard Pi selection lists for Vazir while reserving overlays for documents
 
-**Status:** not-started  
+**Status:** complete  
 **Created:** 2026-05-29  
-**Last accessed:** 2026-05-29  
-**Completed:** —
+**Last accessed:** 2026-05-30  
+**Completed:** 2026-05-30
 
 ---
 
 ## Goal
-Standardize Vazir on one UI rule: all selections use the approved style-C inline selector treatment in the normal text-entry area, while opened markdown documents remain in overlays. This includes `/story`, `/plan`, `/implement`, `/complete-story`, `/unlearn`, `/fix`, `/memory-review`, `/checkpoint`, and `/reset`.
+Standardize Vazir on a simpler UI rule for now: keep Pi's standard selection lists for Vazir pickers and confirmations, while opened markdown documents remain in overlays. This includes `/story`, `/plan`, `/implement`, `/complete-story`, `/unlearn`, `/fix`, `/memory-review`, `/checkpoint`, and `/reset`.
 
 ## Verification
-Exercise representative command paths in pi for `/story`, `/plan`, `/implement`, `/complete-story`, `/unlearn`, `/fix`, `/memory-review`, and `/checkpoint`/`/reset`. Confirm every selection step uses the style-C inline selector treatment, confirm opened story/plan/review markdown still appears in overlays, confirm destructive confirms default to the safe option, and confirm command behavior and persisted state transitions remain unchanged apart from presentation.
+Exercise representative command paths in pi for `/story`, `/plan`, `/implement`, `/complete-story`, `/unlearn`, `/fix`, `/memory-review`, and `/checkpoint`/`/reset`. Confirm selection steps use Pi's standard picker behavior, confirm opened story/plan/review markdown still appears in overlays, and confirm command behavior and persisted state transitions remain unchanged apart from presentation.
 
 ## Scope — files this story may touch
 - `.pi/extensions/vazir-context/index.ts`
@@ -31,16 +31,22 @@ Exercise representative command paths in pi for `/story`, `/plan`, `/implement`,
 - story-036
 
 ## Checklist
-- [ ] Refine the shared selection helper so style C becomes the default inline treatment for all Vazir selections
-- [ ] Apply the shared style-C inline selector treatment to `/story`, `/plan`, and `/implement` so those flows match the approved picker UX
-- [ ] Keep markdown viewers on overlays and preserve existing story/plan/review document-view semantics
-- [ ] Wire `/complete-story`, `/unlearn`, `/fix`, and `/memory-review` picker/confirmation prompts to the shared inline helper
-- [ ] Wire `/checkpoint` and `/reset` restore pickers to the shared inline helper while preserving current guardrails and labels
-- [ ] Ensure destructive confirmations default to cancel and keep safety wording accurate to the actual restore/delete target
-- [ ] Remove or rename temporary selector preview commands once the approved style ships in real flows
+- [x] Revert Vazir pickers and confirmations back to Pi's standard selection-list behavior
+- [x] Keep markdown viewers on overlays and preserve existing story/plan/review document-view semantics
+- [x] Restore `/story`, `/plan`, and `/implement` to the standard picker path while keeping document overlays intact
+- [x] Restore `/complete-story`, `/unlearn`, `/fix`, and `/memory-review` to the standard picker path
+- [x] Restore `/checkpoint` and `/reset` restore pickers to the standard picker path while preserving current guardrails and labels
+- [x] Remove temporary selector preview commands after deciding not to ship the custom picker chrome in this pass
+- [x] Update validation coverage and story text to reflect the revert-to-standard-picker decision
 
 ## Issues
 - None yet.
 
 ## Completion Summary
-Not completed yet.
+Vazir is reverting to Pi's standard selection lists for now, while keeping markdown documents in overlays.
+
+- `/story`, `/plan`, and `/implement` use the normal Pi picker path for choices, while selected story and plan markdown still open in overlay viewers.
+- `/complete-story`, `/unlearn`, `/fix`, `/memory-review`, `/checkpoint`, and `/reset` also use the normal Pi picker path again, preserving existing closeout, memory, and restore semantics.
+- Temporary selector preview commands were removed after deciding not to ship the custom picker chrome in this pass.
+- The current UX rule is now: standard picker for choices, overlay for opened documents.
+- Theme exploration for a broader Pi-wide visual refresh is deferred to follow-up planning instead of being bundled into this story.

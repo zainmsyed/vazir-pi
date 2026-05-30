@@ -104,7 +104,7 @@ function createNormalizedInput(text: string): string {
 function makeCtx(
   cwd: string,
   notifications: Notification[],
-  customReturns: unknown[] = [],
+  selectReturns: unknown[] = [],
 ) {
   let callIndex = 0;
   const customCalls: CustomCall[] = [];
@@ -118,12 +118,11 @@ function makeCtx(
         return undefined;
       },
       async select() {
-        return undefined;
+        return selectReturns[callIndex++] as string | undefined;
       },
       async custom(_factory: any, options: any) {
         customCalls.push({ options });
-        const value = customReturns[callIndex++];
-        return Promise.resolve(value);
+        return Promise.resolve(undefined);
       },
       _customCalls: () => customCalls,
     },
@@ -138,7 +137,7 @@ async function runStartNextStoryScenario() {
 
   const notifications: Notification[] = [];
   const harness = makePi();
-  const ctx = makeCtx(cwd, notifications, ["start"]);
+  const ctx = makeCtx(cwd, notifications, ["Start story 004 — Add billing summary · 2026-04-20"]);
 
   await harness.implement.handler("", ctx);
 
@@ -147,8 +146,7 @@ async function runStartNextStoryScenario() {
   const storyFour = fs.readFileSync(storyFourPath, "utf-8");
   const storyFive = fs.readFileSync(storyFivePath, "utf-8");
 
-  assert(customCalls.length === 1, "implement should call ui.custom once when no story is active");
-  assert((customCalls[0].options as any)?.overlay === true, "implement should use an overlay for the missing-story chooser");
+  assert(customCalls.length === 0, "implement should rely on the standard picker path when no story is active");
   assert(storyFour.includes("**Status:** in-progress"), "start-story flow should mark the new story in-progress");
   assert(storyFour.includes(`**Last accessed:** ${today}`), "start-story flow should update last accessed");
   assert(!storyFive.includes(`**Last accessed:** ${today}`), "start-story flow should not touch later stories");
@@ -166,8 +164,10 @@ async function runPickStoryScenario() {
 
   const notifications: Notification[] = [];
   const harness = makePi();
-  const storyFiveFile = path.join(cwd, ".context", "stories", "story-005.md");
-  const ctx = makeCtx(cwd, notifications, ["pick", storyFiveFile]);
+  const ctx = makeCtx(cwd, notifications, [
+    "Pick story — choose an existing story to implement",
+    "story-005 — not-started — Update onboarding copy · 2026-04-21",
+  ]);
 
   assert(createNormalizedInput("/impliment") === "/implement", "impliment should normalize to implement");
   await harness.implement.handler("", ctx);
@@ -178,9 +178,7 @@ async function runPickStoryScenario() {
   const storyFour = fs.readFileSync(storyFourPath, "utf-8");
   const storyFive = fs.readFileSync(storyFivePath, "utf-8");
 
-  assert(customCalls.length === 2, "pick-story flow should call ui.custom twice");
-  assert((customCalls[0].options as any)?.overlay === true, "first chooser should use an overlay");
-  assert((customCalls[1].options as any)?.overlay === true, "second chooser should use an overlay");
+  assert(customCalls.length === 0, "pick-story flow should rely on the standard picker path");
   assert(selectedStory.includes(`**Last accessed:** ${today}`), "pick-story flow should update the selected story");
   assert(selectedStory.includes("**Status:** in-progress"), "pick-story flow should promote the selected story to in-progress");
   assert(storyFour.includes("**Status:** not-started"), "pick-story flow should leave story 004 unchanged");
