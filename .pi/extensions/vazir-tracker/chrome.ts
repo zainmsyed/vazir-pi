@@ -13,7 +13,7 @@ import {
   storiesDir,
   type StoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
-import { CommandDoc, showCommandDetailOverlay, VazirPanel } from "../../lib/vazir-ui.ts";
+import { CommandDoc, showCommandDetailOverlay, showMarkdownViewer, VazirPanel } from "../../lib/vazir-ui.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -795,11 +795,14 @@ async function showCommandHelp(ctx: { ui: any }): Promise<void> {
     return;
   }
 
-  const items = VAZIR_COMMAND_HELP.map(entry => ({
-    value: entry.command,
-    label: entry.command,
-    description: entry.description,
-  }));
+  const items = [
+    { value: "README", label: "README.md", description: "Open the quickstart guide" },
+    ...VAZIR_COMMAND_HELP.map(entry => ({
+      value: entry.command,
+      label: entry.command,
+      description: entry.description,
+    })),
+  ];
 
   while (true) {
     const pick = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
@@ -864,6 +867,17 @@ async function showCommandHelp(ctx: { ui: any }): Promise<void> {
     });
 
     if (pick == null) return;
+
+    if (pick === "README") {
+      try {
+        const readmePath = path.join((ctx as any).cwd ?? process.cwd(), "README.md");
+        const content = fs.readFileSync(readmePath, "utf-8");
+        await showMarkdownViewer(ctx, "README.md", content);
+      } catch {
+        ctx.ui?.notify("README.md not found", "warning");
+      }
+      continue;
+    }
 
     const doc = getCommandDoc(pick);
     if (!doc) return;
