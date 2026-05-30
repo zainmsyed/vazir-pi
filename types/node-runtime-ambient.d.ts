@@ -66,3 +66,6 @@ declare const process: {
   stdout: { rows?: number };
   env: Record<string, string | undefined>;
 };
+
+declare const __dirname: string;
+declare const __filename: string;

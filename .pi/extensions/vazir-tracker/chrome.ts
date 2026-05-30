@@ -869,11 +869,26 @@ async function showCommandHelp(ctx: { ui: any }): Promise<void> {
     if (pick == null) return;
 
     if (pick === "README") {
-      try {
-        const readmePath = path.join((ctx as any).cwd ?? process.cwd(), "README.md");
-        const content = fs.readFileSync(readmePath, "utf-8");
+      const candidates: string[] = [
+        path.join((ctx as any).cwd ?? process.cwd(), "README.md"),
+      ];
+      if (typeof __dirname !== "undefined") {
+        candidates.push(path.join(__dirname, "../../../../README.md"));
+      }
+
+      let content: string | undefined;
+      for (const candidate of candidates) {
+        try {
+          content = fs.readFileSync(candidate, "utf-8");
+          break;
+        } catch {
+          // try next
+        }
+      }
+
+      if (content) {
         await showMarkdownViewer(ctx, "README.md", content);
-      } catch {
+      } else {
         ctx.ui?.notify("README.md not found", "warning");
       }
       continue;
