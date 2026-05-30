@@ -4,26 +4,65 @@ Vazir is a set of extensions, skills, and workspace conventions that add persist
 
 ## Prerequisites
 
-- Node.js (LTS recommended)
-- pi-coding-agent CLI installed globally
+Vazir is a set of extensions for **pi-coding-agent**, which is distributed as an npm package. You need Node.js (which includes npm) installed first.
 
-## Install
+### Install Node.js
 
-### One-line installer (macOS / Linux)
+**macOS**
+```bash
+# Homebrew
+brew install node
 
+# Or download the LTS installer from https://nodejs.org/
+```
+
+**Linux**
+```bash
+# Debian / Ubuntu
+sudo apt update && sudo apt install -y nodejs npm
+
+# Fedora
+sudo dnf install -y nodejs npm
+
+# Or download the LTS installer from https://nodejs.org/
+```
+
+**Windows**
+```powershell
+# Download the LTS installer from https://nodejs.org/
+# Or use winget
+winget install OpenJS.NodeJS
+```
+
+Verify installation:
+```bash
+node --version
+npm --version
+```
+
+## Install Vazir
+
+### macOS / Linux
+
+**One-line installer:**
 ```bash
 curl -fsSL https://github.com/zainmsyed/vazir-pi/raw/main/install.sh | bash
 ```
 
-This installs pi-coding-agent (if missing) and Vazir in one go.
-
-### Manual install
-
-If you already have pi-coding-agent:
-
+**Or manually:**
 ```bash
+npm install -g @earendil-works/pi-coding-agent
 pi install git:github.com/zainmsyed/vazir-pi
 ```
+
+### Windows
+
+```powershell
+npm install -g @earendil-works/pi-coding-agent
+pi install git:github.com/zainmsyed/vazir-pi
+```
+
+> **Tip:** If you have Git Bash or WSL on Windows, the macOS/Linux curl one-liner works there too.
 
 Then, in any project where you want to use Vazir, initialize the local brain:
 
