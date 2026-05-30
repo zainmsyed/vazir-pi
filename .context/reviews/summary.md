@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-30T14:29:29Z
+**Last updated:** 2026-05-30T14:52:50Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -48,4 +48,5 @@
 - When the same literal union appears more than once in a module, extract a named type alias to reduce drift during future changes. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - When the same logic block is pasted into two files, add a cross-reference comment linking both copies so the next editor knows to keep them in sync. | count: 1 | status: tracked | sources: review-20260527-095822.md | stories: story-030
 - When tracking async tool lifecycle, correlate start and end events with a unique call identifier, not just the tool name. | count: 1 | status: tracked | sources: review-20260518-145628.md
+- When validating bidirectional consistency between two parallel data structures, check both directions so drift in either direction is caught. | count: 1 | status: tracked | sources: review-20260530-144453.md | stories: story-040
 - When validating tool input for security, always check every documented alias of a target field (`path` / `filePath`), not just the primary one. | count: 1 | status: tracked | sources: review-20260518-145628.md
