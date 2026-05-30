@@ -9,11 +9,23 @@ Vazir is a set of extensions, skills, and workspace conventions that add persist
 
 ## Install
 
+### One-line installer (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zainmsyed/vazir-pi/main/install.sh | bash
+```
+
+This installs pi-coding-agent (if missing) and Vazir in one go.
+
+### Manual install
+
+If you already have pi-coding-agent:
+
 ```bash
 pi install git:github.com/zainmsyed/vazir-pi
 ```
 
-This makes Vazir available in all your pi sessions. In any project where you want to use it, initialize the local brain:
+Then, in any project where you want to use Vazir, initialize the local brain:
 
 ```bash
 /vazir-init
