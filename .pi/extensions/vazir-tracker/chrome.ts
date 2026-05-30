@@ -4,6 +4,7 @@ import * as piTui from "@mariozechner/pi-tui";
 import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 import {
   findActiveStory,
   listStories,
@@ -872,8 +873,12 @@ async function showCommandHelp(ctx: { ui: any }): Promise<void> {
       const candidates: string[] = [
         path.join((ctx as any).cwd ?? process.cwd(), "README.md"),
       ];
-      if (typeof __dirname !== "undefined") {
-        candidates.push(path.join(__dirname, "../../../../README.md"));
+      try {
+        if (import.meta.url) {
+          candidates.push(path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../README.md"));
+        }
+      } catch {
+        // import.meta.url may not be available in all runtimes
       }
 
       let content: string | undefined;
