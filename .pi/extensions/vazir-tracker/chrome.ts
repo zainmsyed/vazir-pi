@@ -4,7 +4,6 @@ import * as piTui from "@mariozechner/pi-tui";
 import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-import { fileURLToPath } from "url";
 import {
   findActiveStory,
   listStories,
@@ -14,7 +13,8 @@ import {
   storiesDir,
   type StoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
-import { CommandDoc, showCommandDetailOverlay, showMarkdownViewer, VazirPanel } from "../../lib/vazir-ui.ts";
+import { showCommandDetailOverlay, showMarkdownViewer, VazirPanel } from "../../lib/vazir-ui.ts";
+import type { CommandDoc } from "../../lib/vazir-ui.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -253,6 +253,40 @@ interface CommandHelpEntry {
   command: string;
   description: string;
 }
+
+const VAZIR_QUICKSTART_ENTRY = {
+  value: "VAZIR_QUICKSTART",
+  label: "Vazir quickstart",
+  description: "Open the built-in workflow and .context guide",
+} as const;
+
+const VAZIR_QUICKSTART_MARKDOWN = [
+  "# Vazir quickstart",
+  "",
+  "Vazir keeps the project brain in `.context/` so planning, implementation, and reviews survive across sessions.",
+  "",
+  "If you do not see the `.context` folder in your file explorer, turn on **Show hidden files**. Folders that start with a dot are often hidden by default.",
+  "",
+  "## Core workflow",
+  "",
+  "1. `/vazir-init` bootstraps `.context/` and lets you pick the VCS mode Vazir should use.",
+  "2. `/plan` reads your intake, asks delta questions, and writes `plan.md` plus story files.",
+  "3. `/implement` works the active in-progress story and reports what changed.",
+  "4. `/complete-story` checks readiness, optionally runs review, and closes the story when it is truly done.",
+  "",
+  "## .context folder guide",
+  "",
+  "- `stories/` — planning output, `plan.md`, and one `story-NNN.md` per work item.",
+  "- `reviews/` — structured review runs, findings, and closeout notes.",
+  "- `memory/` — durable learned rules and reusable team guidance.",
+  "- `settings/` — project-level Vazir preferences such as VCS mode.",
+  "- `intake/` — product requirements documents (PRDs), notes, design constraints, and other planning inputs.",
+  "- `archive/` — completed or cold context kept for reference but not injected by default.",
+  "",
+  "## Why .context/intake matters",
+  "",
+  "Strong `.context/intake/` inputs make `/plan` better. Put source material there before planning: product requirements documents (PRDs), feature briefs, acceptance criteria, user research, screenshots, architecture notes, and any non-obvious constraints. Better intake means fewer clarification loops and cleaner stories.",
+].join("\n");
 
 // ── Exported mutable state (VCS code writes to these) ──────────────────
 
@@ -797,7 +831,7 @@ async function showCommandHelp(ctx: { ui: any }): Promise<void> {
   }
 
   const items = [
-    { value: "README", label: "README.md", description: "Open the quickstart guide" },
+    VAZIR_QUICKSTART_ENTRY,
     ...VAZIR_COMMAND_HELP.map(entry => ({
       value: entry.command,
       label: entry.command,
@@ -869,33 +903,8 @@ async function showCommandHelp(ctx: { ui: any }): Promise<void> {
 
     if (pick == null) return;
 
-    if (pick === "README") {
-      const candidates: string[] = [
-        path.join((ctx as any).cwd ?? process.cwd(), "README.md"),
-      ];
-      try {
-        if (import.meta.url) {
-          candidates.push(path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../README.md"));
-        }
-      } catch {
-        // import.meta.url may not be available in all runtimes
-      }
-
-      let content: string | undefined;
-      for (const candidate of candidates) {
-        try {
-          content = fs.readFileSync(candidate, "utf-8");
-          break;
-        } catch {
-          // try next
-        }
-      }
-
-      if (content) {
-        await showMarkdownViewer(ctx, "README.md", content);
-      } else {
-        ctx.ui?.notify("README.md not found", "warning");
-      }
+    if (pick === VAZIR_QUICKSTART_ENTRY.value) {
+      await showMarkdownViewer(ctx, VAZIR_QUICKSTART_ENTRY.label, VAZIR_QUICKSTART_MARKDOWN);
       continue;
     }
 

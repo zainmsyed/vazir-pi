@@ -80,7 +80,9 @@ Then, in any project where you want to use Vazir, initialize the local brain:
 
 Vazir reads any intake briefs in `.context/intake/`, asks clarifying questions one at a time, and generates story files in `.context/stories/` plus a `plan.md` roadmap.
 
-> **Tip:** Starting with a well-thought-out PRD in `.context/intake/` gives the best results, but Vazir will walk you through planning even without one.
+> **Tip:** If you do not see the `.context` folder in your file explorer, turn on **Show hidden files**. Folders that start with a dot are often hidden by default.
+>
+> **Tip:** Starting with a well-thought-out product requirements document (PRD) in `.context/intake/` gives the best results, but Vazir will walk you through planning even without one.
 
 ### 2. Implement a story
 
@@ -129,7 +131,7 @@ Validates the story checklist and issues, checks completion readiness, and optio
 | `/checkpoint` | Pick a checkpoint to restore |
 | `/reset` | Alias for `/checkpoint` |
 
-Press **Ctrl+?** in pi for an interactive, searchable command list with full usage details.
+Press **Ctrl+?** in pi for an interactive, searchable command list with full usage details plus a built-in Vazir quickstart and `.context/` guide.
 
 ## Project Layout
 
@@ -139,8 +141,10 @@ Press **Ctrl+?** in pi for an interactive, searchable command list with full usa
   reviews/         — Structured per-review files
   memory/          — Learned rules and context maps
   settings/        — Project settings
-  intake/          — PRDs, briefs, and planning inputs
+  intake/          — product requirements documents (PRDs), briefs, and planning inputs
 ```
+
+If you do not see `.context/`, enable **Show hidden files** in your editor or file explorer.
 
 ## Working Rules
 
