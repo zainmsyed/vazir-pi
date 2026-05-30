@@ -2045,16 +2045,10 @@ export default function (pi: ExtensionAPI) {
         `Complaints entries: ${complaints}`,
         `Undescribed index entries: ${undescribed.length}`,
         `Malformed story files: ${malformed.length}`,
-        "Local learned-rule dedupe applied after confirmation only",
+        "Applying local learned-rule dedupe before handing consolidation to Pi",
       ].join("\n");
 
       ctx.ui.notify(preview, "info");
-      const apply = await ctx.ui.select("Apply these consolidation changes?", ["Apply", "Discard"]);
-      if (apply !== "Apply") {
-        ctx.ui.notify("Consolidation discarded", "info");
-        return;
-      }
-
       prepareLearnedRulesForConsolidation(ctx.cwd);
       await pi.sendUserMessage(buildConsolidationInstruction(ctx.cwd), { deliverAs: "followUp" });
       ctx.ui.notify("Consolidation handed to the current Pi model", "info");

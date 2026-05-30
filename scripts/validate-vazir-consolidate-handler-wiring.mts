@@ -137,6 +137,7 @@ try {
   assert(Boolean(consolidate), "consolidate command was not registered");
 
   const notifications: Array<{ message: string; level: string }> = [];
+  let selectCalls = 0;
   const ctx = {
     cwd,
     hasUI: true,
@@ -145,6 +146,7 @@ try {
         notifications.push({ message, level });
       },
       async select(_prompt: string, _options: string[]) {
+        selectCalls += 1;
         return "Apply";
       },
     },
@@ -163,6 +165,7 @@ try {
     systemMd.includes("### From failures"),
     "system.md should have From failures subsection after consolidate handler runs",
   );
+  assert(selectCalls === 0, "consolidate handler should not prompt for Apply/Discard before running");
   assert(
     sentMessages.length >= 1,
     `consolidate handler should send at least one follow-up user message, got ${sentMessages.length}`,
