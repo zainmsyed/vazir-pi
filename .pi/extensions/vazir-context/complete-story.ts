@@ -740,8 +740,8 @@ export function buildCompleteStoryCommitMessage(storyPath: string): string {
   const storyFrontmatter = parseStoryFrontmatter(storyPath);
   const storyLabel = path.basename(storyPath, ".md");
   const rawTitle = normalizeCommitLine(storyFrontmatter?.title || "");
-  const title = truncateAtWord(rawTitle || storyLabel, 42);
-  const summary = truncateAtWord(pickCommitSummary(storyPath), 72);
+  const title = rawTitle || storyLabel;
+  const summary = pickCommitSummary(storyPath);
   return rawTitle && rawTitle.toLowerCase() !== storyLabel.toLowerCase()
     ? `complete ${storyLabel} ${title}: ${summary}`
     : `complete ${storyLabel}: ${summary}`;

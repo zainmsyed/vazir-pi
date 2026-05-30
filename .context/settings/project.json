@@ -1,6 +1,6 @@
 {
   "project_name": "",
   "model_tier": "balanced",
-  "active_vcs_mode": "git",
-  "vcs_preference": "git"
+  "active_vcs_mode": "fossil",
+  "vcs_preference": "fossil"
 }
