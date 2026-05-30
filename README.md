@@ -12,7 +12,7 @@ Vazir is a set of extensions, skills, and workspace conventions that add persist
 ### One-line installer (macOS / Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zainmsyed/vazir-pi/main/install.sh | bash
+curl -fsSL https://github.com/zainmsyed/vazir-pi/raw/main/install.sh | bash
 ```
 
 This installs pi-coding-agent (if missing) and Vazir in one go.
