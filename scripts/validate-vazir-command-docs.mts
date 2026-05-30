@@ -46,10 +46,15 @@ assert(source.includes('"Quickstart: "'), "showCommandHelp should include a quic
 assert(source.includes("new piTui.SelectList"), "showCommandHelp should use piTui.SelectList for the selectable list");
 assert(source.includes("while (true)"), "showCommandHelp should loop back to the list after detail closes");
 
-// Check that the README selection path exists and is guarded
-assert(source.includes('value: "README"'), "showCommandHelp should include a README entry in the command list");
-assert(source.includes('pick === "README"'), "showCommandHelp should handle README selection");
-assert(source.includes("fs.readFileSync(readmePath") && source.includes("try {"), "README file read should be guarded by try/catch");
-assert(source.includes("README.md not found"), "README missing-file fallback should notify the user");
+// Check that the help overlay includes the built-in quickstart instead of a file-backed README lookup
+assert(source.includes('value: "VAZIR_QUICKSTART"'), "showCommandHelp should include a built-in Vazir quickstart entry");
+assert(source.includes('label: "Vazir quickstart"'), "quickstart entry should be clearly labeled");
+assert(source.includes('pick === VAZIR_QUICKSTART_ENTRY.value'), "showCommandHelp should handle Vazir quickstart selection");
+assert(source.includes('showMarkdownViewer(ctx, VAZIR_QUICKSTART_ENTRY.label, VAZIR_QUICKSTART_MARKDOWN)'), "quickstart selection should open the built-in markdown viewer");
+assert(source.includes("## .context folder guide"), "quickstart markdown should include the .context folder guide");
+assert(source.includes("## Why .context/intake matters"), "quickstart markdown should explain why .context/intake matters");
+assert(!source.includes('value: "README"'), "README picker entry should be removed from Ctrl+? help");
+assert(!source.includes('pick === "README"'), "README selection branch should be removed from Ctrl+? help");
+assert(!source.includes("README.md not found"), "README missing-file fallback should be removed from Ctrl+? help");
 
-console.log(`validate-vazir-command-docs: ${helpCommands.length} commands, all matched: ok`);
+console.log(`validate-vazir-command-docs: ${helpCommands.length} commands plus built-in quickstart: ok`);

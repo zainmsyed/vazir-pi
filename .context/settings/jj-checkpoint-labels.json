@@ -1,6 +1,8 @@
 {
   "labels": {
     "23374394": "please commit all",
+    "31241380": "Implement the in-progress story in .context/stories/story-043.md.\n\nYour job:\n1. ",
+    "39665608": "and maybe highlight the intake folder specifucally? what its for and why its imp",
     "48826955": "hey",
     "f803d99d": "commit all",
     "281ad117": "can we put in the system prompt to not commit anything unless specifically asked",
@@ -262,6 +264,24 @@
     "a41d7b2f": "install node js only has macos not linux. home brew is mCOS USUALLY. can you adj",
     "f5a3a5ab": "ok great push to remote git and local fossil",
     "40f85753": "how does one update vazir?",
-    "3140c7b0": "how does one update vazir?"
+    "3140c7b0": "how does one update vazir?",
+    "0b7f2d1f": "still not working sill getting same warning",
+    "224db02c": "still getting same error. should we just make the readme a link? or add it to wh",
+    "190228d5": "still getting same error. should we just make the readme a link? or add it to wh",
+    "10a4144c": "ok thats acceptable. and we dont need the install instuctions etc from the reade",
+    "d0670d67": "ok thats acceptable. and we dont need the install instuctions etc from the reade",
+    "464aa3f5": "and i would like to have a good description of the context folder and what they ",
+    "020651f5": "and i would like to have a good description of the context folder and what they ",
+    "6125270e": "and maybe highlight the intake folder specifucally? what its for and why its imp",
+    "b1528b3f": "ok replan and create a story",
+    "c77aa361": "ok replan and create a story",
+    "46c7dd25": "why are the vazir commands duplicated???? is it bc we globally installed vazir i",
+    "ccb8aaff": "why are the vazir commands duplicated???? is it bc we globally installed vazir i",
+    "5f2bbffa": "is that an issue besides being annoying?",
+    "ceacdc39": "is that an issue besides being annoying?",
+    "93ef8ef4": "ok lets remove the global vazir install",
+    "cd139185": "ok lets remove the global vazir install",
+    "dda826a2": "intake folder does not have bug reports. and can we not abbreviate prd use the w",
+    "70d4cd73": "we should probably put something like if you dont see .context folder you have t"
   }
 }
