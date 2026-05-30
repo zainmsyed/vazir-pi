@@ -46,4 +46,10 @@ assert(source.includes('"Quickstart: "'), "showCommandHelp should include a quic
 assert(source.includes("new piTui.SelectList"), "showCommandHelp should use piTui.SelectList for the selectable list");
 assert(source.includes("while (true)"), "showCommandHelp should loop back to the list after detail closes");
 
+// Check that the README selection path exists and is guarded
+assert(source.includes('value: "README"'), "showCommandHelp should include a README entry in the command list");
+assert(source.includes('pick === "README"'), "showCommandHelp should handle README selection");
+assert(source.includes("fs.readFileSync(readmePath") && source.includes("try {"), "README file read should be guarded by try/catch");
+assert(source.includes("README.md not found"), "README missing-file fallback should notify the user");
+
 console.log(`validate-vazir-command-docs: ${helpCommands.length} commands, all matched: ok`);

@@ -1,92 +1,100 @@
-Vazir POC — Proof of Concept for pi-coding-agent integration
-=============================================================
+# Vazir — Quickstart Guide
 
-What is Vazir?
----------------
-Vazir is the set of extensions, skills, and workspace conventions developed for this project to enhance the pi-coding-agent with persistent context, change tracking, and workflow helpers. Core capabilities in this repo include:
-- Context injection (provides runtime state and consolidated context to the agent)
-- Change tracking (recording diffs, rejecting and resetting edits)
-- Baseline skills (constraints and policies injected into the system prompt)
+Vazir is a set of extensions, skills, and workspace conventions that add persistent context, story-driven workflows, and change tracking to your coding agent.
 
-Purpose
--------
-A proof-of-concept demonstrating integration of Vazir features into the pi-coding-agent (TypeScript). This repository contains extensions, skills, and workspace conventions used by the agent.
+## Prerequisites
 
-Highlights
-----------
-- Context injection extension: .pi/extensions/vazir-context.ts
-- Change tracker, story picker, and diff/reset helpers: .pi/extensions/vazir-tracker.ts
-- Review loop: opt-in per-review markdown files with status/checklist, plus a running summary in .context/reviews/
-- Memory hygiene: `/memory-review` archives cold stories/reviews, flags stale learned rules, and stages delete candidates for explicit confirmation
-- Base skill definitions: .pi/skills/vazir-base/SKILL.md
-- Persistent project brain: .context/
+- Node.js (LTS recommended)
+- pi-coding-agent CLI installed globally
 
-Prerequisites
--------------
-- Node.js (recommended LTS)
-- pi-coding-agent CLI (installed globally where applicable)
-- Optional: jj for fast local checkpoints (recommended); git as a functional fallback
+## Quickstart Workflow
 
-Quickstart
-----------
-1. Install dependencies (if any):
-   - npm install
-2. Use the pi tooling to run and develop the agent. See docs/ and the pi examples for guidance.
-3. Create checkpoints before large edits:
-   - Preferred: jj (fast local snapshots): use the jj commands below
-   - Fallback: git: git add -A && git commit -m "describe change"
+### 1. Initialize the project brain
 
-jj (checkpoint) examples
-------------------------
-Note: the exact commands and flags depend on the local "jj" installation; run `jj --help` if unsure. Common jj usage patterns used in this project:
-- Create a snapshot:
-  - jj snap -m "brief message describing change"
-- List snapshots:
-  - jj list    # or jj ls (depending on your jj version)
-- Show a snapshot's details:
-  - jj show <snapshot-id>
-- Restore a snapshot:
-  - jj restore <snapshot-id>
-- Compare snapshots / show a diff:
-  - jj diff <snapshot-id-1> <snapshot-id-2>
+```
+/vazir-init
+```
 
-In Vazir, the in-app restore command is `/checkpoint` (with `/reset` kept as an alias).
+This creates the `.context/` directory with folders for stories, reviews, memory, and settings. It also detects your version-control system (Git, JJ, or Fossil) and configures the preferred mode.
 
-If jj is not available, use git as the fallback checkpoint mechanism.
+### 2. Plan your work
 
-Useful commands
----------------
-- Check versions:
-  - git --version
-  - jj --version
-- Inspect project files and extensions:
-  - ls -la .pi/extensions
-  - ls -la .pi/skills
+```
+/plan
+```
 
-Project layout
---------------
-- .pi/extensions — vazir-context.ts, vazir-tracker.ts
-- .pi/skills — vazir-base/SKILL.md
-- .context — runtime state used by the agent (persistent project brain)
-- docs — additional notes and specs (including Vazir_POC_Spec_v3_4.md)
-- AGENTS.md — project-level working rules and guidance
+Vazir reads any intake briefs in `.context/intake/`, asks clarifying questions one at a time, and generates story files in `.context/stories/` plus a `plan.md` roadmap.
 
-Working rules
--------------
-- Write directly to real project files (use provided tools)
-- Keep .context/ as the persistent project brain
-- Use /vazir-init, /plan, /story, /fix, /complete-story, /remember, /review, /memory-review, and /reset as core commands when interacting with the agent; `/review` starts a structured manual code review, asks whether to review a specific story or the whole codebase, and records recommended follow-up work in a checklist; `/complete-story` checks checklist/issues/summary readiness before closing a story, can launch a story review before final closure, and after review can open the review document, fix high-priority items first, or fix all remaining recommended items before closing; `/remember` can draft the rule from recent fix context if you do not pass one; `/memory-review` is a user-triggered cleanup pass for archiving cold context and surfacing stale or deletable knowledge-base files
-- Avoid introducing routers or external APIs — pi handles agent connections
+> **Tip:** Starting with a well-thought-out PRD in `.context/intake/` gives the best results, but Vazir will walk you through planning even without one.
 
-Contributing
-------------
-- Follow the existing code style and conventions
-- Use built-in write/edit tools when applicable for automated changes
-- If unsure about which files to modify, ask before making changes
+### 3. Implement a story
 
-Further reading
----------------
-- pi-coding-agent docs and examples (installed globally with the pi package) — see the pi package README and docs directory
-- AGENTS.md in this repo for project-specific workflows
+```
+/implement
+```
 
-If you want a license block added or further detail (examples, exact pi commands, or contributor guidelines), tell me what to include.
+Starts implementation of the active in-progress story. If no story is active, Vazir offers to start the next open story or let you pick one from the queue.
+
+### 4. Complete the story
+
+```
+/complete-story
+```
+
+Validates the story checklist and issues, checks completion readiness, and optionally runs a story-scoped review before closing. After review, you can fix recommended items or close with remaining items noted.
+
+## Common Next Steps
+
+- **`/fix <description>`** — Log an issue to the active story and attempt a fix.
+- **`/review [scope]`** — Run a structured code review scoped to the active story or the whole codebase.
+- **`/remember [rule]`** — Promote a reusable lesson into persistent memory (`.context/memory/system.md`).
+- **`/memory-review`** — Archive cold stories and reviews, flag stale rules, and review delete candidates.
+- **`/story [file]`** — Open a story or plan file in a scrollable overlay.
+- **`/checkpoint`** — Pick a checkpoint to restore (or `/reset` as an alias).
+
+## Command Reference
+
+| Command | Description |
+|---|---|
+| `/vazir-init` | Bootstrap `.context` and seed the project brain |
+| `/plan [topic]` | Review intake, ask delta questions, and generate stories |
+| `/story [file]` | Pick a plan or story file and open it in a scrollable view |
+| `/implement` | Implement the active in-progress story |
+| `/fix <description>` | Log an issue to the active story, then attempt a fix |
+| `/complete-story` | Check readiness, optionally review, and close a story |
+| `/review [scope]` | Write a review file and sync recurring rule candidates |
+| `/remember [rule]` | Promote a reusable lesson into persistent memory |
+| `/memory-review` | Archive cold context, flag stale rules, and review delete candidates |
+| `/unlearn` | Remove a promoted rule from system memory |
+| `/consolidate` | Cluster complaints and promote repeated rule candidates |
+| `/design [instruction]` | Review and edit design system, brand, components |
+| `/vcs-settings [mode]` | Pick or set the preferred VCS mode (auto, git, jj, fossil) |
+| `/diff [file]` | Show the diff for one changed file |
+| `/edits` | Show the recent file edit stream |
+| `/checkpoint` | Pick a checkpoint to restore |
+| `/reset` | Alias for `/checkpoint` |
+
+Press **Ctrl+?** in pi for an interactive, searchable command list with full usage details.
+
+## Project Layout
+
+```
+.context/          — Persistent project brain
+  stories/         — Story files (plan.md + story-NNN.md)
+  reviews/         — Structured per-review files
+  memory/          — Learned rules and context maps
+  settings/        — Project settings
+  intake/          — PRDs, briefs, and planning inputs
+```
+
+## Working Rules
+
+- Write directly to real project files.
+- Keep `.context/` as the persistent project brain.
+- Avoid introducing routers or external APIs — pi handles agent connections.
+
+## Contributing
+
+- Follow the existing code style and conventions.
+- Use built-in write/edit tools when applicable.
+- If unsure about which files to modify, ask before making changes.

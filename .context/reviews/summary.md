@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-30T15:50:28Z
+**Last updated:** 2026-05-30T17:05:50Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -36,7 +36,9 @@
 - When a prototype validates a schema, extract the schema type and rendering helper into a shared module as part of the production follow-up story so the prototype knowledge is preserved. | count: 1 | status: tracked | sources: review-20260530-141131.md | stories: story-039
 - When a session teardown cleans up subscription state, also reset any module-level guard flags that were set by the active session so they do not leak into the next session. | count: 1 | status: tracked | sources: review-20260530-153400.md | stories: story-041
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
+- When a user requests an out-of-scope feature during implementation, record it as a new story instead of silently expanding the current story's scope. | count: 1 | status: tracked | sources: review-20260530-165515.md | stories: story-042
 - When a validation stub replaces a real function, the stub must support every parameter that production code calls; otherwise the test suite gives false confidence. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
+- When adding a new conditional branch to an interactive UI flow, add a regression test that exercises the new branch directly. | count: 1 | status: tracked | sources: review-20260530-165515.md | stories: story-042
 - When adding or tightening VCS detection, validate extension behavior from both the repo root and a nested project directory. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - When extracting a command into a new extension, update every validation script that exercises that command to load the new extension module alongside the original entrypoint. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
 - When extracting a large block of helpers from a module, run a reference check for every removed function name against the remaining code in that module before committing the extraction. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
@@ -45,6 +47,7 @@
 - When generating numbered requirement lists in instruction builders, scan for duplicate ordinals before committing. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When parsing VCS status output, include rename/move states explicitly; they are common and silently dropping them creates UI gaps. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
+- When reading user-facing files in an interactive overlay, always guard against missing files so the UI doesn't crash. | count: 1 | status: tracked | sources: review-20260530-165515.md | stories: story-042
 - When reconciling restored disk state with stale in-memory workflow state, do not stop after clearing the stale entry; continue searching for the restored authoritative state in the same pass. | count: 1 | status: tracked | sources: review-20260527-105437.md | stories: story-031
 - When reverting a UI rollout, update or remove the validation expectations for the abandoned interaction model in the same change so the targeted regression suite still describes the shipped behavior. | count: 1 | status: tracked | sources: review-20260530-020034.md | stories: story-037
 - When stripping ANSI for width calculations, use a regex that matches the full CSI range (`\x1b[...letter`) rather than only SGR (`\x1b[...m`). | count: 1 | status: tracked | sources: review-20260529-215920.md | stories: story-036

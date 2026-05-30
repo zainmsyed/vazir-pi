@@ -59,6 +59,8 @@
 - When validating bidirectional consistency between two parallel data structures, check both directions so drift in either direction is caught. <!-- source: story-040 --> <!-- confidence: high -->
 - After removing a public function, update or delete validation scripts that reference it so the test suite does not produce false failures. <!-- source: story-041 --> <!-- confidence: high -->
 - When a session teardown cleans up subscription state, also reset any module-level guard flags that were set by the active session so they do not leak into the next session. <!-- source: story-041 --> <!-- confidence: high -->
+- When a user requests an out-of-scope feature during implementation, record it as a new story instead of silently expanding the current story's scope. <!-- source: story-042 --> <!-- confidence: high -->
+- When reading user-facing files in an interactive overlay, always guard against missing files so the UI doesn't crash. <!-- source: story-042 --> <!-- confidence: high -->
 ### From successes
 - When a closeout prompt aggregates work from multiple checklist sections, reuse the same aggregation helper in the action path so the selected work actually executes. <!-- source: story-020 --> <!-- confidence: low — no signal in last 5 stories -->
 - When redesigning a noisy restore workflow, layer curated user-facing choices on top of one exact restore helper so every entry point keeps the same semantics. <!-- source: story-029, story-030 --> <!-- confidence: low — no signal in last 5 stories -->
