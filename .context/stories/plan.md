@@ -80,8 +80,12 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-034 | Fix `/plan` intake question flow to ask one question at a time | not-started | — |
 | story-035 | Shared pi TUI overlay helpers for Vazir selection lists and markdown viewers | complete | — |
 | story-036 | Wire `/story`, `/plan`, and `/implement` to shared TUI selectors and document overlays | complete | story-035 |
-| story-037 | Keep standard Pi selection lists for Vazir while reserving overlays for documents | in-progress | story-035, story-036 |
-| story-038 | Add compact persistent Vazir HUD in tracker chrome | not-started | story-035, story-036 |
+| story-037 | Keep standard Pi selection lists for Vazir while reserving overlays for documents | complete | story-035, story-036 |
+| story-038 | Add compact persistent Vazir HUD in tracker chrome | retired | story-035, story-036 |
+| story-039 | Prototype selectable help overlay with mock data wired to `/test-help` | not-started | story-035 |
+| story-040 | Rich command docs registry and detail overlay renderer | not-started | story-035 |
+| story-041 | Wire Ctrl+? to selectable list with quickstart banner | not-started | story-039, story-040 |
+| story-042 | Rewrite README.md as a quickstart guide | not-started | — |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
@@ -95,3 +99,4 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-05-29** — Replanned from Addendum E after revising the spec toward pi built-ins and current extension ownership. Preserved all existing story history and appended story-035 through story-038 for shared `SelectList`/`Markdown` helpers, story/plan/implement overlay adoption, remaining command picker and confirmation overlays, and a compact VCS-aware HUD in tracker chrome.
 - **2026-05-29** — Replanned after live selector previews. Locked in the split of markdown documents on overlays vs. pickers in the normal text-entry area, explored alternate selector styling for flows including `/story`, `/plan`, and `/implement`, marked story-035 and story-036 complete in the queue, and retargeted story-037 toward selector consistency while keeping opened documents in overlays.
 - **2026-05-30** — Replanned after testing the custom inline selector rollout in real Pi sessions. Reverted Vazir to Pi's standard selection lists for continuity and runtime safety, kept overlays only for opened story/plan/review markdown, and deferred global theme exploration plus any future picker-rendering change to follow-up planning.
+- **2026-05-30** — Replanned from the user request to update the help overlay and README. Marked story-037 complete and story-038 retired to match current file states. Appended story-039 through story-042 for a prototype selectable help overlay with `/test-help`, a rich command documentation registry with detail overlays, a selectable Ctrl+? help list with quickstart workflow highlight, and a README rewrite into a quickstart guide.

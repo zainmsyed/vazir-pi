@@ -13,6 +13,7 @@ import {
   storiesDir,
   type StoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
+import { CommandDoc, showCommandDetailOverlay, showMarkdownViewer, VazirPanel } from "../../lib/vazir-ui.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -60,6 +61,7 @@ const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/vazir-init", description: "bootstrap .context and seed the project brain" },
   { command: "/plan", description: "review intake, ask delta questions, and generate stories" },
   { command: "/story", description: "pick a plan or story file and open it in a scrollable view" },
+  { command: "/implement", description: "implement the active in-progress story" },
   { command: "/fix", description: "log an issue to the active story, then attempt a fix" },
   { command: "/remember", description: "promote a reusable lesson into persistent memory" },
   { command: "/review", description: "write a review file and sync recurring rule candidates" },
@@ -71,9 +73,162 @@ const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/vcs-settings", description: "pick or set the preferred VCS mode for Vazir" },
   { command: "/diff", description: "show the diff for one changed file" },
   { command: "/edits", description: "show the recent file edit stream" },
-  { command: "/checkpoint", description: "pick a JJ checkpoint to restore" },
+  { command: "/checkpoint", description: "pick a checkpoint to restore" },
   { command: "/reset", description: "alias for /checkpoint" },
 ];
+
+const VAZIR_COMMAND_DOCS: CommandDoc[] = [
+  {
+    command: "/vazir-init",
+    shortDesc: "bootstrap .context and seed the project brain",
+    usage: "/vazir-init",
+    args: [],
+    examples: ["/vazir-init"],
+    longDesc: "Initializes the Vazir project context by creating the .context/ directory structure with stories, reviews, memory, and settings folders. Detects available version control systems (Git, JJ, Fossil) and configures the preferred mode. If already initialized, offers to reconfigure VCS preference instead of full re-bootstrap.",
+  },
+  {
+    command: "/plan",
+    shortDesc: "review intake, ask delta questions, and generate stories",
+    usage: "/plan [topic]",
+    args: ["topic — optional planning focus or scope hint"],
+    examples: ["/plan", "/plan onboarding flow"],
+    longDesc: "Starts a structured planning conversation. Reads intake briefs and planning sources from .context/intake/, asks clarifying questions one at a time, and generates story files in .context/stories/ plus a plan.md. If a plan already exists, offers to view, append, or regenerate.",
+  },
+  {
+    command: "/story",
+    shortDesc: "pick a plan or story file and open it in a scrollable view",
+    usage: "/story [file]",
+    args: ["file — optional specific story or plan file to open"],
+    examples: ["/story", "/story story-042"],
+    longDesc: "Opens a story or plan file in a scrollable markdown overlay. If no file is specified and an active story exists, opens it directly. Otherwise presents a picker of available stories and plans. Useful for reviewing context before implementation or closeout.",
+  },
+  {
+    command: "/implement",
+    shortDesc: "implement the active in-progress story",
+    usage: "/implement",
+    args: [],
+    examples: ["/implement"],
+    longDesc: "Begins implementation of the active in-progress story. If no story is active, presents options to start the next open story or pick one from the queue. Updates story frontmatter, refreshes HUD state, and sends the implementation instruction to the agent. The agent reports changes and readiness for /complete-story.",
+  },
+  {
+    command: "/fix",
+    shortDesc: "log an issue to the active story, then attempt a fix",
+    usage: "/fix <description>",
+    args: ["description — what went wrong"],
+    examples: ["/fix signup button not submitting after refactor"],
+    longDesc: "Logs an issue to the active story and the persistent complaints-log, then instructs the agent to investigate and fix it. The agent must state what it can verify mechanically and what requires user confirmation. Issues that cannot be verified stay pending until the user confirms.",
+  },
+  {
+    command: "/remember",
+    shortDesc: "promote a reusable lesson into persistent memory",
+    usage: "/remember [rule]",
+    args: ["rule — optional rule text to promote directly"],
+    examples: ["/remember", "/remember Always validate user input before processing"],
+    longDesc: "Promotes a reusable lesson or constraint into persistent system memory (.context/memory/system.md). If no rule is provided, drafts one from recent fix context. Rules are deduplicated and tagged with confidence based on recurrence and source story.",
+  },
+  {
+    command: "/review",
+    shortDesc: "write a review file and sync recurring rule candidates",
+    usage: "/review [scope]",
+    args: ["scope — optional 'story' or 'whole-codebase'"],
+    examples: ["/review", "/review story", "/review whole-codebase"],
+    longDesc: "Starts a structured code review scoped to the active story or the whole codebase. Generates a review file in .context/reviews/ with findings, severity, categories, and recommended fixes. Syncs recurring rule candidates to the complaints-log for later consolidation. Optional and opt-in per run.",
+  },
+  {
+    command: "/complete-story",
+    shortDesc: "check readiness, optionally review, and close a story",
+    usage: "/complete-story",
+    args: [],
+    examples: ["/complete-story"],
+    longDesc: "Validates the active story's checklist and issues, checks completion readiness, and optionally runs a story-scoped review before closing. After review, offers to fix recommended items or close with remaining items noted. Updates story frontmatter to complete and triggers context persistence.",
+  },
+  {
+    command: "/memory-review",
+    shortDesc: "archive cold context, flag stale rules, and review delete candidates",
+    usage: "/memory-review",
+    args: [],
+    examples: ["/memory-review"],
+    longDesc: "User-triggered cleanup pass for cold context. Archives stale stories and reviews, flags stale learned rules, and surfaces delete candidates for explicit confirmation. Helps keep the project brain focused and under token budget.",
+  },
+  {
+    command: "/unlearn",
+    shortDesc: "remove a promoted rule from system memory",
+    usage: "/unlearn",
+    args: [],
+    examples: ["/unlearn"],
+    longDesc: "Presents a picker of promoted rules from system memory and lets the user remove one. Useful when a rule is no longer applicable or was promoted prematurely.",
+  },
+  {
+    command: "/consolidate",
+    shortDesc: "cluster complaints and promote repeated rule candidates",
+    usage: "/consolidate",
+    args: [],
+    examples: ["/consolidate"],
+    longDesc: "Clusters complaints from the complaints-log by theme, scores rule candidates by recurrence, and presents them for promotion into system memory. Separates success-derived from failure-derived rules and tracks confidence.",
+  },
+  {
+    command: "/design",
+    shortDesc: "review and edit design system, brand, components",
+    usage: "/design [instruction]",
+    args: ["instruction — optional direct update instruction"],
+    examples: ["/design", "/design switch primary colour to slate-900"],
+    longDesc: "Reviews the project's design context (design-system.md, brand.md, components.md) and presents a summary. Supports interactive updates via natural language instructions or direct invocation with an instruction argument. Warns if the design system exceeds token budget and proposes trimming.",
+  },
+  {
+    command: "/vcs-settings",
+    shortDesc: "pick or set the preferred VCS mode for Vazir",
+    usage: "/vcs-settings [mode]",
+    args: ["mode — auto, git, jj, or fossil"],
+    examples: ["/vcs-settings", "/vcs-settings fossil"],
+    longDesc: "Configures the preferred version control system for Vazir. Supports Auto (detect), Git/JJ, and Fossil modes. When a tool is missing, prompts to show install guidance. When a repo is not initialized, prompts before creating one. Updates .context/settings/project.json.",
+  },
+  {
+    command: "/diff",
+    shortDesc: "show the diff for one changed file",
+    usage: "/diff [file]",
+    args: ["file — optional specific file to diff"],
+    examples: ["/diff", "/diff src/app.ts"],
+    longDesc: "Shows an inline terminal diff for a changed file. If multiple files are changed, presents a picker. Supports Git, JJ, and Fossil diffs. New (untracked) files are shown as full additions.",
+  },
+  {
+    command: "/edits",
+    shortDesc: "show the recent file edit stream",
+    usage: "/edits",
+    args: [],
+    examples: ["/edits"],
+    longDesc: "Displays the recent file edit stream in a scrollable terminal view. Shows write and edit tool calls with timestamps, files, and call IDs. Useful for tracking what the agent has changed in the current session.",
+  },
+  {
+    command: "/checkpoint",
+    shortDesc: "pick a checkpoint to restore",
+    usage: "/checkpoint",
+    args: [],
+    examples: ["/checkpoint"],
+    longDesc: "Opens the checkpoint restore workflow. With JJ, offers to undo the last agent run, browse curated milestones, or save a new milestone. With Git, restores from numbered snapshot directories. Keeps code and relevant .context workflow state aligned after restore.",
+  },
+  {
+    command: "/reset",
+    shortDesc: "alias for /checkpoint",
+    usage: "/reset",
+    args: [],
+    examples: ["/reset"],
+    longDesc: "Alias for /checkpoint. Opens the same checkpoint restore workflow.",
+  },
+];
+
+export function getCommandDoc(command: string): CommandDoc | undefined {
+  return VAZIR_COMMAND_DOCS.find(d => d.command === command);
+}
+
+export function validateCommandDocsComplete(): string[] {
+  const missing: string[] = [];
+  for (const entry of VAZIR_COMMAND_HELP) {
+    if (!VAZIR_COMMAND_DOCS.find(d => d.command === entry.command)) {
+      missing.push(entry.command);
+    }
+  }
+  return missing;
+}
 const VAZIR_COLORS = {
   accent: "38;2;167;139;250",
   branch: "38;2;137;180;250",
@@ -164,6 +319,7 @@ export function tearDownChromeSession(ui: any): void {
   stopWorkingMessageTicker(ui);
   commandHelpInputUnsubscribe?.();
   commandHelpInputUnsubscribe = null;
+  commandHelpOpen = false;
   setFooterComponent(ui, undefined);
   statusWidgetTui = null;
   currentFooterSnapshot = null;
@@ -624,63 +780,6 @@ export async function showScrollableText(
   });
 }
 
-export async function showScrollableOverlay(
-  ctx: { ui: any },
-  title: string,
-  subtitle: string,
-  body: string,
-): Promise<void> {
-  if ((process.stdout.columns || 0) < 80) {
-    await showScrollableText(ctx, title, subtitle, body);
-    return;
-  }
-
-  const lines = body.split("\n");
-  let scrollOffset = 0;
-
-  await ctx.ui.custom((tui: { requestRender(): void }, _theme: unknown, _kb: unknown, done: () => void) => {
-    return {
-      render(width = 80): string[] {
-        const innerWidth = Math.max(20, width - 4);
-        const visibleRows = Math.max(5, Math.min(lines.length || 1, (process.stdout.rows || 24) - 10));
-        const headerText = `${title} · ${subtitle} · esc close`;
-        const paddedHeader = headerText.length > innerWidth
-          ? headerText.slice(0, innerWidth)
-          : `${headerText}${" ".repeat(innerWidth - headerText.length)}`;
-        const bodyLines = lines
-          .slice(scrollOffset, scrollOffset + visibleRows)
-          .map(line => `│ ${line.slice(0, innerWidth).padEnd(innerWidth, " ")} │`);
-        while (bodyLines.length < visibleRows) {
-          bodyLines.push(`│ ${" ".repeat(innerWidth)} │`);
-        }
-        return [
-          `┌${paddedHeader}┐`,
-          ...bodyLines,
-          `└${"─".repeat(innerWidth)}┘`,
-        ];
-      },
-      invalidate() {},
-      handleInput(data: string) {
-        if (piTui.matchesKey(data, piTui.Key.up)) scrollOffset = Math.max(0, scrollOffset - 1);
-        else if (piTui.matchesKey(data, piTui.Key.down)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 1);
-        else if (piTui.matchesKey(data, piTui.Key.pageUp) || piTui.matchesKey(data, piTui.Key.home)) scrollOffset = Math.max(0, scrollOffset - 10);
-        else if (piTui.matchesKey(data, piTui.Key.pageDown) || piTui.matchesKey(data, piTui.Key.end)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 10);
-        else if (piTui.matchesKey(data, piTui.Key.escape)) { done(); return; }
-        tui.requestRender();
-      },
-    };
-  }, {
-    overlay: true,
-    overlayOptions: {
-      anchor: "right-center",
-      width: "50%",
-      minWidth: 60,
-      maxHeight: "80%",
-      margin: 1,
-    },
-  });
-}
-
 function isCommandHelpShortcut(data: string): boolean {
   return [
     piTui.Key.ctrl("?"),
@@ -690,19 +789,101 @@ function isCommandHelpShortcut(data: string): boolean {
   ].some(key => piTui.matchesKey(data, key));
 }
 
-function commandHelpBody(): string {
-  const lines = [
-    "Vazir command list",
-    "",
-    ...VAZIR_COMMAND_HELP.map(entry => `${entry.command.padEnd(14)} ${entry.description}`),
-    "",
-    "Use Esc to close and PgUp/PgDn to scroll if the list grows.",
-  ];
-  return lines.join("\n");
-}
-
 async function showCommandHelp(ctx: { ui: any }): Promise<void> {
-  await showScrollableText(ctx, "Vazir commands", "Ctrl+? or Esc to close", commandHelpBody());
+  if (!ctx.hasUI || typeof ctx.ui?.custom !== "function") {
+    ctx.ui?.notify("Help overlay requires a TUI session", "info");
+    return;
+  }
+
+  const items = [
+    { value: "README", label: "README.md", description: "Open the quickstart guide" },
+    ...VAZIR_COMMAND_HELP.map(entry => ({
+      value: entry.command,
+      label: entry.command,
+      description: entry.description,
+    })),
+  ];
+
+  while (true) {
+    const pick = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
+      const borderFg = (s: string) => theme.fg("borderAccent", s);
+      const bg = (s: string) => theme.bg("customMessageBg", s);
+
+      const panel = new VazirPanel(
+        theme.fg("accent", theme.bold("Vazir commands")),
+        borderFg,
+        bg,
+      );
+
+      const bannerText = theme.fg("success", "Quickstart: ")
+        + theme.fg("text", "/plan → /implement → /complete-story");
+      panel.addChild(new piTui.Text(bannerText, 1, 0));
+      panel.addChild(new piTui.Spacer(1));
+
+      const selectList = new piTui.SelectList(items, Math.min(items.length, 12), {
+        selectedPrefix: (text: string) => theme.fg("accent", text),
+        selectedText: (text: string) => theme.fg("accent", text),
+        description: (text: string) => theme.fg("muted", text),
+        scrollInfo: (text: string) => theme.fg("dim", text),
+        noMatch: (text: string) => theme.fg("warning", text),
+      });
+
+      selectList.onSelect = (item: any) => done(item.value as string);
+      selectList.onCancel = () => done(null);
+
+      panel.addChild(selectList);
+      panel.addChild(new piTui.Spacer(1));
+      panel.addChild(new piTui.Text(
+        theme.fg("dim", "↑↓ navigate • enter select • esc cancel"),
+        1,
+        0,
+      ));
+
+      return {
+        render(width: number): string[] {
+          return panel.render(width);
+        },
+        invalidate(): void {
+          panel.invalidate();
+        },
+        handleInput(data: string): void {
+          if (piTui.matchesKey(data, piTui.Key.escape)) {
+            done(null);
+            return;
+          }
+          selectList.handleInput(data);
+          tui.requestRender();
+        },
+      };
+    }, {
+      overlay: true,
+      overlayOptions: {
+        anchor: "center",
+        width: "60%",
+        minWidth: 60,
+        maxHeight: "80%",
+        margin: 1,
+      },
+    });
+
+    if (pick == null) return;
+
+    if (pick === "README") {
+      try {
+        const readmePath = path.join((ctx as any).cwd ?? process.cwd(), "README.md");
+        const content = fs.readFileSync(readmePath, "utf-8");
+        await showMarkdownViewer(ctx, "README.md", content);
+      } catch {
+        ctx.ui?.notify("README.md not found", "warning");
+      }
+      continue;
+    }
+
+    const doc = getCommandDoc(pick);
+    if (!doc) return;
+
+    await showCommandDetailOverlay(ctx, doc);
+  }
 }
 
 export function registerCommandHelpShortcut(ctx: { ui: { onTerminalInput(handler: (data: string) => { consume?: boolean; data?: string } | undefined): () => void } }): void {
