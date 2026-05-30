@@ -20,7 +20,7 @@ import {
   type StoryFrontmatter,
   updateStoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
-import { showMarkdownViewer, showSelectionList, showSelectorPreview } from "../../lib/vazir-ui.ts";
+import { showMarkdownViewer } from "../../lib/vazir-ui.ts";
 import {
   applyWorkingMessage,
   beginToolActivity,
@@ -269,19 +269,18 @@ async function resolveStoryForImplementation(
     : "Start story — begin the earliest open story";
   const pickStoryLabel = "Pick story — choose an existing story to implement";
 
-  const choice = await showSelectionList(
-    { ui },
+  const choice = await ui.select(
     "No in-progress story found. What would you like to do?",
     [
-      { value: "start", label: startNextStoryLabel },
-      { value: "pick", label: pickStoryLabel },
-      { value: "cancel", label: "Cancel" },
+      startNextStoryLabel,
+      pickStoryLabel,
+      "Cancel",
     ],
   );
 
-  if (!choice || choice === "cancel") return null;
+  if (!choice || choice === "Cancel") return null;
 
-  if (choice === "start") {
+  if (choice === startNextStoryLabel) {
     if (!firstStory) return null;
 
     const now = todayDate();
@@ -289,23 +288,19 @@ async function resolveStoryForImplementation(
     return { ...firstStory, status: "in-progress", lastAccessed: now };
   }
 
-  if (choice !== "pick" || candidates.length === 0) {
+  if (choice !== pickStoryLabel || candidates.length === 0) {
     return null;
   }
 
-  const items = candidates.map(story => ({
-    value: story.file,
-    label: implementStoryPickerLabel(cwd, story.file),
-  }));
+  const labels = candidates.map(story => implementStoryPickerLabel(cwd, story.file));
 
-  const pick = await showSelectionList(
-    { ui },
+  const pick = await ui.select(
     "Which story should /implement use?",
-    [...items, { value: "cancel", label: "Cancel" }],
+    [...labels, "Cancel"],
   );
-  if (!pick || pick === "cancel") return null;
+  if (!pick || pick === "Cancel") return null;
 
-  const selected = candidates.find(story => story.file === pick);
+  const selected = candidates[labels.indexOf(pick)];
   if (!selected) return null;
 
   if (selected.status === "not-started") {
@@ -764,7 +759,11 @@ export default function (pi: ExtensionAPI) {
         label: choice.label,
       }));
 
-      const selectedFile = await showSelectionList(ctx, "Which plan or story do you want to view?", items);
+      const labels = items.map(item => item.label);
+      const pick = await ctx.ui.select("Which plan or story do you want to view?", labels);
+      if (pick == null) return;
+      const selectedItem = items[labels.indexOf(pick)];
+      const selectedFile = selectedItem?.value;
       if (!selectedFile) return;
 
       const selected = choices.find(choice => choice.file === selectedFile);
@@ -774,84 +773,6 @@ export default function (pi: ExtensionAPI) {
       if (content) {
         await showMarkdownViewer(ctx, path.basename(selected.file), content);
       }
-    },
-  });
-
-  pi.registerCommand("test-selector-a", {
-    description: "Preview selector style A",
-    handler: async (_args: string, ctx: { ui: any }) => {
-      await showSelectorPreview(ctx, "Selector preview", [
-        {
-          value: "plan",
-          label: "Plan",
-          description: "Generated roadmap and story queue for the project.",
-        },
-        {
-          value: "story",
-          label: "Current story",
-          description: "Open checklist, scope, implementation notes, and status.",
-        },
-        {
-          value: "review",
-          label: "Reviews",
-          description: "Structured findings, recommendations, and closeout notes.",
-        },
-      ], "a");
-    },
-  });
-
-  pi.registerCommand("test-selector-b", {
-    description: "Preview selector style B",
-    handler: async (_args: string, ctx: { ui: any }) => {
-      await showSelectorPreview(ctx, "Selector preview", [
-        {
-          value: "plan",
-          label: "Plan",
-          description: "Generated roadmap and story queue for the project.",
-          icon: "≡",
-          badge: "roadmap",
-        },
-        {
-          value: "story",
-          label: "Current story",
-          description: "Open checklist, scope, implementation notes, and status.",
-          icon: "◆",
-          badge: "active",
-        },
-        {
-          value: "review",
-          label: "Reviews",
-          description: "Structured findings, recommendations, and closeout notes.",
-          icon: "◈",
-          badge: "2 open",
-        },
-      ], "b");
-    },
-  });
-
-  pi.registerCommand("test-selector-c", {
-    description: "Preview selector style C",
-    handler: async (_args: string, ctx: { ui: any }) => {
-      await showSelectorPreview(ctx, "Selector preview", [
-        {
-          value: "plan",
-          label: "Plan",
-          description: "Generated roadmap and story queue for the project.",
-          badge: "roadmap",
-        },
-        {
-          value: "story",
-          label: "Current story",
-          description: "Open checklist, scope, implementation notes, and status.",
-          badge: "active",
-        },
-        {
-          value: "review",
-          label: "Reviews",
-          description: "Structured findings, recommendations, and closeout notes.",
-          badge: "2 open",
-        },
-      ], "c");
     },
   });
 
