@@ -1,11 +1,15 @@
 {
   "name": "vazir-pi",
-  "private": true,
   "type": "module",
+  "keywords": ["pi-package"],
   "scripts": {
     "test": "node --experimental-strip-types ./scripts/run-validations.mts"
   },
   "devDependencies": {
     "fallow": "^2.54.2"
+  },
+  "pi": {
+    "extensions": [".pi/extensions/*/index.ts", ".pi/extensions/*.ts"],
+    "skills": [".pi/skills"]
   }
 }

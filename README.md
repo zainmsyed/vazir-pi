@@ -7,17 +7,21 @@ Vazir is a set of extensions, skills, and workspace conventions that add persist
 - Node.js (LTS recommended)
 - pi-coding-agent CLI installed globally
 
-## Quickstart Workflow
+## Install
 
-### 1. Initialize the project brain
-
+```bash
+pi install git:github.com/zainmsyed/vazir-pi
 ```
+
+This makes Vazir available in all your pi sessions. In any project where you want to use it, initialize the local brain:
+
+```bash
 /vazir-init
 ```
 
-This creates the `.context/` directory with folders for stories, reviews, memory, and settings. It also detects your version-control system (Git, JJ, or Fossil) and configures the preferred mode.
+## Quickstart Workflow
 
-### 2. Plan your work
+### 1. Plan your work
 
 ```
 /plan
@@ -27,7 +31,7 @@ Vazir reads any intake briefs in `.context/intake/`, asks clarifying questions o
 
 > **Tip:** Starting with a well-thought-out PRD in `.context/intake/` gives the best results, but Vazir will walk you through planning even without one.
 
-### 3. Implement a story
+### 2. Implement a story
 
 ```
 /implement
@@ -35,7 +39,7 @@ Vazir reads any intake briefs in `.context/intake/`, asks clarifying questions o
 
 Starts implementation of the active in-progress story. If no story is active, Vazir offers to start the next open story or let you pick one from the queue.
 
-### 4. Complete the story
+### 3. Complete the story
 
 ```
 /complete-story
