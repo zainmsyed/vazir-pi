@@ -44,6 +44,7 @@ const validations = [
   "validate-vazir-tracker-resolution.mts",
   "validate-vazir-vcs-safety-policy.mts",
   "validate-vazir-vcs-tool-guard.mts",
+  "validate-vazir-ui-helpers.mts",
 ];
 const stubModuleDirs = installCommonPiStubs();
 

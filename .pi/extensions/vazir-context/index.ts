@@ -39,6 +39,7 @@ import {
 } from "./complete-story.ts";
 import { showScrollableText } from "../vazir-tracker/chrome.ts";
 import { refreshVcsState } from "../vazir-tracker/index.ts";
+import { showMarkdownViewer } from "../../lib/vazir-ui.ts";
 import {
   appendFallowToComplaintsLog,
   archiveDir,
@@ -1690,12 +1691,11 @@ export default function (pi: ExtensionAPI) {
 
         if (choice === "View current plan") {
           const plan = readIfExists(planPath);
-          const stories = listStories(cwd);
-          const storyList = stories
-            .sort((a, b) => a.number - b.number)
-            .map(s => `  ${storyFileName(s.number)} — ${s.status}`)
-            .join("\n");
-          ctx.ui.notify(`${plan}\n\nStory files:\n${storyList}`, "info");
+          if (plan) {
+            await showMarkdownViewer(ctx, "plan.md", plan);
+          } else {
+            ctx.ui.notify("Plan file is empty.", "info");
+          }
           return;
         }
       }

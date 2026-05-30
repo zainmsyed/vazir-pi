@@ -1637,10 +1637,15 @@ export function reviewFindingsFromFile(filePath: string): ReviewFindingSummary[]
   let inFindings = false;
   let current: ReviewFindingSummary | null = null;
 
+  const seenSummaries = new Set<string>();
+
   function pushCurrentFinding(): void {
     if (!current) return;
     const summary = current.summary.trim();
     if (!summary || /^no findings$/i.test(summary)) return;
+    const key = `${current.severity.trim()}|${current.category.trim()}|${summary}`;
+    if (seenSummaries.has(key)) return;
+    seenSummaries.add(key);
     findings.push({
       severity: current.severity.trim(),
       category: current.category.trim(),
