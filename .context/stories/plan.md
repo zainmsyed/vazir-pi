@@ -78,9 +78,9 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-032 | Fix git commit bypass when `vcs_preference` is `jj` in colocated repos | complete | — |
 | story-033 | Normalize footer VCS identity to git or fossil only | complete | story-032 |
 | story-034 | Fix `/plan` intake question flow to ask one question at a time | not-started | — |
-| story-035 | Shared pi TUI overlay helpers for Vazir selection lists and markdown viewers | not-started | — |
-| story-036 | Wire `/story`, `/plan`, and `/implement` to shared TUI overlays | not-started | story-035 |
-| story-037 | Wire remaining Vazir picker and confirmation flows to shared TUI overlays | not-started | story-035, story-036 |
+| story-035 | Shared pi TUI overlay helpers for Vazir selection lists and markdown viewers | complete | — |
+| story-036 | Wire `/story`, `/plan`, and `/implement` to shared TUI selectors and document overlays | complete | story-035 |
+| story-037 | Standardize style-C inline selectors across Vazir pickers while keeping documents in overlays | not-started | story-035, story-036 |
 | story-038 | Add compact persistent Vazir HUD in tracker chrome | not-started | story-035, story-036 |
 
 ## Replanning log
@@ -93,3 +93,4 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-05-27** — Replanned from the user request to normalize the footer so only git or fossil appear as active VCS identities. Preserved the existing queue and appended story-033 to keep JJ available for checkpoints while rendering Git+JJ repos as git in the footer/chrome.
 - **2026-05-27** — Replanned from the user request to fix the `/plan` intake question flow. Updated queue statuses to reflect completed/archived stories. Appended story-034 to fix the one-at-a-time question behavior in `/plan`.
 - **2026-05-29** — Replanned from Addendum E after revising the spec toward pi built-ins and current extension ownership. Preserved all existing story history and appended story-035 through story-038 for shared `SelectList`/`Markdown` helpers, story/plan/implement overlay adoption, remaining command picker and confirmation overlays, and a compact VCS-aware HUD in tracker chrome.
+- **2026-05-29** — Replanned after live selector previews. Locked in the split of markdown documents on overlays vs. pickers in the normal text-entry area, confirmed style C as the selector treatment for all selection flows including `/story`, `/plan`, and `/implement`, marked story-035 and story-036 complete in the queue, and retargeted story-037 to standardize that selector treatment across the remaining Vazir picker and confirmation flows while keeping opened documents in overlays.

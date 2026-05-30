@@ -20,7 +20,7 @@ import {
   type StoryFrontmatter,
   updateStoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
-import { showMarkdownViewer, showSelectionList } from "../../lib/vazir-ui.ts";
+import { showMarkdownViewer, showSelectionList, showSelectorPreview } from "../../lib/vazir-ui.ts";
 import {
   applyWorkingMessage,
   beginToolActivity,
@@ -774,6 +774,84 @@ export default function (pi: ExtensionAPI) {
       if (content) {
         await showMarkdownViewer(ctx, path.basename(selected.file), content);
       }
+    },
+  });
+
+  pi.registerCommand("test-selector-a", {
+    description: "Preview selector style A",
+    handler: async (_args: string, ctx: { ui: any }) => {
+      await showSelectorPreview(ctx, "Selector preview", [
+        {
+          value: "plan",
+          label: "Plan",
+          description: "Generated roadmap and story queue for the project.",
+        },
+        {
+          value: "story",
+          label: "Current story",
+          description: "Open checklist, scope, implementation notes, and status.",
+        },
+        {
+          value: "review",
+          label: "Reviews",
+          description: "Structured findings, recommendations, and closeout notes.",
+        },
+      ], "a");
+    },
+  });
+
+  pi.registerCommand("test-selector-b", {
+    description: "Preview selector style B",
+    handler: async (_args: string, ctx: { ui: any }) => {
+      await showSelectorPreview(ctx, "Selector preview", [
+        {
+          value: "plan",
+          label: "Plan",
+          description: "Generated roadmap and story queue for the project.",
+          icon: "≡",
+          badge: "roadmap",
+        },
+        {
+          value: "story",
+          label: "Current story",
+          description: "Open checklist, scope, implementation notes, and status.",
+          icon: "◆",
+          badge: "active",
+        },
+        {
+          value: "review",
+          label: "Reviews",
+          description: "Structured findings, recommendations, and closeout notes.",
+          icon: "◈",
+          badge: "2 open",
+        },
+      ], "b");
+    },
+  });
+
+  pi.registerCommand("test-selector-c", {
+    description: "Preview selector style C",
+    handler: async (_args: string, ctx: { ui: any }) => {
+      await showSelectorPreview(ctx, "Selector preview", [
+        {
+          value: "plan",
+          label: "Plan",
+          description: "Generated roadmap and story queue for the project.",
+          badge: "roadmap",
+        },
+        {
+          value: "story",
+          label: "Current story",
+          description: "Open checklist, scope, implementation notes, and status.",
+          badge: "active",
+        },
+        {
+          value: "review",
+          label: "Reviews",
+          description: "Structured findings, recommendations, and closeout notes.",
+          badge: "2 open",
+        },
+      ], "c");
     },
   });
 
