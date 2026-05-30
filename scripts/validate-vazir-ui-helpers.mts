@@ -58,13 +58,14 @@ const uiModule = await import(
   new URL(`../.pi/lib/vazir-ui.ts?cache=${Date.now()}`, import.meta.url).href
 );
 
-const { showSelectionList, showMarkdownViewer } = uiModule as Record<string, any>;
+const { showSelectionList, showMarkdownViewer, showCommandDetailOverlay } = uiModule as Record<string, any>;
 
 // --- Scenarios ---
 
 function scenarioExportsExist() {
   assert(typeof showSelectionList === "function", "showSelectionList should be exported as a function");
   assert(typeof showMarkdownViewer === "function", "showMarkdownViewer should be exported as a function");
+  assert(typeof showCommandDetailOverlay === "function", "showCommandDetailOverlay should be exported as a function");
   console.log("  exports exist: ok");
 }
 
@@ -205,6 +206,46 @@ async function scenarioSelectionListNonDestructiveDefaultFocus() {
   console.log("  selection list non-destructive default focus: ok");
 }
 
+async function scenarioShowCommandDetailOverlay() {
+  let doneCalled = false;
+  const mockCtx = {
+    ui: {
+      custom(factory: any, options: any) {
+        assert(options?.overlay === true, "command detail should use overlay");
+
+        const component = factory(
+          { requestRender() {} },
+          { fg: (_c: string, t: string) => t, bold: (t: string) => t, bg: (_c: string, t: string) => t },
+          {},
+          () => { doneCalled = true; },
+        );
+
+        const rendered = component.render(60);
+        assert(rendered.some((line: string) => line.includes("/plan")), "command name should appear in render");
+        assert(rendered.some((line: string) => line.includes("Usage:")), "usage should appear in render");
+        assert(rendered.some((line: string) => line.includes("topic")), "args should appear in render");
+        assert(rendered.some((line: string) => line.includes("/plan onboarding")), "examples should appear in render");
+        assert(rendered.some((line: string) => line.includes("long description")), "longDesc should appear in render");
+
+        component.handleInput("escape");
+        assert(doneCalled, "escape should trigger done callback");
+
+        return Promise.resolve();
+      },
+    },
+  };
+
+  await showCommandDetailOverlay(mockCtx, {
+    command: "/plan",
+    shortDesc: "review intake and generate stories",
+    usage: "/plan [topic]",
+    args: ["topic — optional planning focus"],
+    examples: ["/plan", "/plan onboarding flow"],
+    longDesc: "This is the long description of what /plan does.",
+  });
+  console.log("  command detail overlay renders correctly: ok");
+}
+
 async function scenarioMarkdownViewerOpensAndCloses() {
   let doneCalled = false;
   const mockCtx = {
@@ -312,6 +353,84 @@ async function scenarioMarkdownViewerScrolls() {
   console.log("  markdown viewer scrolls: ok");
 }
 
+async function scenarioCommandDetailOverlayFlow() {
+  let selectionDone: ((val: string | null) => void) | null = null;
+  let viewerDone: (() => void) | null = null;
+
+  const mockCtx = {
+    ui: {
+      custom(factory: any, options: any) {
+        const component = factory(
+          { requestRender() {} },
+          { fg: (_c: string, t: string) => t, bold: (t: string) => t, bg: (_c: string, t: string) => t },
+          {},
+          (val: string | null) => {
+            if (selectionDone) selectionDone(val);
+            else if (viewerDone) viewerDone();
+          },
+        );
+
+        // First call is the selection list
+        if (!selectionDone) {
+          selectionDone = (val) => {
+            if (val == null) {
+              return Promise.resolve(null);
+            }
+          };
+          const rendered = component.render(60);
+          assert(rendered.some((line: string) => line.includes("/plan")), "selection should show /plan");
+          assert(rendered.some((line: string) => line.includes("/implement")), "selection should show /implement");
+          // Simulate selecting /plan
+          if (component.handleInput) {
+            component.handleInput("enter");
+          }
+          return Promise.resolve("/plan");
+        }
+
+        // Second call is the markdown viewer
+        viewerDone = () => {};
+        const rendered = component.render(60);
+        assert(rendered.some((line: string) => line.includes("/plan")), "detail should show command name");
+        assert(rendered.some((line: string) => line.includes("Usage:")), "detail should show usage section");
+        assert(rendered.some((line: string) => line.includes("Arguments:")), "detail should show arguments section");
+        assert(rendered.some((line: string) => line.includes("Examples:")), "detail should show examples section");
+
+        // Close detail
+        if (component.handleInput) {
+          component.handleInput("escape");
+        }
+        return Promise.resolve();
+      },
+    },
+  };
+
+  // Simulate the /test-help flow
+  const pick = await showSelectionList(mockCtx, "Vazir commands", [
+    { value: "/plan", label: "/plan", description: "review intake and generate stories" },
+    { value: "/implement", label: "/implement", description: "pick a story and implement" },
+  ]);
+
+  assert(pick === "/plan", "should select /plan");
+
+  const mdLines = [
+    "## /plan",
+    "",
+    "review intake, ask delta questions, and generate stories",
+    "",
+    "**Usage:** `/plan [topic]`",
+    "",
+    "**Arguments:**",
+    "- topic — optional planning focus",
+    "",
+    "**Examples:**",
+    "- `/plan`",
+    "- `/plan onboarding flow`",
+  ];
+
+  await showMarkdownViewer(mockCtx, "/plan", mdLines.join("\n"));
+  console.log("  command detail overlay flow: ok");
+}
+
 async function scenarioSelectionListEmptyReturnsNull() {
   const mockCtx = {
     ui: {
@@ -338,6 +457,8 @@ try {
   await scenarioMarkdownViewerOpensAndCloses();
   await scenarioMarkdownViewerEnterCloses();
   await scenarioMarkdownViewerScrolls();
+  await scenarioShowCommandDetailOverlay();
+  await scenarioCommandDetailOverlayFlow();
   await scenarioSelectionListEmptyReturnsNull();
   console.log("validate-vazir-ui-helpers: ok");
 } finally {

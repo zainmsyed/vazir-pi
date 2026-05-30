@@ -39,7 +39,7 @@ import {
 } from "./complete-story.ts";
 import { showScrollableText } from "../vazir-tracker/chrome.ts";
 import { refreshVcsState } from "../vazir-tracker/index.ts";
-import { showMarkdownViewer } from "../../lib/vazir-ui.ts";
+import { showCommandDetailOverlay, showMarkdownViewer, showSelectionList } from "../../lib/vazir-ui.ts";
 import {
   appendFallowToComplaintsLog,
   archiveDir,
@@ -2394,6 +2394,66 @@ export default function (pi: ExtensionAPI) {
     description: "Pick or set the preferred VCS mode for Vazir",
     handler: async (args: string, ctx: any) => {
       await applyVcsSettingsCommand(args, ctx);
+    },
+  });
+
+  // ── /test-help ───────────────────────────────────────────────────────
+
+  pi.registerCommand("test-help", {
+    description: "[Prototype] Open a selectable help overlay with mock command docs",
+    handler: async (_args: string, ctx: any) => {
+      if (!ctx.hasUI || typeof ctx.ui?.custom !== "function") {
+        ctx.ui.notify("/test-help requires a TUI session with overlay support", "info");
+        return;
+      }
+
+      const mockDocs = [
+        {
+          command: "/plan",
+          shortDesc: "review intake, ask delta questions, and generate stories",
+          usage: "/plan [topic]",
+          args: ["topic — optional planning focus"],
+          examples: ["/plan", "/plan onboarding flow"],
+          longDesc: "Starts a planning conversation by reading intake briefs and source files, asking clarifying questions one at a time, and generating structured stories in .context/stories/.",
+        },
+        {
+          command: "/implement",
+          shortDesc: "pick a story and start implementation",
+          usage: "/implement [story-id]",
+          args: ["story-id — optional specific story to work on"],
+          examples: ["/implement", "/implement story-042"],
+          longDesc: "Selects an active story from the queue and begins implementation. If no story-id is provided, presents a picker of in-progress stories.",
+        },
+        {
+          command: "/complete-story",
+          shortDesc: "check readiness, optionally review, and close a story",
+          usage: "/complete-story",
+          args: [],
+          examples: ["/complete-story"],
+          longDesc: "Validates the active story's checklist and issues, optionally runs a review, and closes the story with a completion summary.",
+        },
+      ];
+
+      while (true) {
+        const pick = await showSelectionList(
+          ctx,
+          "Vazir commands",
+          mockDocs.map(d => ({
+            value: d.command,
+            label: d.command,
+            description: d.shortDesc,
+          })),
+        );
+
+        if (pick == null) return;
+
+        const doc = mockDocs.find(d => d.command === pick);
+        if (!doc) return;
+
+        await showCommandDetailOverlay(ctx, doc);
+        // When the detail closes (Esc or Enter), loop back to the list.
+        // Esc from the list returns null and exits.
+      }
     },
   });
 

@@ -13,6 +13,7 @@ import {
   storiesDir,
   type StoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
+import { VazirPanel } from "../../lib/vazir-ui.ts";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -638,42 +639,88 @@ export async function showScrollableOverlay(
   const lines = body.split("\n");
   let scrollOffset = 0;
 
-  await ctx.ui.custom((tui: { requestRender(): void }, _theme: unknown, _kb: unknown, done: () => void) => {
-    return {
-      render(width = 80): string[] {
-        const innerWidth = Math.max(20, width - 4);
-        const visibleRows = Math.max(5, Math.min(lines.length || 1, (process.stdout.rows || 24) - 10));
-        const headerText = `${title} · ${subtitle} · esc close`;
-        const paddedHeader = headerText.length > innerWidth
-          ? headerText.slice(0, innerWidth)
-          : `${headerText}${" ".repeat(innerWidth - headerText.length)}`;
-        const bodyLines = lines
-          .slice(scrollOffset, scrollOffset + visibleRows)
-          .map(line => `│ ${line.slice(0, innerWidth).padEnd(innerWidth, " ")} │`);
-        while (bodyLines.length < visibleRows) {
-          bodyLines.push(`│ ${" ".repeat(innerWidth)} │`);
+  await ctx.ui.custom((tui: { requestRender(): void }, theme: any, _kb: unknown, done: () => void) => {
+    const borderFg = (s: string) => theme.fg("borderAccent", s);
+    const bg = (s: string) => theme.bg("customMessageBg", s);
+
+    const panel = new VazirPanel(
+      theme.fg("accent", theme.bold(`${title} · ${subtitle}`)),
+      borderFg,
+      bg,
+    );
+
+    class ScrollableLines extends piTui.Container {
+      private maxVisible = 10;
+
+      setScrollOffset(offset: number) {
+        scrollOffset = Math.max(0, offset);
+      }
+
+      setMaxVisible(maxVisible: number) {
+        this.maxVisible = maxVisible;
+      }
+
+      getScrollOffset(): number {
+        return scrollOffset;
+      }
+
+      getTotalLines(): number {
+        return lines.length;
+      }
+
+      render(width: number): string[] {
+        const visible = lines
+          .slice(scrollOffset, scrollOffset + this.maxVisible)
+          .map(line => line.slice(0, width));
+        while (visible.length < this.maxVisible) {
+          visible.push("");
         }
-        return [
-          `┌${paddedHeader}┐`,
-          ...bodyLines,
-          `└${"─".repeat(innerWidth)}┘`,
-        ];
+        return visible;
+      }
+    }
+
+    const scrollable = new ScrollableLines();
+    panel.addChild(scrollable);
+
+    function computeVisibleRows(): number {
+      return Math.max(5, Math.min(lines.length || 1, (process.stdout.rows || 24) - 10));
+    }
+
+    return {
+      render(width: number): string[] {
+        const visibleRows = computeVisibleRows();
+        scrollable.setMaxVisible(visibleRows);
+        return panel.render(width);
       },
-      invalidate() {},
-      handleInput(data: string) {
-        if (piTui.matchesKey(data, piTui.Key.up)) scrollOffset = Math.max(0, scrollOffset - 1);
-        else if (piTui.matchesKey(data, piTui.Key.down)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 1);
-        else if (piTui.matchesKey(data, piTui.Key.pageUp) || piTui.matchesKey(data, piTui.Key.home)) scrollOffset = Math.max(0, scrollOffset - 10);
-        else if (piTui.matchesKey(data, piTui.Key.pageDown) || piTui.matchesKey(data, piTui.Key.end)) scrollOffset = Math.min(Math.max(0, lines.length - 1), scrollOffset + 10);
-        else if (piTui.matchesKey(data, piTui.Key.escape)) { done(); return; }
+      invalidate(): void {
+        panel.invalidate();
+      },
+      handleInput(data: string): void {
+        const visibleRows = computeVisibleRows();
+        scrollable.setMaxVisible(visibleRows);
+        const totalLines = lines.length;
+        const pageSize = Math.max(1, visibleRows - 1);
+
+        if (piTui.matchesKey(data, piTui.Key.up)) {
+          scrollOffset = Math.max(0, scrollOffset - 1);
+        } else if (piTui.matchesKey(data, piTui.Key.down)) {
+          scrollOffset = Math.min(Math.max(0, totalLines - visibleRows), scrollOffset + 1);
+        } else if (piTui.matchesKey(data, piTui.Key.pageUp) || piTui.matchesKey(data, piTui.Key.home)) {
+          scrollOffset = Math.max(0, scrollOffset - pageSize);
+        } else if (piTui.matchesKey(data, piTui.Key.pageDown) || piTui.matchesKey(data, piTui.Key.end)) {
+          scrollOffset = Math.min(Math.max(0, totalLines - visibleRows), scrollOffset + pageSize);
+        } else if (piTui.matchesKey(data, piTui.Key.escape)) {
+          done();
+          return;
+        }
         tui.requestRender();
       },
     };
   }, {
     overlay: true,
     overlayOptions: {
-      anchor: "right-center",
-      width: "50%",
+      anchor: "center",
+      width: "60%",
       minWidth: 60,
       maxHeight: "80%",
       margin: 1,
@@ -702,7 +749,7 @@ function commandHelpBody(): string {
 }
 
 async function showCommandHelp(ctx: { ui: any }): Promise<void> {
-  await showScrollableText(ctx, "Vazir commands", "Ctrl+? or Esc to close", commandHelpBody());
+  await showScrollableOverlay(ctx, "Vazir commands", "Ctrl+? or Esc to close", commandHelpBody());
 }
 
 export function registerCommandHelpShortcut(ctx: { ui: { onTerminalInput(handler: (data: string) => { consume?: boolean; data?: string } | undefined): () => void } }): void {

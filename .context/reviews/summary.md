@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-30T04:00:11Z
+**Last updated:** 2026-05-30T14:21:04Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -21,6 +21,7 @@
 - Never hardcode story labels or temporal identifiers in reusable command handlers; always derive them from runtime state. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Picker labels used as lookup keys must be guaranteed unique; never rely solely on user-provided text and time-of-day for uniqueness. | count: 1 | status: tracked | sources: review-20260527-095822.md | stories: story-030
 - Promote a rule requiring shared test harness utilities for repository validation scripts (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
+- Prototype commands that validate new UX patterns should include at least one automated smoke test so regressions in the pattern are caught before the production wiring story. | count: 1 | status: tracked | sources: review-20260530-141131.md | stories: story-039
 - Remove no-op registration hooks once the real behavior has migrated to the owning extension. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Require an automated integration test for any change touching .context persistence or extension APIs (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
@@ -29,6 +30,8 @@
 - Temporary validation extensions or scripts must be deleted before story closeout; if they must persist, move them to a `tests/` or `scripts/` directory and document their purpose. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - UI labels that describe a restore action must accurately describe what will be restored; fallbacks to broader categories need relabeling. | count: 1 | status: tracked | sources: review-20260527-095822.md | stories: story-030
 - When a checklist calls for coverage "across" a set of changed-file states, verify more than one representative state — include create, modify, delete, and rename. | count: 1 | status: tracked | sources: review-20260526-215055.md | stories: story-029
+- When a handler chains multiple overlay helpers, verify that the required UI primitives are available before starting the flow, especially when one helper has a fallback path that the next helper lacks. | count: 1 | status: tracked | sources: review-20260530-141131.md | stories: story-039
+- When a prototype validates a schema, extract the schema type and rendering helper into a shared module as part of the production follow-up story so the prototype knowledge is preserved. | count: 1 | status: tracked | sources: review-20260530-141131.md | stories: story-039
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - When a validation stub replaces a real function, the stub must support every parameter that production code calls; otherwise the test suite gives false confidence. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - When adding or tightening VCS detection, validate extension behavior from both the repo root and a nested project directory. | count: 1 | status: tracked | sources: review-20260518-124246.md
