@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-06-02T01:19:22Z
+**Last updated:** 2026-06-02T01:47:53Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -23,6 +23,7 @@
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Substring-based approval detection must guard against negation prefixes; use word-boundary regexes or explicit allow-list tokens rather than naive `includes()`. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Temporary validation extensions or scripts must be deleted before story closeout; if they must persist, move them to a `tests/` or `scripts/` directory and document their purpose. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
+- When a command has distinct success, cancel, validation-failure, and execution-failure paths, add at least one regression assertion for each path. | count: 1 | status: tracked | sources: review-20260602-012723.md | stories: story-048
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - When a validation stub replaces a real function, the stub must support every parameter that production code calls; otherwise the test suite gives false confidence. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - When a validation stub stands in for a persistence layer, make it store and verify the same payload shape that production reads back so escaping bugs cannot hide behind marker-only assertions. | count: 1 | status: tracked | sources: review-20260531-022600.md | stories: story-046
