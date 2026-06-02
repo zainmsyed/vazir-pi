@@ -7,6 +7,7 @@
     "mode": "git-mirror-of-fossil",
     "path": "/home/zain/Documents/coding/vazir-pi",
     "remoteName": "origin",
-    "branch": "main"
+    "branch": "main",
+    "autosync_closeout": true
   }
 }

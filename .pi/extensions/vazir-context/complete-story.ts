@@ -9,6 +9,7 @@ import {
   listStories,
   parseStoryFrontmatter,
   readIfExists,
+  runAutoMirrorExportAtCloseout,
   todayDate,
   updateStoryFrontmatter,
 } from "../../lib/vazir-helpers.ts";
@@ -756,6 +757,14 @@ export function completeStoryAndCommitNow(
   completeStoryNow(pendingRequests, ctx, storyPath);
   const commitResult = commitStoryCloseChanges(ctx.cwd, commitMessage);
   ctx.ui.notify(commitResult.summary, commitResult.ok ? "info" : "warning");
+
+  if (commitResult.ok) {
+    const mirrorResult = runAutoMirrorExportAtCloseout(ctx.cwd);
+    if (mirrorResult.message) {
+      ctx.ui.notify(mirrorResult.message, mirrorResult.ok ? "info" : "warning");
+    }
+  }
+
   refreshVcsState(ctx.cwd);
 }
 

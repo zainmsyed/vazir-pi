@@ -71,7 +71,7 @@ const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/unlearn", description: "remove a promoted rule from system memory" },
   { command: "/consolidate", description: "cluster complaints and promote repeated rule candidates" },
   { command: "/design", description: "review and edit design system, brand, components" },
-  { command: "/vcs-settings", description: "set the active VCS mode and optional Fossil→Git mirror hint" },
+  { command: "/vcs-settings", description: "set the active VCS mode and optional Fossil→Git mirror hint (mirror autosync <on|off>)" },
   { command: "/vcs-mirror-sync", description: "run a confirmed Fossil→Git mirror export" },
   { command: "/diff", description: "show the diff for one changed file" },
   { command: "/edits", description: "show the recent file edit stream" },
@@ -179,10 +179,10 @@ const VAZIR_COMMAND_DOCS: CommandDoc[] = [
   {
     command: "/vcs-settings",
     shortDesc: "set the active VCS mode and optional Fossil→Git mirror hint",
-    usage: "/vcs-settings [auto|git|jj|fossil|mirror <none|git>]",
-    args: ["mode — auto, git, jj, fossil, or mirror <none|git>"],
-    examples: ["/vcs-settings", "/vcs-settings fossil", "/vcs-settings mirror git", "/vcs-settings mirror none"],
-    longDesc: "Configures Vazir's active version control system and optional mirror guidance. Supports Auto (detect), Git/JJ, and Fossil modes. Mirror mode is explicit and informational only: use `/vcs-settings mirror git` when Fossil is canonical and Git exists as a mirror. Vazir will not auto-sync, auto-push, or switch modes just because both metadata directories are present. Updates .context/settings/project.json.",
+    usage: "/vcs-settings [auto|git|jj|fossil|mirror <none|git|autosync <on|off>>]",
+    args: ["mode — auto, git, jj, fossil, or mirror <none|git|autosync <on|off>>"],
+    examples: ["/vcs-settings", "/vcs-settings fossil", "/vcs-settings mirror git", "/vcs-settings mirror none", "/vcs-settings mirror autosync on"],
+    longDesc: "Configures Vazir's active version control system and optional mirror guidance. Supports Auto (detect), Git/JJ, and Fossil modes. Mirror mode is explicit and informational only: use `/vcs-settings mirror git` when Fossil is canonical and Git exists as a mirror. Use `/vcs-settings mirror autosync on|off` to optionally auto-export the Git mirror when closing a story with committed changes. Vazir will not auto-sync, auto-push, or switch modes just because both metadata directories are present. Updates .context/settings/project.json.",
   },
   {
     command: "/vcs-mirror-sync",

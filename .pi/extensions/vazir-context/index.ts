@@ -2386,6 +2386,19 @@ export default function (pi: ExtensionAPI) {
     return { message: "Fossil active, Git mirror configured.", level: "info" };
   }
 
+  async function promptMirrorAutosyncSetup(ctx: any, cwd: string): Promise<void> {
+    if (typeof ctx.ui?.select !== "function") return;
+    const settings = readVcsMirrorSettings(cwd);
+    const choice = await ctx.ui.select(
+      "Auto-sync the Git mirror when you close a story with committed changes?",
+      ["Auto-sync at story closeout", "Manual only — use /vcs-mirror-sync"],
+    );
+    if (!choice) return;
+    const autosync = choice === "Auto-sync at story closeout";
+    persistMirrorSettings(cwd, { ...settings, autosync_closeout: autosync });
+    ctx.ui.notify(autosync ? "Mirror auto-sync enabled at story closeout." : "Mirror auto-sync disabled. Use /vcs-mirror-sync to sync manually.", "info");
+  }
+
   async function promptMirrorPathSetup(ctx: any, cwd: string): Promise<void> {
     if (typeof ctx.ui?.select !== "function") {
       ctx.ui.notify("Mirror mode enabled. Set `vcs_mirror.path` in .context/settings/project.json to use /vcs-mirror-sync.", "info");
@@ -2410,6 +2423,7 @@ export default function (pi: ExtensionAPI) {
       const settings = readVcsMirrorSettings(cwd);
       persistMirrorSettings(cwd, { ...settings, path: gitTopLevel });
       ctx.ui.notify(`Mirror path set to current Git repo: ${gitTopLevel}`, "info");
+      await promptMirrorAutosyncSetup(ctx, cwd);
       return;
     }
 
@@ -2426,6 +2440,7 @@ export default function (pi: ExtensionAPI) {
       const settings = readVcsMirrorSettings(cwd);
       persistMirrorSettings(cwd, { ...settings, path: customPath });
       ctx.ui.notify(`Mirror path set to: ${customPath}`, "info");
+      await promptMirrorAutosyncSetup(ctx, cwd);
       return;
     }
 
@@ -2529,11 +2544,11 @@ export default function (pi: ExtensionAPI) {
     const cwd = ctx.cwd;
     const normalizedParts = rawArgs.trim().split(/\s+/).filter(Boolean);
 
-    let preference: "auto" | "git" | "jj" | "fossil" | "mirror-git" | "mirror-none" | null = null;
+    let preference: "auto" | "git" | "jj" | "fossil" | "mirror-git" | "mirror-none" | "mirror-autosync-on" | "mirror-autosync-off" | null = null;
     if (normalizedParts.length < 1) {
       preference = await chooseVcsPreferenceFromMenu(ctx);
       if (preference === undefined) {
-        ctx.ui.notify("Usage: /vcs-settings <auto|git|jj|fossil|mirror <none|git>>", "info");
+        ctx.ui.notify("Usage: /vcs-settings <auto|git|jj|fossil|mirror <none|git|autosync <on|off>>>", "info");
         return;
       }
       if (preference === null) return;
@@ -2543,13 +2558,30 @@ export default function (pi: ExtensionAPI) {
         const mirrorCandidate = normalizedParts[1]?.toLowerCase();
         if (mirrorCandidate === "git") preference = "mirror-git";
         else if (mirrorCandidate === "none" || mirrorCandidate === "off") preference = "mirror-none";
+        else if (mirrorCandidate === "autosync") {
+          const autosyncCandidate = normalizedParts[2]?.toLowerCase();
+          if (autosyncCandidate === "on") preference = "mirror-autosync-on";
+          else if (autosyncCandidate === "off") preference = "mirror-autosync-off";
+        }
       } else if (candidate === "auto" || candidate === "git" || candidate === "jj" || candidate === "fossil") {
         preference = candidate;
       }
     }
 
     if (preference === null) {
-      ctx.ui.notify(`Invalid VCS setting: ${normalizedParts[0]}. Use auto, git, jj, fossil, or mirror <none|git>.`, "warning");
+      ctx.ui.notify(`Invalid VCS setting: ${normalizedParts[0]}. Use auto, git, jj, fossil, or mirror <none|git|autosync <on|off>>.`, "warning");
+      return;
+    }
+
+    if (preference === "mirror-autosync-on" || preference === "mirror-autosync-off") {
+      const currentMirror = readVcsMirrorSettings(cwd);
+      if (currentMirror.mode !== "git-mirror-of-fossil") {
+        ctx.ui.notify("Enable mirror mode first with /vcs-settings mirror git before toggling autosync.", "warning");
+        return;
+      }
+      const nextMirror: VcsMirrorSettings = { ...currentMirror, autosync_closeout: preference === "mirror-autosync-on" };
+      persistMirrorSettings(cwd, nextMirror);
+      ctx.ui.notify(`Mirror auto-sync at story closeout ${preference === "mirror-autosync-on" ? "enabled" : "disabled"}.`, "info");
       return;
     }
 
@@ -2584,7 +2616,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.registerCommand("vcs-settings", {
-    description: "Set the active VCS mode and optional Fossil→Git mirror hint",
+    description: "Set the active VCS mode and optional Fossil→Git mirror hint (mirror autosync <on|off>)",
     handler: async (args: string, ctx: any) => {
       await applyVcsSettingsCommand(args, ctx);
     },

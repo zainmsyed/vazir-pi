@@ -21,6 +21,7 @@ export interface VcsMirrorSettings {
   path: string;
   remoteName: string;
   branch: string;
+  autosync_closeout: boolean;
 }
 
 export interface VcsMirrorStatus {
@@ -349,12 +350,14 @@ export function normalizeVcsMirrorSettings(raw: unknown): VcsMirrorSettings {
   const pathValue = typeof record.path === "string" ? record.path.trim() : "";
   const remoteName = typeof record.remoteName === "string" && record.remoteName.trim() ? record.remoteName.trim() : "origin";
   const branch = typeof record.branch === "string" && record.branch.trim() ? record.branch.trim() : "main";
+  const autosyncCloseout = typeof record.autosync_closeout === "boolean" ? record.autosync_closeout : false;
 
   return {
     mode: mode === "git-mirror-of-fossil" ? "git-mirror-of-fossil" : "none",
     path: pathValue,
     remoteName,
     branch,
+    autosync_closeout: autosyncCloseout,
   };
 }
 
@@ -459,6 +462,60 @@ export function buildFossilGitExportPlan(repositoryPath: string, mirrorPath: str
     argv,
     commandText: ["fossil", ...argv].map(shellQuote).join(" "),
   };
+}
+
+export function runAutoMirrorExportAtCloseout(cwd: string): { ran: boolean; ok: boolean; message: string } {
+  const settings = readVcsMirrorSettings(cwd);
+
+  if (settings.mode !== "git-mirror-of-fossil") {
+    return { ran: false, ok: true, message: "" };
+  }
+
+  if (!settings.autosync_closeout) {
+    return { ran: false, ok: true, message: "" };
+  }
+
+  const activeMode = readActiveVcsMode(cwd);
+  if (activeMode !== "fossil") {
+    return { ran: false, ok: true, message: "Mirror autosync skipped: Fossil is not the active VCS." };
+  }
+
+  try {
+    childProcess.execFileSync("fossil", ["version"], { stdio: "pipe" });
+  } catch {
+    return { ran: false, ok: false, message: "Mirror autosync skipped: Fossil is not installed." };
+  }
+
+  if (!detectFossil(cwd)) {
+    return { ran: false, ok: false, message: "Mirror autosync skipped: no Fossil checkout detected." };
+  }
+
+  const repositoryPath = fossilRepositoryPath(cwd);
+  if (!repositoryPath) {
+    return { ran: false, ok: false, message: "Mirror autosync skipped: could not resolve Fossil repository path." };
+  }
+
+  const resolvedMirrorPath = resolveConfiguredMirrorPath(cwd, settings);
+  if (!resolvedMirrorPath) {
+    return { ran: false, ok: false, message: "Mirror autosync skipped: no mirror path is configured." };
+  }
+
+  if (!fs.existsSync(resolvedMirrorPath)) {
+    return { ran: false, ok: false, message: `Mirror autosync skipped: configured mirror path does not exist: ${resolvedMirrorPath}` };
+  }
+
+  if (!detectGitRepo(resolvedMirrorPath)) {
+    return { ran: false, ok: false, message: `Mirror autosync skipped: configured mirror path is not a Git checkout: ${resolvedMirrorPath}` };
+  }
+
+  const plan = buildFossilGitExportPlan(repositoryPath, resolvedMirrorPath);
+  try {
+    childProcess.execFileSync("fossil", plan.argv, { cwd, stdio: "pipe" });
+    return { ran: true, ok: true, message: `Mirror auto-sync complete: exported to ${resolvedMirrorPath}.` };
+  } catch (error: any) {
+    const stderr = error?.stderr?.toString?.("utf-8")?.trim() || error?.message || String(error);
+    return { ran: true, ok: false, message: `Mirror auto-sync failed: ${stderr}` };
+  }
 }
 
 export function writeProjectSettings(cwd: string, updates: Record<string, unknown>): Record<string, unknown> {

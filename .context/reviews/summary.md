@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-06-02T03:30:12Z
+**Last updated:** 2026-06-02T10:12:35Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
