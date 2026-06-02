@@ -10,6 +10,7 @@ import {
   buildDefaultSystemRulesMarkdown,
   buildFossilGitExportPlan,
   buildVcsSafetyGuidanceText,
+  pushGitMirror,
   compareStoriesByRecencyDesc,
   complaintsLogPath,
   detectFossil,
@@ -2533,7 +2534,8 @@ export default function (pi: ExtensionAPI) {
 
     try {
       childProcess.execFileSync("fossil", plan.argv, { cwd, stdio: "pipe" });
-      ctx.ui.notify(`Mirror sync complete: exported Fossil history to ${describeMirrorTarget(settings, cwd)}.`, "info");
+      pushGitMirror(resolvedMirrorPath);
+      ctx.ui.notify(`Mirror sync complete: exported Fossil history to ${describeMirrorTarget(settings, cwd)} and pushed.`, "info");
     } catch (error: any) {
       const message = error?.stderr?.toString?.("utf-8")?.trim() || error?.message || String(error);
       ctx.ui.notify(`Mirror sync failed: ${message}`, "warning");

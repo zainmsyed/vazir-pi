@@ -36,6 +36,12 @@ function initGitRepo(cwd: string): void {
   childProcess.execFileSync("git", ["commit", "-m", "init"], { cwd, stdio: "pipe" });
 }
 
+function addFakeGitRemote(cwd: string, remoteCwd: string): void {
+  childProcess.execFileSync("git", ["init", "--bare", remoteCwd], { cwd, stdio: "pipe" });
+  childProcess.execFileSync("git", ["remote", "add", "origin", remoteCwd], { cwd, stdio: "pipe" });
+  childProcess.execFileSync("git", ["config", "push.autoSetupRemote", "true"], { cwd, stdio: "pipe" });
+}
+
 function markFakeFossilCheckout(cwd: string): void {
   fs.writeFileSync(path.join(cwd, ".fslckout"), "fake fossil checkout\n");
 }
@@ -116,6 +122,7 @@ function runEnabledSuccessScenario() {
   markFakeFossilCheckout(cwd);
   const mirrorCwd = createProject("vazir-mirror-autosync-enabled-target-");
   initGitRepo(mirrorCwd);
+  addFakeGitRemote(mirrorCwd, path.join(cwd, "fake-remote.git"));
   const repoFile = path.join(cwd, "project.fossil");
   const exportLog = path.join(cwd, "mirror-export.log");
   fs.writeFileSync(repoFile, "fake repo\n");
@@ -134,9 +141,7 @@ function runEnabledSuccessScenario() {
     assert(result.message.includes("auto-sync complete"), `expected success message, got ${result.message}`);
     assert(fs.existsSync(exportLog), "export should write log file");
     const exportArgs = fs.readFileSync(exportLog, "utf-8").trim().split("\n");
-    assert(exportArgs[0] === repoFile, `expected repo path ${repoFile}, got ${exportArgs[0]}`);
-    assert(exportArgs[1] === mirrorCwd, `expected mirror path ${mirrorCwd}, got ${exportArgs[1]}`);
-    assert(exportArgs[2] === "--autopush", `expected --autopush, got ${exportArgs[2]}`);
+    assert(exportArgs[0] === mirrorCwd, `expected mirror path ${mirrorCwd}, got ${exportArgs[0]}`);
   } finally {
     process.env.PATH = originalPath;
   }

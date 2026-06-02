@@ -27,6 +27,12 @@ function initGitRepo(cwd: string): void {
   childProcess.execFileSync("git", ["commit", "-m", "init"], { cwd, stdio: "pipe" });
 }
 
+function addFakeGitRemote(cwd: string, remoteCwd: string): void {
+  childProcess.execFileSync("git", ["init", "--bare", remoteCwd], { cwd, stdio: "pipe" });
+  childProcess.execFileSync("git", ["remote", "add", "origin", remoteCwd], { cwd, stdio: "pipe" });
+  childProcess.execFileSync("git", ["config", "push.autoSetupRemote", "true"], { cwd, stdio: "pipe" });
+}
+
 function writeProjectSettings(cwd: string, settings: Record<string, unknown>): void {
   const settingsPath = path.join(cwd, ".context", "settings", "project.json");
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
@@ -100,6 +106,7 @@ async function runConfirmedSyncScenario() {
   const cwd = createProject("vazir-mirror-sync-confirm-");
   const mirrorCwd = createProject("vazir-mirror-sync-target-");
   initGitRepo(mirrorCwd);
+  addFakeGitRemote(mirrorCwd, path.join(cwd, "fake-remote.git"));
   fs.writeFileSync(path.join(cwd, ".fslckout"), "fake fossil checkout\n");
   const repoFile = path.join(cwd, "project.fossil");
   const exportLog = path.join(cwd, "mirror-export.log");
@@ -125,9 +132,7 @@ async function runConfirmedSyncScenario() {
 
   assert(fs.existsSync(exportLog), "confirmed sync should execute fossil git export");
   const exportArgs = fs.readFileSync(exportLog, "utf-8").trim().split("\n");
-  assert(exportArgs[0] === repoFile, `expected export to use Fossil repo path ${repoFile}, got ${exportArgs[0]}`);
-  assert(exportArgs[1] === mirrorCwd, `expected export to target mirror path ${mirrorCwd}, got ${exportArgs[1]}`);
-  assert(exportArgs[2] === "--autopush", `expected export to include --autopush, got ${exportArgs[2]}`);
+  assert(exportArgs[0] === mirrorCwd, `expected export to target mirror path ${mirrorCwd}, got ${exportArgs[0]}`);
   assert(notifications.some(entry => entry.message.includes("Mirror sync complete")), "confirmed sync should report success");
 
   return { cwd, mirrorCwd, notifications, exportArgs };

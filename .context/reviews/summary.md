@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-06-02T10:12:35Z
+**Last updated:** 2026-06-02T10:29:33Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -23,6 +23,7 @@
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Substring-based approval detection must guard against negation prefixes; use word-boundary regexes or explicit allow-list tokens rather than naive `includes()`. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Temporary validation extensions or scripts must be deleted before story closeout; if they must persist, move them to a `tests/` or `scripts/` directory and document their purpose. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
+- Validation of VCS restore and undo behavior should exercise real repositories with actual tool commands rather than only stubs, because stubs can mask semantic mismatches between assumed and actual tool behavior. | count: 1 | status: tracked | sources: review-20260602-102619.md | stories: story-051
 - When a command has distinct success, cancel, validation-failure, and execution-failure paths, add at least one regression assertion for each path. | count: 1 | status: tracked | sources: review-20260602-012723.md | stories: story-048
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - When a UI flow has conditional option branches based on environment state, add at least one regression test for each branch (present vs. absent). | count: 1 | status: tracked | sources: review-20260602-024801.md | stories: story-049
@@ -41,6 +42,7 @@
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When reverting a UI rollout, update or remove the validation expectations for the abandoned interaction model in the same change so the targeted regression suite still describes the shipped behavior. | count: 1 | status: tracked | sources: review-20260530-020034.md | stories: story-037
 - When stripping ANSI for width calculations, use a regex that matches the full CSI range (`\x1b[...letter`) rather than only SGR (`\x1b[...m`). | count: 1 | status: tracked | sources: review-20260529-215920.md | stories: story-036
+- When tests replace a real external tool with a fake binary, the fake must match the real tool's accepted argument syntax so the test suite does not give false confidence. | count: 1 | status: tracked | sources: review-20260602-102619.md | stories: story-051
 - When the same literal union appears more than once in a module, extract a named type alias to reduce drift during future changes. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - When tracking async tool lifecycle, correlate start and end events with a unique call identifier, not just the tool name. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When validating tool input for security, always check every documented alias of a target field (`path` / `filePath`), not just the primary one. | count: 1 | status: tracked | sources: review-20260518-145628.md
