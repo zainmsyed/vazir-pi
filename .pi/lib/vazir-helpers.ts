@@ -455,13 +455,17 @@ function shellQuote(value: string): string {
 }
 
 export function buildFossilGitExportPlan(repositoryPath: string, mirrorPath: string): FossilGitExportPlan {
-  const argv = ["git", "export", repositoryPath, mirrorPath, "--autopush"];
+  const argv = ["git", "export", mirrorPath];
   return {
     repositoryPath,
     mirrorPath,
     argv,
     commandText: ["fossil", ...argv].map(shellQuote).join(" "),
   };
+}
+
+export function pushGitMirror(mirrorPath: string): void {
+  childProcess.execFileSync("git", ["-C", mirrorPath, "push"], { stdio: "pipe" });
 }
 
 export function runAutoMirrorExportAtCloseout(cwd: string): { ran: boolean; ok: boolean; message: string } {
@@ -511,7 +515,8 @@ export function runAutoMirrorExportAtCloseout(cwd: string): { ran: boolean; ok: 
   const plan = buildFossilGitExportPlan(repositoryPath, resolvedMirrorPath);
   try {
     childProcess.execFileSync("fossil", plan.argv, { cwd, stdio: "pipe" });
-    return { ran: true, ok: true, message: `Mirror auto-sync complete: exported to ${resolvedMirrorPath}.` };
+    pushGitMirror(resolvedMirrorPath);
+    return { ran: true, ok: true, message: `Mirror auto-sync complete: exported to ${resolvedMirrorPath} and pushed.` };
   } catch (error: any) {
     const stderr = error?.stderr?.toString?.("utf-8")?.trim() || error?.message || String(error);
     return { ran: true, ok: false, message: `Mirror auto-sync failed: ${stderr}` };
