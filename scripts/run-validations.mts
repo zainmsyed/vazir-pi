@@ -43,6 +43,7 @@ const validations = [
   "validate-vazir-story-status-guard.mts",
   "validate-vazir-tracker-resolution.mts",
   "validate-vazir-vcs-mirror-settings.mts",
+  "validate-vazir-vcs-mirror-sync.mts",
   "validate-vazir-vcs-safety-policy.mts",
   "validate-vazir-vcs-tool-guard.mts",
   "validate-vazir-ui-helpers.mts",

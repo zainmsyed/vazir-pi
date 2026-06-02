@@ -72,6 +72,7 @@ const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/consolidate", description: "cluster complaints and promote repeated rule candidates" },
   { command: "/design", description: "review and edit design system, brand, components" },
   { command: "/vcs-settings", description: "set the active VCS mode and optional Fossil→Git mirror hint" },
+  { command: "/vcs-mirror-sync", description: "run a confirmed Fossil→Git mirror export" },
   { command: "/diff", description: "show the diff for one changed file" },
   { command: "/edits", description: "show the recent file edit stream" },
   { command: "/checkpoint", description: "pick a checkpoint to restore" },
@@ -182,6 +183,14 @@ const VAZIR_COMMAND_DOCS: CommandDoc[] = [
     args: ["mode — auto, git, jj, fossil, or mirror <none|git>"],
     examples: ["/vcs-settings", "/vcs-settings fossil", "/vcs-settings mirror git", "/vcs-settings mirror none"],
     longDesc: "Configures Vazir's active version control system and optional mirror guidance. Supports Auto (detect), Git/JJ, and Fossil modes. Mirror mode is explicit and informational only: use `/vcs-settings mirror git` when Fossil is canonical and Git exists as a mirror. Vazir will not auto-sync, auto-push, or switch modes just because both metadata directories are present. Updates .context/settings/project.json.",
+  },
+  {
+    command: "/vcs-mirror-sync",
+    shortDesc: "run a confirmed Fossil→Git mirror export",
+    usage: "/vcs-mirror-sync",
+    args: [],
+    examples: ["/vcs-mirror-sync"],
+    longDesc: "Validates the current Fossil→Git mirror configuration, shows the exact `fossil git export ... --autopush` command it plans to run, and requires explicit confirmation before executing it. The command only works when Fossil is the active VCS, mirror mode is `git-mirror-of-fossil`, and `vcs_mirror.path` points at an existing Git checkout.",
   },
   {
     command: "/diff",

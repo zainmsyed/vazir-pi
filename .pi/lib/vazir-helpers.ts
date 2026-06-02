@@ -31,6 +31,13 @@ export interface VcsMirrorStatus {
   warning: string | null;
 }
 
+export interface FossilGitExportPlan {
+  repositoryPath: string;
+  mirrorPath: string;
+  argv: string[];
+  commandText: string;
+}
+
 export interface VcsApprovalRequirement {
   needsApproval: boolean;
   protectedTargets: string[];
@@ -404,6 +411,37 @@ export function describeVcsMirrorStatus(options: {
     shortLabel: "git mirror",
     detail: "fossil active, git mirror configured",
     warning: null,
+  };
+}
+
+export function resolveConfiguredMirrorPath(cwd: string, settings: VcsMirrorSettings): string | null {
+  const trimmedPath = settings.path.trim();
+  if (!trimmedPath) return null;
+  return path.resolve(cwd, trimmedPath);
+}
+
+export function fossilRepositoryPath(cwd: string): string | null {
+  try {
+    const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_DETECT_TIMEOUT_MS });
+    const repositoryPath = info.match(/^repository:\s+(.+)$/m)?.[1]?.trim();
+    return repositoryPath || null;
+  } catch {
+    return null;
+  }
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+export function buildFossilGitExportPlan(repositoryPath: string, mirrorPath: string): FossilGitExportPlan {
+  const argv = ["git", "export", repositoryPath, mirrorPath, "--autopush"];
+  return {
+    repositoryPath,
+    mirrorPath,
+    argv,
+    commandText: ["fossil", ...argv].map(shellQuote).join(" "),
   };
 }
 
