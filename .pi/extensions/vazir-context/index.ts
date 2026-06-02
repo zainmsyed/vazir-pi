@@ -23,6 +23,7 @@ import {
   readIfExists,
   readVcsMirrorSettings,
   resolveConfiguredMirrorPath,
+  resolveGitTopLevel,
   storiesDir,
   todayDate,
   writeProjectSettings,
@@ -2385,6 +2386,53 @@ export default function (pi: ExtensionAPI) {
     return { message: "Fossil active, Git mirror configured.", level: "info" };
   }
 
+  async function promptMirrorPathSetup(ctx: any, cwd: string): Promise<void> {
+    if (typeof ctx.ui?.select !== "function") {
+      ctx.ui.notify("Mirror mode enabled. Set `vcs_mirror.path` in .context/settings/project.json to use /vcs-mirror-sync.", "info");
+      return;
+    }
+
+    const gitTopLevel = resolveGitTopLevel(cwd);
+    const options: string[] = [];
+    if (gitTopLevel) {
+      options.push(`Use current Git repo (${gitTopLevel})`);
+    }
+    options.push("Enter custom path", "Skip for now");
+
+    const choice = await ctx.ui.select(
+      "Choose a Git mirror path for Fossil exports:",
+      options,
+    );
+
+    if (!choice) return;
+
+    if (gitTopLevel && choice === `Use current Git repo (${gitTopLevel})`) {
+      const settings = readVcsMirrorSettings(cwd);
+      persistMirrorSettings(cwd, { ...settings, path: gitTopLevel });
+      ctx.ui.notify(`Mirror path set to current Git repo: ${gitTopLevel}`, "info");
+      return;
+    }
+
+    if (choice === "Enter custom path") {
+      if (typeof ctx.ui?.input !== "function") {
+        ctx.ui.notify("Custom path entry requires an interactive session. Edit .context/settings/project.json manually.", "info");
+        return;
+      }
+      const customPath = (await ctx.ui.input("Enter the Git mirror checkout path:", "e.g. /path/to/git-mirror or ../git-mirror"))?.trim() ?? "";
+      if (!customPath) {
+        ctx.ui.notify("No path entered. Mirror mode enabled without a path; set it later in .context/settings/project.json.", "warning");
+        return;
+      }
+      const settings = readVcsMirrorSettings(cwd);
+      persistMirrorSettings(cwd, { ...settings, path: customPath });
+      ctx.ui.notify(`Mirror path set to: ${customPath}`, "info");
+      return;
+    }
+
+    // Skip for now
+    ctx.ui.notify("Mirror mode enabled without a path. Set `vcs_mirror.path` before running /vcs-mirror-sync.", "warning");
+  }
+
   function describeMirrorTarget(settings: VcsMirrorSettings, cwd: string): string {
     const resolvedMirrorPath = resolveConfiguredMirrorPath(cwd, settings);
     const target = resolvedMirrorPath ?? "(mirror path not configured)";
@@ -2513,6 +2561,10 @@ export default function (pi: ExtensionAPI) {
       persistMirrorSettings(cwd, nextMirror);
       const notification = mirrorStatusNotification(nextMirror, cwd);
       ctx.ui.notify(notification.message, notification.level);
+
+      if (preference === "mirror-git") {
+        await promptMirrorPathSetup(ctx, cwd);
+      }
       return;
     }
 

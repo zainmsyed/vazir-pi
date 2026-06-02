@@ -56,7 +56,7 @@ function readProjectSettings(cwd: string): Record<string, any> {
   return JSON.parse(fs.readFileSync(path.join(cwd, ".context", "settings", "project.json"), "utf-8")) as Record<string, any>;
 }
 
-function makeCtx(cwd: string, notifications: Array<{ message: string; level: string }>) {
+function makeCtx(cwd: string, notifications: Array<{ message: string; level: string }>, selectResponses: string[] = [], inputResponses: string[] = []) {
   return {
     cwd,
     ui: {
@@ -64,7 +64,10 @@ function makeCtx(cwd: string, notifications: Array<{ message: string; level: str
         notifications.push({ message, level });
       },
       async select() {
-        return undefined;
+        return selectResponses.shift();
+      },
+      async input() {
+        return inputResponses.shift();
       },
     },
   };
@@ -187,6 +190,98 @@ function runMirrorNormalizationScenario() {
   return { cwd, mirror };
 }
 
+async function runCurrentRepoPathScenario() {
+  const cwd = createProject("vazir-mirror-current-repo-");
+  initGitRepo(cwd);
+  markFakeFossilCheckout(cwd);
+  writeProjectSettings(cwd, { active_vcs_mode: "fossil", vcs_preference: "fossil" });
+
+  const pi = makePi([contextModule.default]);
+  const command = pi.getCommand("vcs-settings");
+  assert(command, "vcs-settings command should be registered for current-repo scenario");
+
+  const notifications: Array<{ message: string; level: string }> = [];
+  const gitTopLevel = helperModule.resolveGitTopLevel(cwd);
+  assert(gitTopLevel, "current repo should have a detectable Git top-level");
+
+  await command!.handler("mirror git", makeCtx(cwd, notifications, [`Use current Git repo (${gitTopLevel})`]));
+
+  const settings = readProjectSettings(cwd);
+  assert(settings.active_vcs_mode === "fossil", "mirror setup should not change active VCS mode");
+  assert(settings.vcs_mirror?.mode === "git-mirror-of-fossil", "mirror mode should be enabled");
+  assert(settings.vcs_mirror?.path === gitTopLevel, `mirror path should match Git top-level, got ${settings.vcs_mirror?.path}`);
+  assert(notifications.some(entry => entry.level === "info" && entry.message.includes("Mirror path set to current Git repo")), "should confirm current-repo path selection");
+
+  return { cwd, notifications };
+}
+
+async function runCustomPathScenario() {
+  const cwd = createProject("vazir-mirror-custom-path-");
+  initGitRepo(cwd);
+  markFakeFossilCheckout(cwd);
+  writeProjectSettings(cwd, { active_vcs_mode: "fossil", vcs_preference: "fossil" });
+
+  const pi = makePi([contextModule.default]);
+  const command = pi.getCommand("vcs-settings");
+  assert(command, "vcs-settings command should be registered for custom-path scenario");
+
+  const notifications: Array<{ message: string; level: string }> = [];
+  const customPath = "/tmp/vazir-test-custom-mirror";
+  await command!.handler("mirror git", makeCtx(cwd, notifications, ["Enter custom path"], [customPath]));
+
+  const settings = readProjectSettings(cwd);
+  assert(settings.active_vcs_mode === "fossil", "mirror setup should not change active VCS mode");
+  assert(settings.vcs_mirror?.mode === "git-mirror-of-fossil", "mirror mode should be enabled");
+  assert(settings.vcs_mirror?.path === customPath, `mirror path should be custom path, got ${settings.vcs_mirror?.path}`);
+  assert(notifications.some(entry => entry.level === "info" && entry.message.includes("Mirror path set to")), "should confirm custom path selection");
+
+  return { cwd, notifications };
+}
+
+async function runSkipPathScenario() {
+  const cwd = createProject("vazir-mirror-skip-path-");
+  initGitRepo(cwd);
+  markFakeFossilCheckout(cwd);
+  writeProjectSettings(cwd, { active_vcs_mode: "fossil", vcs_preference: "fossil" });
+
+  const pi = makePi([contextModule.default]);
+  const command = pi.getCommand("vcs-settings");
+  assert(command, "vcs-settings command should be registered for skip-path scenario");
+
+  const notifications: Array<{ message: string; level: string }> = [];
+  await command!.handler("mirror git", makeCtx(cwd, notifications, ["Skip for now"]));
+
+  const settings = readProjectSettings(cwd);
+  assert(settings.active_vcs_mode === "fossil", "mirror setup should not change active VCS mode");
+  assert(settings.vcs_mirror?.mode === "git-mirror-of-fossil", "mirror mode should be enabled");
+  assert(!settings.vcs_mirror?.path, `mirror path should remain empty after skip, got ${settings.vcs_mirror?.path}`);
+  assert(notifications.some(entry => entry.level === "warning" && entry.message.includes("Mirror mode enabled without a path")), "should warn when path setup is skipped");
+
+  return { cwd, notifications };
+}
+
+async function runNoGitDetectedPathSetupScenario() {
+  const cwd = createProject("vazir-mirror-no-git-detected-");
+  markFakeFossilCheckout(cwd);
+  writeProjectSettings(cwd, { active_vcs_mode: "fossil", vcs_preference: "fossil" });
+
+  const pi = makePi([contextModule.default]);
+  const command = pi.getCommand("vcs-settings");
+  assert(command, "vcs-settings command should be registered for no-git-detected scenario");
+
+  const notifications: Array<{ message: string; level: string }> = [];
+  await command!.handler("mirror git", makeCtx(cwd, notifications, ["Skip for now"]));
+
+  const settings = readProjectSettings(cwd);
+  assert(settings.active_vcs_mode === "fossil", "mirror setup should not change active VCS mode");
+  assert(settings.vcs_mirror?.mode === "git-mirror-of-fossil", "mirror mode should be enabled");
+  assert(!settings.vcs_mirror?.path, `mirror path should remain empty when no git repo detected, got ${settings.vcs_mirror?.path}`);
+  assert(notifications.some(entry => entry.level === "warning" && entry.message.includes("does not fully match yet")), "should warn when git metadata is missing");
+  assert(notifications.some(entry => entry.level === "warning" && entry.message.includes("Mirror mode enabled without a path")), "should warn when path setup is skipped without git detected");
+
+  return { cwd, notifications };
+}
+
 try {
   const commandScenario = await runMirrorCommandScenario();
   const displayScenario = runMirrorDisplayScenario();
@@ -194,6 +289,10 @@ try {
   const inactiveMirrorScenario = runInactiveMirrorScenario();
   const missingFossilScenario = runMissingFossilScenario();
   const normalizationScenario = runMirrorNormalizationScenario();
+  const currentRepoScenario = await runCurrentRepoPathScenario();
+  const customPathScenario = await runCustomPathScenario();
+  const skipPathScenario = await runSkipPathScenario();
+  const noGitDetectedScenario = await runNoGitDetectedPathSetupScenario();
 
   console.log("VCS mirror settings validation");
   console.log(`command cwd: ${commandScenario.cwd}`);
@@ -202,6 +301,10 @@ try {
   console.log(`inactive-mirror cwd: ${inactiveMirrorScenario.cwd}`);
   console.log(`missing-fossil cwd: ${missingFossilScenario.cwd}`);
   console.log(`normalization cwd: ${normalizationScenario.cwd}`);
+  console.log(`current-repo cwd: ${currentRepoScenario.cwd}`);
+  console.log(`custom-path cwd: ${customPathScenario.cwd}`);
+  console.log(`skip-path cwd: ${skipPathScenario.cwd}`);
+  console.log(`no-git-detected cwd: ${noGitDetectedScenario.cwd}`);
   console.log("  Mirror settings persistence, mixed-VCS resolution, and status guidance assertions passed.");
   console.log("");
 } finally {

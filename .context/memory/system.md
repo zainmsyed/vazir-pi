@@ -65,6 +65,8 @@
 - In modules loaded directly by Node ESM (e.g., validation scripts), import TypeScript interfaces with `import type` to avoid runtime export-not-found errors. <!-- source: story-043 --> <!-- confidence: low — no signal in last 5 stories -->
 - Temporary validation extensions or scripts must be deleted before story closeout; if they must persist, move them to a `tests/` or `scripts/` directory and document their purpose. <!-- source: story-035 --> <!-- confidence: low — no signal in last 5 stories -->
 - When a command has distinct success, cancel, validation-failure, and execution-failure paths, add at least one regression assertion for each path. <!-- source: story-048 --> <!-- confidence: high -->
+- When a UI flow has conditional option branches based on environment state, add at least one regression test for each branch (present vs. absent). <!-- source: story-049 --> <!-- confidence: high -->
+- Do not let a user enable a workflow mode without prompting for the required dependencies; if they skip, warn explicitly rather than leaving the dependency silently unset. <!-- source: story-049 --> <!-- confidence: high -->
 ### From successes
 - When a closeout prompt aggregates work from multiple checklist sections, reuse the same aggregation helper in the action path so the selected work actually executes. <!-- source: story-020 --> <!-- confidence: low — no signal in last 5 stories -->
 - When redesigning a noisy restore workflow, layer curated user-facing choices on top of one exact restore helper so every entry point keeps the same semantics. <!-- source: story-029, story-030 --> <!-- confidence: low — no signal in last 5 stories -->
