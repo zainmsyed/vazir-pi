@@ -337,6 +337,8 @@
     "fc2b08b1": "so we could ask  when the user selects to sync in vcs setting? so they get promp",
     "03e10eae": "yes please create that story and replan based on vazirs template please",
     "c7811f93": "Implement the in-progress story in .context/stories/story-051.md.\n\nYour job:\n1. ",
-    "8b7b34f1": "Warning: Mirror auto-sync failed: unrecognized command-line option or missing ar"
+    "8b7b34f1": "Warning: Mirror auto-sync failed: unrecognized command-line option or missing ar",
+    "7fdacbdc": "Warning: Mirror auto-sync failed: unrecognized command-line option or missing ar",
+    "019b715c": "The user reported an issue via /fix: \"Warning: Mirror auto-sync failed: unrecogn"
   }
 }
