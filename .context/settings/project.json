@@ -2,5 +2,11 @@
   "project_name": "",
   "model_tier": "balanced",
   "active_vcs_mode": "fossil",
-  "vcs_preference": "fossil"
+  "vcs_preference": "fossil",
+  "vcs_mirror": {
+    "mode": "git-mirror-of-fossil",
+    "path": "",
+    "remoteName": "origin",
+    "branch": "main"
+  }
 }

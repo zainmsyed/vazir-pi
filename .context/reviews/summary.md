@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-30T19:57:19Z
+**Last updated:** 2026-06-02T01:19:22Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -25,11 +25,15 @@
 - Temporary validation extensions or scripts must be deleted before story closeout; if they must persist, move them to a `tests/` or `scripts/` directory and document their purpose. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - When a validation stub replaces a real function, the stub must support every parameter that production code calls; otherwise the test suite gives false confidence. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
+- When a validation stub stands in for a persistence layer, make it store and verify the same payload shape that production reads back so escaping bugs cannot hide behind marker-only assertions. | count: 1 | status: tracked | sources: review-20260531-022600.md | stories: story-046
+- When adding an instruction-driven file-update workflow, validate at least one downstream file-mutation path end-to-end instead of only asserting prompt text. | count: 1 | status: tracked | sources: review-20260531-010258.md | stories: story-044
 - When adding or tightening VCS detection, validate extension behavior from both the repo root and a nested project directory. | count: 1 | status: tracked | sources: review-20260518-124246.md
+- When checklist calls for coverage across a set of states, verify more than one representative state. | count: 1 | status: tracked | sources: review-20260602-011510.md | stories: story-047
 - When extracting a command into a new extension, update every validation script that exercises that command to load the new extension module alongside the original entrypoint. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
 - When extracting a large block of helpers from a module, run a reference check for every removed function name against the remaining code in that module before committing the extraction. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
 - When extracting helpers into a new module, update every validation/import site that exercises those helpers and rerun the moved module's validation scripts before closing the story. | count: 1 | status: tracked | sources: review-20260518-220211.md | stories: story-020
 - When extracting lifecycle handlers into a new extension, remove the original registration to avoid duplicate event processing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
+- When generated assets are described as design-spec-driven, make validation prove that representative spec changes affect the emitted output rather than only being read into metadata comments. | count: 1 | status: tracked | sources: review-20260531-011428.md | stories: story-045
 - When generating numbered requirement lists in instruction builders, scan for duplicate ordinals before committing. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When parsing VCS status output, include rename/move states explicitly; they are common and silently dropping them creates UI gaps. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
