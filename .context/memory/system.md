@@ -69,6 +69,8 @@
 - Do not let a user enable a workflow mode without prompting for the required dependencies; if they skip, warn explicitly rather than leaving the dependency silently unset. <!-- source: story-049 --> <!-- confidence: high -->
 - Derive UI chrome tone from explicit severity metadata rather than parsing human-readable labels, so label wording can change without breaking color logic. <!-- source: story-050 --> <!-- confidence: high -->
 - When refactoring a data structure to serve a new consumer, remove fields that are no longer read rather than leaving them as speculative future-proofing. <!-- source: story-050 --> <!-- confidence: high -->
+- When wiring an automatic side-effect into a primary workflow, make it opt-in and report failures without blocking the primary workflow from completing. <!-- source: story-051 --> <!-- confidence: high -->
+- When a guided setup flow has multiple related configuration steps, collect them in a single session rather than splitting them across separate command paths. <!-- source: story-051 --> <!-- confidence: high -->
 ### From successes
 - When a closeout prompt aggregates work from multiple checklist sections, reuse the same aggregation helper in the action path so the selected work actually executes. <!-- source: story-020 --> <!-- confidence: low — no signal in last 5 stories -->
 - When redesigning a noisy restore workflow, layer curated user-facing choices on top of one exact restore helper so every entry point keeps the same semantics. <!-- source: story-029, story-030 --> <!-- confidence: low — no signal in last 5 stories -->
