@@ -5,6 +5,7 @@
     "39665608": "and maybe highlight the intake folder specifucally? what its for and why its imp",
     "48826955": "hey",
     "61699697": "so one thing does it mirror everything or just pushes to the main/trunk?",
+    "80882465": "Implement the in-progress story in .context/stories/story-050.md.\n\nYour job:\n1. ",
     "f803d99d": "commit all",
     "281ad117": "can we put in the system prompt to not commit anything unless specifically asked",
     "dfbecc07": "can we also make it that stories dont have more than 7 tasks on the checklist",
@@ -328,6 +329,7 @@
     "8ed8a466": "Implement the in-progress story in .context/stories/story-049.md.\n\nYour job:\n1. ",
     "a76864da": "Implement the in-progress story in .context/stories/story-049.md.\n\nYour job:\n1. ",
     "746dba11": "Implement the in-progress story in .context/stories/story-049.md.\n\nYour job:\n1. ",
-    "b64a1bcc": "9please cont"
+    "b64a1bcc": "9please cont",
+    "c7d23251": "Implement the in-progress story in .context/stories/story-050.md.\n\nYour job:\n1. "
   }
 }
