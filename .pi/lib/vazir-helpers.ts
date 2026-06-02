@@ -25,10 +25,10 @@ export interface VcsMirrorSettings {
 
 export interface VcsMirrorStatus {
   mode: VcsMirrorMode;
-  state: "disabled" | "configured" | "missing-git-metadata" | "inactive-active-vcs" | "missing-fossil-metadata";
+  state: "disabled" | "configured" | "missing-git-metadata" | "inactive-active-vcs" | "missing-fossil-metadata" | "missing-path";
   shortLabel: string;
-  detail: string | null;
   warning: string | null;
+  severity: "success" | "warning" | "error" | null;
 }
 
 export interface FossilGitExportPlan {
@@ -376,21 +376,18 @@ export function describeVcsMirrorStatus(options: {
       mode: "none",
       state: "disabled",
       shortLabel: "",
-      detail: null,
       warning: null,
+      severity: null,
     };
   }
 
   if (activeMode !== "fossil") {
-    const detail = activeMode === "none"
-      ? "mirror inactive, fossil not active"
-      : `mirror inactive, ${activeMode} active`;
     return {
       mode: settings.mode,
       state: "inactive-active-vcs",
       shortLabel: "mirror inactive",
-      detail,
       warning: "Git mirror mode is configured for Fossil, but Fossil is not the active VCS.",
+      severity: "warning",
     };
   }
 
@@ -399,8 +396,18 @@ export function describeVcsMirrorStatus(options: {
       mode: settings.mode,
       state: "missing-fossil-metadata",
       shortLabel: "fossil missing",
-      detail: "git mirror configured, fossil metadata missing",
       warning: "Git mirror mode expects Fossil metadata, but no Fossil checkout was detected.",
+      severity: "error",
+    };
+  }
+
+  if (!settings.path.trim()) {
+    return {
+      mode: settings.mode,
+      state: "missing-path",
+      shortLabel: "mirror path missing",
+      warning: "Git mirror mode is enabled, but no mirror path is configured. Set vcs_mirror.path to use /vcs-mirror-sync.",
+      severity: "warning",
     };
   }
 
@@ -408,9 +415,9 @@ export function describeVcsMirrorStatus(options: {
     return {
       mode: settings.mode,
       state: "missing-git-metadata",
-      shortLabel: "git mirror missing",
-      detail: "git mirror configured, git metadata missing",
+      shortLabel: "git missing",
       warning: "Git mirror mode is enabled, but no Git metadata was detected in this repo.",
+      severity: "error",
     };
   }
 
@@ -418,8 +425,8 @@ export function describeVcsMirrorStatus(options: {
     mode: settings.mode,
     state: "configured",
     shortLabel: "git mirror",
-    detail: "fossil active, git mirror configured",
     warning: null,
+    severity: "success",
   };
 }
 

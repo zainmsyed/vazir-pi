@@ -327,7 +327,7 @@ let _hasGitRepo = false;
 let _useJJ = false;
 let _hasFossilRepo = false;
 let _vcsKind: "none" | "git" | "jj" | "fossil" = "none";
-let _vcsDisplay = { refLabel: "workspace", workingLabel: "", syncLabel: "", mirrorLabel: "" };
+let _vcsDisplay = { refLabel: "workspace", workingLabel: "", syncLabel: "", mirrorLabel: "", mirrorSeverity: null as "success" | "warning" | "error" | null };
 let _vcsOverridden = false;
 
 // ── Lifecycle setters (called from index.ts) ───────────────────────────
@@ -336,7 +336,7 @@ export function setVcsFlags(
   hasGitRepo: boolean,
   useJJ: boolean,
   vcsKind: "none" | "git" | "jj" | "fossil" = hasGitRepo ? "git" : "none",
-  display: { refLabel: string; workingLabel: string; syncLabel: string; mirrorLabel: string } = { refLabel: "workspace", workingLabel: "", syncLabel: "", mirrorLabel: "" },
+  display: { refLabel: string; workingLabel: string; syncLabel: string; mirrorLabel: string; mirrorSeverity: "success" | "warning" | "error" | null } = { refLabel: "workspace", workingLabel: "", syncLabel: "", mirrorLabel: "", mirrorSeverity: null },
   isOverridden: boolean = false,
 ): void {
   _hasGitRepo = hasGitRepo;
@@ -1082,7 +1082,8 @@ function footerVcsStatusSegment(): string {
   const dirtyCount = changedFiles.size;
   const workingTone: VazirTone = dirtyCount <= 0 ? "success" : dirtyCount <= 5 ? "warning" : "error";
   const syncTone: VazirTone = syncLabel === "autosync off" ? "warning" : syncLabel === "not synced" ? "error" : "dim";
-  const mirrorTone: VazirTone = mirrorLabel.includes("missing") ? "error" : mirrorLabel.includes("not active") || mirrorLabel.includes("inactive") ? "warning" : mirrorLabel ? "dim" : "dim";
+  const mirrorSeverity = _vcsDisplay.mirrorSeverity;
+  const mirrorTone: VazirTone = mirrorSeverity === "error" ? "error" : mirrorSeverity === "warning" ? "warning" : mirrorSeverity === "success" ? "success" : "dim";
 
   return [
     workingLabel ? paint(workingLabel, workingTone) : "",

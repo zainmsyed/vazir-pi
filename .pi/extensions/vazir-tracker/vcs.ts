@@ -46,6 +46,7 @@ export interface VcsDisplayInfo {
   workingLabel: string;
   syncLabel: string;
   mirrorLabel: string;
+  mirrorSeverity: "success" | "warning" | "error" | null;
 }
 
 export function clearPendingVcsApproval(cwd: string): void {
@@ -733,7 +734,8 @@ function buildVcsDisplayInfo(cwd: string, kind: VcsKind): VcsDisplayInfo {
     hasFossilRepo: detectFossil(cwd),
     settings: readVcsMirrorSettings(cwd),
   });
-  const mirrorLabel = mirrorStatus.detail ?? "";
+  const mirrorLabel = mirrorStatus.shortLabel;
+  const mirrorSeverity = mirrorStatus.severity;
 
   if (kind === "jj") {
     return {
@@ -742,6 +744,7 @@ function buildVcsDisplayInfo(cwd: string, kind: VcsKind): VcsDisplayInfo {
       workingLabel: dirtyCount > 0 ? `${dirtyCount} uncommitted` : "✓ clean",
       syncLabel: "",
       mirrorLabel,
+      mirrorSeverity,
     };
   }
 
@@ -752,6 +755,7 @@ function buildVcsDisplayInfo(cwd: string, kind: VcsKind): VcsDisplayInfo {
       workingLabel: dirtyCount > 0 ? `${dirtyCount} uncommitted` : "✓ clean",
       syncLabel: "",
       mirrorLabel,
+      mirrorSeverity,
     };
   }
 
@@ -763,6 +767,7 @@ function buildVcsDisplayInfo(cwd: string, kind: VcsKind): VcsDisplayInfo {
       workingLabel: dirtyCount > 0 ? `${dirtyCount} uncommitted` : "✓ clean",
       syncLabel: autosync === false ? "autosync off" : "autosync on",
       mirrorLabel,
+      mirrorSeverity,
     };
   }
 
@@ -772,6 +777,7 @@ function buildVcsDisplayInfo(cwd: string, kind: VcsKind): VcsDisplayInfo {
     workingLabel: "",
     syncLabel: "",
     mirrorLabel,
+    mirrorSeverity,
   };
 }
 

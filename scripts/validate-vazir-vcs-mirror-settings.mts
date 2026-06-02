@@ -14,7 +14,7 @@ const trackerModule = await loadExtensionModule<{
   getResolvedVcsKind: () => "none" | "git" | "jj" | "fossil";
 }>("vazir-tracker", String(Date.now()));
 const trackerVcsModule = await loadFileModule<{
-  syncChanges: (cwd: string, kind: "none" | "git" | "jj" | "fossil") => { mirrorLabel: string; syncLabel: string; workingLabel: string; refLabel: string };
+  syncChanges: (cwd: string, kind: "none" | "git" | "jj" | "fossil") => { mirrorLabel: string; mirrorSeverity: "success" | "warning" | "error" | null; syncLabel: string; workingLabel: string; refLabel: string };
 }>(path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "vcs.ts"), String(Date.now()));
 const helperModule = await loadFileModule<{
   readVcsMirrorSettings: (cwd: string) => { mode: string; path: string; remoteName: string; branch: string };
@@ -105,18 +105,20 @@ function runMirrorDisplayScenario() {
   writeProjectSettings(cwd, {
     active_vcs_mode: "fossil",
     vcs_preference: "fossil",
-    vcs_mirror: { mode: "git-mirror-of-fossil", path: "", remoteName: "origin", branch: "main" },
+    vcs_mirror: { mode: "git-mirror-of-fossil", path: cwd, remoteName: "origin", branch: "main" },
   });
 
   trackerModule.refreshVcsState(cwd);
   const kind = trackerModule.getResolvedVcsKind();
   const display = trackerVcsModule.syncChanges(cwd, "fossil");
   assert(kind === "fossil", `mixed repo with Fossil active should resolve to fossil, got ${kind}`);
-  assert(display.mirrorLabel === "fossil active, git mirror configured", `expected mirror-aware status label, got ${display.mirrorLabel}`);
+  assert(display.mirrorLabel === "git mirror", `expected compact healthy mirror label, got ${display.mirrorLabel}`);
+  assert(display.mirrorSeverity === "success", `expected success severity for healthy mirror, got ${display.mirrorSeverity}`);
 
   writeProjectSettings(cwd, { vcs_mirror: { mode: "none", path: "", remoteName: "origin", branch: "main" } });
   const disabledDisplay = trackerVcsModule.syncChanges(cwd, "fossil");
   assert(disabledDisplay.mirrorLabel === "", "dual-detected repo without mirror mode should not show mirror guidance");
+  assert(disabledDisplay.mirrorSeverity === null, "disabled mirror should have null severity");
 
   return { cwd, display, disabledDisplay };
 }
@@ -127,11 +129,12 @@ async function runMissingGitScenario() {
   writeProjectSettings(cwd, {
     active_vcs_mode: "fossil",
     vcs_preference: "fossil",
-    vcs_mirror: { mode: "git-mirror-of-fossil", path: "", remoteName: "origin", branch: "main" },
+    vcs_mirror: { mode: "git-mirror-of-fossil", path: "/tmp/fake-mirror", remoteName: "origin", branch: "main" },
   });
 
   const display = trackerVcsModule.syncChanges(cwd, "fossil");
-  assert(display.mirrorLabel.includes("git metadata missing"), `missing-git mirror warning should mention git metadata, got ${display.mirrorLabel}`);
+  assert(display.mirrorLabel === "git missing", `missing-git mirror label should be compact, got ${display.mirrorLabel}`);
+  assert(display.mirrorSeverity === "error", `expected error severity for missing git, got ${display.mirrorSeverity}`);
 
   const pi = makePi([contextModule.default]);
   const command = pi.getCommand("vcs-settings");
@@ -156,7 +159,8 @@ function runInactiveMirrorScenario() {
   const kind = trackerModule.getResolvedVcsKind();
   const display = trackerVcsModule.syncChanges(cwd, "git");
   assert(kind === "git", `git-active mirror mismatch should stay on git, got ${kind}`);
-  assert(display.mirrorLabel === "mirror inactive, git active", `expected inactive mirror label, got ${display.mirrorLabel}`);
+  assert(display.mirrorLabel === "mirror inactive", `expected compact inactive mirror label, got ${display.mirrorLabel}`);
+  assert(display.mirrorSeverity === "warning", `expected warning severity for inactive mirror, got ${display.mirrorSeverity}`);
 
   return { cwd, display };
 }
@@ -171,7 +175,25 @@ function runMissingFossilScenario() {
   });
 
   const display = trackerVcsModule.syncChanges(cwd, "fossil");
-  assert(display.mirrorLabel === "git mirror configured, fossil metadata missing", `missing-fossil mirror warning should mention fossil metadata, got ${display.mirrorLabel}`);
+  assert(display.mirrorLabel === "fossil missing", `missing-fossil mirror label should be compact, got ${display.mirrorLabel}`);
+  assert(display.mirrorSeverity === "error", `expected error severity for missing fossil, got ${display.mirrorSeverity}`);
+
+  return { cwd, display };
+}
+
+function runMissingPathScenario() {
+  const cwd = createProject("vazir-mirror-missing-path-");
+  initGitRepo(cwd);
+  markFakeFossilCheckout(cwd);
+  writeProjectSettings(cwd, {
+    active_vcs_mode: "fossil",
+    vcs_preference: "fossil",
+    vcs_mirror: { mode: "git-mirror-of-fossil", path: "", remoteName: "origin", branch: "main" },
+  });
+
+  const display = trackerVcsModule.syncChanges(cwd, "fossil");
+  assert(display.mirrorLabel === "mirror path missing", `missing-path mirror label should be compact, got ${display.mirrorLabel}`);
+  assert(display.mirrorSeverity === "warning", `expected warning severity for missing path, got ${display.mirrorSeverity}`);
 
   return { cwd, display };
 }
@@ -293,6 +315,7 @@ try {
   const customPathScenario = await runCustomPathScenario();
   const skipPathScenario = await runSkipPathScenario();
   const noGitDetectedScenario = await runNoGitDetectedPathSetupScenario();
+  const missingPathScenario = runMissingPathScenario();
 
   console.log("VCS mirror settings validation");
   console.log(`command cwd: ${commandScenario.cwd}`);
@@ -300,6 +323,7 @@ try {
   console.log(`missing-git cwd: ${missingGitScenario.cwd}`);
   console.log(`inactive-mirror cwd: ${inactiveMirrorScenario.cwd}`);
   console.log(`missing-fossil cwd: ${missingFossilScenario.cwd}`);
+  console.log(`missing-path cwd: ${missingPathScenario.cwd}`);
   console.log(`normalization cwd: ${normalizationScenario.cwd}`);
   console.log(`current-repo cwd: ${currentRepoScenario.cwd}`);
   console.log(`custom-path cwd: ${customPathScenario.cwd}`);
