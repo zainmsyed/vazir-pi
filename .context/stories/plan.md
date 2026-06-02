@@ -87,6 +87,8 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-041 | Wire Ctrl+? to selectable list with quickstart banner | complete | story-039, story-040 |
 | story-042 | Rewrite README.md as a quickstart guide | complete | — |
 | story-043 | Replace help-overlay README lookup with static Vazir quickstart and `.context` guide | not-started | story-040, story-041, story-042 |
+| story-047 | Add explicit Fossil→Git mirror settings and mixed-VCS guidance | not-started | story-014, story-015, story-016, story-033 |
+| story-048 | Assisted mirror sync command for Fossil→Git export | not-started | story-047 |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
@@ -102,3 +104,4 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-05-30** — Replanned after testing the custom inline selector rollout in real Pi sessions. Reverted Vazir to Pi's standard selection lists for continuity and runtime safety, kept overlays only for opened story/plan/review markdown, and deferred global theme exploration plus any future picker-rendering change to follow-up planning.
 - **2026-05-30** — Replanned from the user request to update the help overlay and README. Marked story-037 complete and story-038 retired to match current file states. Appended story-039 through story-042 for a prototype selectable help overlay with `/test-help`, a rich command documentation registry with detail overlays, a selectable Ctrl+? help list with quickstart workflow highlight, and a README rewrite into a quickstart guide.
 - **2026-05-30** — Replanned after install-path testing showed the Ctrl+? README entry breaks on fresh package installs. Preserved the completed help/readme stories and appended story-043 to replace the file-backed README entry with a static Vazir quickstart/help document that explains the core workflow and `.context/` folders, especially why `.context/intake/` matters before `/plan`.  
+- **2026-06-02** — Replanned from the user request to support Fossil as the canonical repo with Git as an optional public mirror. Preserved all existing story history and appended story-047 for explicit mirror-aware VCS settings plus UX/status guidance, while deferring any assisted sync command to follow-up story-048.

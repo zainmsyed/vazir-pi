@@ -14,6 +14,22 @@ export interface StoryFrontmatter {
 }
 
 export type ActiveVcsMode = "git" | "fossil" | "none";
+export type VcsMirrorMode = "none" | "git-mirror-of-fossil";
+
+export interface VcsMirrorSettings {
+  mode: VcsMirrorMode;
+  path: string;
+  remoteName: string;
+  branch: string;
+}
+
+export interface VcsMirrorStatus {
+  mode: VcsMirrorMode;
+  state: "disabled" | "configured" | "missing-git-metadata" | "inactive-active-vcs" | "missing-fossil-metadata";
+  shortLabel: string;
+  detail: string | null;
+  warning: string | null;
+}
 
 export interface VcsApprovalRequirement {
   needsApproval: boolean;
@@ -311,10 +327,98 @@ export function readProjectSettings(cwd: string): Record<string, unknown> {
   }
 }
 
+export function normalizeVcsMirrorSettings(raw: unknown): VcsMirrorSettings {
+  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const mode = typeof record.mode === "string" ? record.mode.trim().toLowerCase() : "";
+  const pathValue = typeof record.path === "string" ? record.path.trim() : "";
+  const remoteName = typeof record.remoteName === "string" && record.remoteName.trim() ? record.remoteName.trim() : "origin";
+  const branch = typeof record.branch === "string" && record.branch.trim() ? record.branch.trim() : "main";
+
+  return {
+    mode: mode === "git-mirror-of-fossil" ? "git-mirror-of-fossil" : "none",
+    path: pathValue,
+    remoteName,
+    branch,
+  };
+}
+
+export function readVcsMirrorSettings(cwd: string): VcsMirrorSettings {
+  const settings = readProjectSettings(cwd);
+  return normalizeVcsMirrorSettings(settings.vcs_mirror);
+}
+
+export function describeVcsMirrorStatus(options: {
+  activeMode: ActiveVcsMode;
+  hasGitRepo: boolean;
+  hasFossilRepo: boolean;
+  settings: VcsMirrorSettings;
+}): VcsMirrorStatus {
+  const { activeMode, hasGitRepo, hasFossilRepo, settings } = options;
+
+  if (settings.mode !== "git-mirror-of-fossil") {
+    return {
+      mode: "none",
+      state: "disabled",
+      shortLabel: "",
+      detail: null,
+      warning: null,
+    };
+  }
+
+  if (activeMode !== "fossil") {
+    const detail = activeMode === "none"
+      ? "mirror inactive, fossil not active"
+      : `mirror inactive, ${activeMode} active`;
+    return {
+      mode: settings.mode,
+      state: "inactive-active-vcs",
+      shortLabel: "mirror inactive",
+      detail,
+      warning: "Git mirror mode is configured for Fossil, but Fossil is not the active VCS.",
+    };
+  }
+
+  if (!hasFossilRepo) {
+    return {
+      mode: settings.mode,
+      state: "missing-fossil-metadata",
+      shortLabel: "fossil missing",
+      detail: "git mirror configured, fossil metadata missing",
+      warning: "Git mirror mode expects Fossil metadata, but no Fossil checkout was detected.",
+    };
+  }
+
+  if (!hasGitRepo) {
+    return {
+      mode: settings.mode,
+      state: "missing-git-metadata",
+      shortLabel: "git mirror missing",
+      detail: "git mirror configured, git metadata missing",
+      warning: "Git mirror mode is enabled, but no Git metadata was detected in this repo.",
+    };
+  }
+
+  return {
+    mode: settings.mode,
+    state: "configured",
+    shortLabel: "git mirror",
+    detail: "fossil active, git mirror configured",
+    warning: null,
+  };
+}
+
 export function writeProjectSettings(cwd: string, updates: Record<string, unknown>): Record<string, unknown> {
   const filePath = projectSettingsPath(cwd);
   const current = readProjectSettings(cwd);
   const next = { ...current, ...updates };
+
+  if ("vcs_mirror" in updates) {
+    next.vcs_mirror = {
+      ...normalizeVcsMirrorSettings(current.vcs_mirror),
+      ...normalizeVcsMirrorSettings(updates.vcs_mirror),
+    };
+  }
+
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(next, null, 2));
   return next;
