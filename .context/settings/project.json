@@ -5,7 +5,7 @@
   "vcs_preference": "fossil",
   "vcs_mirror": {
     "mode": "git-mirror-of-fossil",
-    "path": "",
+    "path": "/home/zain/Documents/coding/vazir-pi",
     "remoteName": "origin",
     "branch": "main"
   }

@@ -137,6 +137,15 @@ export function detectGitRepo(cwd: string): boolean {
   }
 }
 
+export function resolveGitTopLevel(cwd: string): string | null {
+  try {
+    const topLevel = childProcess.execSync("git rev-parse --show-toplevel", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 3000 }).trim();
+    return topLevel || null;
+  } catch {
+    return null;
+  }
+}
+
 export function detectJJ(cwd: string): boolean {
   try {
     const root = childProcess.execSync("jj root", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 3000 }).trim();

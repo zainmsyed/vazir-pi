@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-06-02T01:47:53Z
+**Last updated:** 2026-06-02T02:55:50Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -25,6 +25,7 @@
 - Temporary validation extensions or scripts must be deleted before story closeout; if they must persist, move them to a `tests/` or `scripts/` directory and document their purpose. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - When a command has distinct success, cancel, validation-failure, and execution-failure paths, add at least one regression assertion for each path. | count: 1 | status: tracked | sources: review-20260602-012723.md | stories: story-048
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
+- When a UI flow has conditional option branches based on environment state, add at least one regression test for each branch (present vs. absent). | count: 1 | status: tracked | sources: review-20260602-024801.md | stories: story-049
 - When a validation stub replaces a real function, the stub must support every parameter that production code calls; otherwise the test suite gives false confidence. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - When a validation stub stands in for a persistence layer, make it store and verify the same payload shape that production reads back so escaping bugs cannot hide behind marker-only assertions. | count: 1 | status: tracked | sources: review-20260531-022600.md | stories: story-046
 - When adding an instruction-driven file-update workflow, validate at least one downstream file-mutation path end-to-end instead of only asserting prompt text. | count: 1 | status: tracked | sources: review-20260531-010258.md | stories: story-044
