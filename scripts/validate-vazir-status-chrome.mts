@@ -35,14 +35,19 @@ type FooterFactory = (
   dispose?(): void;
 };
 
-const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
+const ANSI_CSI_PATTERN = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+const ANSI_OSC_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
 }
 
 function stripAnsi(text: string | undefined): string {
-  return (text ?? "").replace(ANSI_PATTERN, "");
+  return (text ?? "").replace(ANSI_OSC_PATTERN, "").replace(ANSI_CSI_PATTERN, "");
+}
+
+function assertMaxRenderedWidth(lines: string[], width: number, label: string): void {
+  assert(lines.every(line => line.length <= width), `${label} rendered a line wider than ${width}: ${JSON.stringify(lines)}`);
 }
 
 function uncommittedCount(line: string | undefined): number | null {
@@ -294,6 +299,14 @@ async function runScenario() {
   assert(statusLines.some(line => line.includes("2 issues")), "status widget did not show open issue count");
   assert(statusLines.some(line => line.includes("last saved")), "status widget did not show the last-saved label");
 
+  const narrowStatusLines = statusComponent.render(90).map(stripAnsi);
+  assertMaxRenderedWidth(narrowStatusLines, 90, "narrow story status widget");
+  assert(narrowStatusLines.some(line => line.includes("story-003")), "narrow status widget did not preserve the active story slug");
+  assert(narrowStatusLines.some(line => line.includes("in-progress")), "narrow status widget did not preserve the story status");
+  assert(narrowStatusLines.some(line => line.includes("2/3 tasks")), "narrow status widget did not preserve checklist progress");
+  assert(narrowStatusLines.some(line => line.includes("2 issues")), "narrow status widget did not preserve the open issue count");
+  assert(!narrowStatusLines.some(line => line.includes("last saved just now")), "narrow status widget should truncate tail content before the full last-saved label survives");
+
   const footerComponent = footerFactory!(
     { requestRender() { footerRenderRequests += 1; } },
     theme,
@@ -323,7 +336,24 @@ async function runScenario() {
   assert(workingFooterLines[1]?.includes("$0.002"), "footer lost spend during tool activity");
   assert(workingFooterLines[1]?.includes("Ctrl+C to abort"), "footer did not switch to the abort hint during tool activity");
   assert(!workingFooterLines[1]?.includes("↑2.1k ↓8.4k"), "footer should replace token counts with the working message during tool activity");
+
+  const narrowWorkingFooterLines = footerComponent.render(90).map(stripAnsi);
+  assertMaxRenderedWidth(narrowWorkingFooterLines, 90, "narrow working footer");
+  assert(narrowWorkingFooterLines[1]?.includes("Ctrl+C to abort"), "narrow working footer lost the abort hint");
+
   await harness.emit("tool_result", { toolName: "read" }, ctx);
+
+  await harness.emit("tool_call", {
+    toolName: "bash",
+    input: {
+      command: "python3 -c 'import time; time.sleep(5)' && echo START && echo REALLY_LONG_WORKING_MESSAGE_FOR_SPLIT_PANE_FOOTER_VALIDATION",
+    },
+  }, ctx);
+  const narrowLongWorkingFooterLines = footerComponent.render(90).map(stripAnsi);
+  assertMaxRenderedWidth(narrowLongWorkingFooterLines, 90, "narrow long-command footer");
+  assert(narrowLongWorkingFooterLines[1]?.includes("Running · python3"), "narrow long-command footer did not show the running label");
+  assert(narrowLongWorkingFooterLines[1]?.includes("Ctrl+C to abort"), "narrow long-command footer lost the abort hint");
+  await harness.emit("tool_result", { toolName: "bash" }, ctx);
 
   const fixCommand = harness.commands.get("fix");
   assert(Boolean(fixCommand), "fix command was not registered");
@@ -331,12 +361,16 @@ async function runScenario() {
 
   const refreshedStatusLines = statusComponent.render(140).map(stripAnsi);
   const refreshedFooterLines = footerComponent.render(140).map(stripAnsi);
+  const tinyStatusLines = statusComponent.render(12).map(stripAnsi);
+  const tinyFooterLines = footerComponent.render(12).map(stripAnsi);
   const story = fs.readFileSync(storyPath, "utf-8");
   assert(statusRenderRequests > 0, "fix did not request a story status widget rerender");
   assert(footerRenderRequests > 0, "fix did not request a footer rerender");
   assert(story.includes('### /fix — "save indicator missing"'), "fix did not append the new issue to the story file");
   assert(refreshedStatusLines.some(line => line.includes("3 issues")), "status widget did not reflect the new open issue count");
   assert(refreshedFooterLines[1]?.includes("↑2.1k ↓8.4k"), "footer did not restore token counts after tool activity ended");
+  assertMaxRenderedWidth(tinyStatusLines, 12, "tiny story status widget");
+  assertMaxRenderedWidth(tinyFooterLines, 12, "tiny footer");
 
   await harness.emit("session_shutdown", {}, ctx);
 
@@ -344,10 +378,15 @@ async function runScenario() {
     cwd,
     notifications,
     statusLines,
+    narrowStatusLines,
     footerLines,
     workingFooterLines,
+    narrowWorkingFooterLines,
+    narrowLongWorkingFooterLines,
     refreshedStatusLines,
     refreshedFooterLines,
+    tinyStatusLines,
+    tinyFooterLines,
     sentMessages: harness.sentMessages,
   };
 }
