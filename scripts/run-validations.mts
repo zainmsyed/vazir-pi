@@ -34,6 +34,7 @@ const validations = [
   "validate-vazir-learning-loop.mts",
   "validate-vazir-memory-review.mts",
   "validate-vazir-overlay-reader.mts",
+  "validate-vazir-plan-repair.mts",
   "validate-vazir-plan-seeding.mts",
   "validate-vazir-remember.mts",
   "validate-vazir-review-design-compliance.mts",
