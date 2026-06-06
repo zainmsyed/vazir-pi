@@ -96,7 +96,7 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-053 | Make Vazir story-status chrome width-safe in split panes | in-progress | story-035 |
 | story-054 | Harden tracker chrome ANSI width measurement and narrow-width regressions | in-progress | story-053 |
 | story-055 | Add shared story-file structure validation for Vazir workflows | in-progress | story-053, story-054 |
-| story-056 | Repair malformed `/plan` story output before the user sees it | not-started | story-055 |
+| story-056 | Repair malformed `/plan` story output before the user sees it | complete | story-055 |
 | story-057 | Block `/implement` on malformed stories and add drift regressions | not-started | story-055, story-056 |
 
 ## Replanning log
