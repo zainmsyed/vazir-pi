@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-06-06T10:46:03Z
+**Last updated:** 2026-06-06T11:24:02Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -26,6 +26,7 @@
 - Validation of VCS restore and undo behavior should exercise real repositories with actual tool commands rather than only stubs, because stubs can mask semantic mismatches between assumed and actual tool behavior. | count: 1 | status: tracked | sources: review-20260602-102619.md | stories: story-051
 - When a command has distinct success, cancel, validation-failure, and execution-failure paths, add at least one regression assertion for each path. | count: 1 | status: tracked | sources: review-20260602-012723.md | stories: story-048
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
+- When a story's frontmatter status changes during implementation, update the plan queue entry in the same work so the persistent project plan stays consistent with the active story file. | count: 1 | status: tracked | sources: review-20260606-112032.md | stories: story-053
 - When a UI flow has conditional option branches based on environment state, add at least one regression test for each branch (present vs. absent). | count: 1 | status: tracked | sources: review-20260602-024801.md | stories: story-049
 - When a validation stub replaces a real function, the stub must support every parameter that production code calls; otherwise the test suite gives false confidence. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - When a validation stub stands in for a persistence layer, make it store and verify the same payload shape that production reads back so escaping bugs cannot hide behind marker-only assertions. | count: 1 | status: tracked | sources: review-20260531-022600.md | stories: story-046
