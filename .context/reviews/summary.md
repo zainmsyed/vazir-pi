@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-06-06T11:27:11Z
+**Last updated:** 2026-06-06T13:21:41Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -15,6 +15,7 @@
 - Every state-machine or guardrail helper that blocks or auto-approves user-facing actions must have at least one direct unit test exercising both the allow and deny paths. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Extracted closeout flows must preserve all terminal branches of the original state machine, including commit-and-close paths. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Footer should always include the active story slug for easy orientation. | count: 1 | status: tracked | sources: review-20260422-120959.md
+- Keep shared data-structure parsers lenient by default so downstream consumers do not silently lose records; reserve strict validation for explicit guard, repair, and closeout paths where the caller intentionally opts in. | count: 1 | status: tracked | sources: review-20260606-130432.md | stories: story-055
 - Make the team policy explicit about which .context subpaths (if any) are authoritative and tracked. | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Never hardcode story labels or temporal identifiers in reusable command handlers; always derive them from runtime state. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Promote a rule requiring shared test harness utilities for repository validation scripts (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md

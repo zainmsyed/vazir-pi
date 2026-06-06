@@ -1,11 +1,12 @@
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { assert, loadExtensionModule, makePi as createPiHarness } from "./lib/validation-harness.mts";
+import { assert, cleanupStubModules, installCommonPiStubs, loadExtensionModule, makePi as createPiHarness } from "./lib/validation-harness.mts";
 
 const require = createRequire(import.meta.url);
 const fs = require("node:fs") as typeof import("node:fs");
 
+const stubModuleDirs = installCommonPiStubs();
 const extensionModule = await loadExtensionModule<{
   default: (pi: any) => void;
   normalizeTrackerInputText: (text: string) => string;
@@ -207,6 +208,31 @@ async function runUiDesignInstructionScenario() {
   return { cwd, notifications };
 }
 
+async function runMalformedStoryGuardScenario() {
+  const cwd = createProject("vazir-implement-malformed-story-");
+  const storyPath = writeStory(cwd, 2, "todo", "2026-04-22", "—", "Broken story");
+  const malformed = fs.readFileSync(storyPath, "utf-8").replace("- [ ] Implement the workflow", "- [maybe] Implement the workflow");
+  fs.writeFileSync(storyPath, malformed);
+
+  const notifications: Notification[] = [];
+  const harness = makePi();
+  const ctx = makeCtx(cwd, notifications);
+
+  await harness.implement.handler("", ctx);
+
+  assert(harness.sentMessages.length === 0, "implement should not dispatch when malformed story files are present");
+  assert(
+    notifications.some(note => note.level === "warning" && note.message.includes("Malformed story files detected")),
+    "implement should warn when malformed story files block story resolution",
+  );
+  assert(
+    notifications.some(note => note.message.includes("invalid status 'todo'") && !note.message.includes("story-002.md: story-002.md")),
+    "implement warning should include actionable story validation details without duplicated basename",
+  );
+
+  return { cwd, notifications };
+}
+
 async function runNonUiDesignOmissionScenario() {
   const cwd = createProject("vazir-implement-non-ui-design-");
   writeDesignFiles(cwd, "# Design System\n\n## Colours\n- Primary: —\n");
@@ -252,6 +278,7 @@ async function runActiveStoryScenario() {
 const startNextStory = await runStartNextStoryScenario();
 const pickStory = await runPickStoryScenario();
 const uiDesignInstruction = await runUiDesignInstructionScenario();
+const malformedStoryGuard = await runMalformedStoryGuardScenario();
 const nonUiDesignOmission = await runNonUiDesignOmissionScenario();
 const activeStory = await runActiveStoryScenario();
 
@@ -273,6 +300,12 @@ for (const note of uiDesignInstruction.notifications) {
   console.log(`  - [${note.level}] ${note.message}`);
 }
 console.log("");
+console.log("Malformed Story Guard Scenario");
+console.log(`cwd: ${malformedStoryGuard.cwd}`);
+for (const note of malformedStoryGuard.notifications) {
+  console.log(`  - [${note.level}] ${note.message}`);
+}
+console.log("");
 console.log("Non-UI Design Omission Scenario");
 console.log(`cwd: ${nonUiDesignOmission.cwd}`);
 for (const note of nonUiDesignOmission.notifications) {
@@ -284,3 +317,5 @@ console.log(`cwd: ${activeStory.cwd}`);
 for (const note of activeStory.notifications) {
   console.log(`  - [${note.level}] ${note.message}`);
 }
+
+cleanupStubModules(stubModuleDirs);

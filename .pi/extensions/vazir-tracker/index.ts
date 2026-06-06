@@ -11,6 +11,7 @@ import {
   detectFossil,
   detectJJ,
   findActiveStory,
+  listStoryValidationIssues,
   nonTerminalStories,
   nowISO,
   readActiveVcsMode,
@@ -131,6 +132,19 @@ function sanitizeComplaintDescription(description: string): string {
     .replace(/\|/g, "/")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function formatStoryValidationGuardMessage(cwd: string): string | null {
+  const issues = listStoryValidationIssues(cwd);
+  if (issues.length === 0) return null;
+  const [first] = issues;
+  const relativePath = path.relative(cwd, first.file).replace(/\\/g, "/");
+  const basename = path.basename(first.file);
+  const cleanMessage = first.message.startsWith(basename + " ")
+    ? first.message.slice(basename.length + 1)
+    : first.message;
+  const suffix = issues.length > 1 ? ` (+${issues.length - 1} more issue${issues.length === 2 ? "" : "s"})` : "";
+  return `Malformed story files detected. ${relativePath}: ${cleanMessage}${suffix}`;
 }
 
 function appendToComplaintsLog(cwd: string, storyName: string, description: string): void {
@@ -889,6 +903,12 @@ export default function (pi: ExtensionAPI) {
 
   const implementStoryHandler = async (_args: string, ctx: { cwd: string; ui: any }) => {
     const cwd = ctx.cwd;
+    const validationGuard = formatStoryValidationGuardMessage(cwd);
+    if (validationGuard) {
+      ctx.ui.notify(validationGuard, "warning");
+      return;
+    }
+
     const story = await resolveStoryForImplementation(cwd, ctx.ui);
 
     if (!story) {
