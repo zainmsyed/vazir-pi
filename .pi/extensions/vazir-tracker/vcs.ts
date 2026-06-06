@@ -8,8 +8,13 @@ import {
   approvalGatedVcsOperation,
   approvalTokenForFingerprint,
   buildBlockedVcsActionGuidance,
+  describeVcsMirrorStatus,
+  detectFossil,
+  detectGitRepo,
   isProtectedVcsTarget,
   normalizeCommandFingerprint,
+  readActiveVcsMode,
+  readVcsMirrorSettings,
   type PendingVcsApproval,
   userInputHasVcsApproval,
 } from "../../lib/vazir-helpers.ts";
@@ -40,6 +45,8 @@ export interface VcsDisplayInfo {
   refLabel: string;
   workingLabel: string;
   syncLabel: string;
+  mirrorLabel: string;
+  mirrorSeverity: "success" | "warning" | "error" | null;
 }
 
 export function clearPendingVcsApproval(cwd: string): void {
@@ -721,6 +728,14 @@ function fossilAutosyncEnabled(cwd: string): boolean | null {
 
 function buildVcsDisplayInfo(cwd: string, kind: VcsKind): VcsDisplayInfo {
   const dirtyCount = changedFiles.size;
+  const mirrorStatus = describeVcsMirrorStatus({
+    activeMode: readActiveVcsMode(cwd),
+    hasGitRepo: detectGitRepo(cwd),
+    hasFossilRepo: detectFossil(cwd),
+    settings: readVcsMirrorSettings(cwd),
+  });
+  const mirrorLabel = mirrorStatus.shortLabel;
+  const mirrorSeverity = mirrorStatus.severity;
 
   if (kind === "jj") {
     return {
@@ -728,6 +743,8 @@ function buildVcsDisplayInfo(cwd: string, kind: VcsKind): VcsDisplayInfo {
       refLabel: jjRefLabel(cwd),
       workingLabel: dirtyCount > 0 ? `${dirtyCount} uncommitted` : "✓ clean",
       syncLabel: "",
+      mirrorLabel,
+      mirrorSeverity,
     };
   }
 
@@ -737,6 +754,8 @@ function buildVcsDisplayInfo(cwd: string, kind: VcsKind): VcsDisplayInfo {
       refLabel: gitRefLabel(cwd),
       workingLabel: dirtyCount > 0 ? `${dirtyCount} uncommitted` : "✓ clean",
       syncLabel: "",
+      mirrorLabel,
+      mirrorSeverity,
     };
   }
 
@@ -747,6 +766,8 @@ function buildVcsDisplayInfo(cwd: string, kind: VcsKind): VcsDisplayInfo {
       refLabel: fossilRefLabel(cwd),
       workingLabel: dirtyCount > 0 ? `${dirtyCount} uncommitted` : "✓ clean",
       syncLabel: autosync === false ? "autosync off" : "autosync on",
+      mirrorLabel,
+      mirrorSeverity,
     };
   }
 
@@ -755,6 +776,8 @@ function buildVcsDisplayInfo(cwd: string, kind: VcsKind): VcsDisplayInfo {
     refLabel: "workspace",
     workingLabel: "",
     syncLabel: "",
+    mirrorLabel,
+    mirrorSeverity,
   };
 }
 

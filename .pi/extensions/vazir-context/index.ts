@@ -8,21 +8,28 @@ import * as os from "os";
 import * as path from "path";
 import {
   buildDefaultSystemRulesMarkdown,
+  buildFossilGitExportPlan,
   buildVcsSafetyGuidanceText,
+  pushGitMirror,
   compareStoriesByRecencyDesc,
   complaintsLogPath,
   detectFossil,
   detectJJ,
   findActiveStory,
+  fossilRepositoryPath,
   hasVcsSafetyPolicyText,
   listStories,
   nowISO,
   readActiveVcsMode,
   readIfExists,
+  readVcsMirrorSettings,
+  resolveConfiguredMirrorPath,
+  resolveGitTopLevel,
   storiesDir,
   todayDate,
   writeProjectSettings,
   updateStoryFrontmatter,
+  type VcsMirrorSettings,
 } from "../../lib/vazir-helpers.ts";
 import {
   buildReviewRemediationInstruction,
@@ -173,13 +180,18 @@ const SETTINGS_README_TEMPLATE = [
   "",
   "- `active_vcs_mode` — Current active version control system: `git`, `fossil`, or `none`. Set by `/vazir-init` or `/vcs-settings`.",
   "- `vcs_preference` — Explicit VCS override: `auto`, `git`, `jj`, or `fossil`. Use `/vcs-settings` to change without hand-editing.",
+  "- `vcs_mirror` — Optional mirror hint object. Today Vazir supports `mode: \"git-mirror-of-fossil\"` for repos where Fossil is canonical and Git is only a mirror.",
+  "  - `path` points at the Git mirror checkout used by `/vcs-mirror-sync`.",
+  "  - `remoteName` and `branch` are descriptive metadata for the configured mirror target.",
   "- `project_name` — Display name used in plan scaffolding.",
   "- `model_tier` — Default model tier: `fast`, `balanced`, or `quality`.",
   "",
   "## Changing settings",
   "",
-  "Run `/vcs-settings` to open a picker, or `/vcs-settings <auto|git|jj|fossil>` to set the preference directly.",
+  "Run `/vcs-settings` to open a picker, `/vcs-settings <auto|git|jj|fossil>` to set the active VCS, or `/vcs-settings mirror <none|git>` to change the optional mirror hint.",
   "If you choose Git/JJ or Fossil and the required tool is missing, Vazir will prompt before helping you install it.",
+  "Mirror hints are informational only. Vazir will not auto-sync, auto-push, or switch active VCS modes just because both Fossil and Git are present.",
+  "Run `/vcs-mirror-sync` only when `vcs_mirror.mode` is `git-mirror-of-fossil` and `vcs_mirror.path` is configured.",
   "",
 ].join("\n");
 
@@ -1369,7 +1381,12 @@ export default function (pi: ExtensionAPI) {
         }
   
         if (!fs.existsSync(projectSettingsPath)) {
-          fs.writeFileSync(projectSettingsPath, JSON.stringify({ project_name: "", model_tier: "balanced", active_vcs_mode: "none" }, null, 2));
+          fs.writeFileSync(projectSettingsPath, JSON.stringify({
+            project_name: "",
+            model_tier: "balanced",
+            active_vcs_mode: "none",
+            vcs_mirror: { mode: "none", path: "", remoteName: "origin", branch: "main" },
+          }, null, 2));
           ctx.ui.notify("project.json created", "info");
         }
   
@@ -2178,6 +2195,7 @@ export default function (pi: ExtensionAPI) {
     writeProjectSettings(cwd, {
       vcs_preference: preference,
       active_vcs_mode: activeMode,
+      vcs_mirror: readVcsMirrorSettings(cwd),
     });
     refreshVcsState(cwd);
   }
@@ -2333,39 +2351,254 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.notify("VCS preference set to fossil", "info");
   }
 
-  async function chooseVcsPreferenceFromMenu(ctx: any): Promise<"auto" | "git" | "jj" | "fossil" | null | undefined> {
+  async function chooseVcsPreferenceFromMenu(ctx: any): Promise<"auto" | "git" | "jj" | "fossil" | "mirror-git" | "mirror-none" | null | undefined> {
     if (typeof ctx.ui?.select !== "function") return undefined;
     const choice = await ctx.ui.select(
-      "Which VCS mode should Vazir use?",
-      ["Auto", "Git/JJ", "Fossil", "Cancel"],
+      "Which VCS setting should Vazir change?",
+      ["Auto", "Git/JJ", "Fossil", "Mirror: Git mirror of Fossil", "Mirror: none", "Cancel"],
     );
     if (choice === "Auto") return "auto";
     if (choice === "Git/JJ") return "jj";
     if (choice === "Fossil") return "fossil";
+    if (choice === "Mirror: Git mirror of Fossil") return "mirror-git";
+    if (choice === "Mirror: none") return "mirror-none";
     return null;
+  }
+
+  function persistMirrorSettings(cwd: string, mirror: VcsMirrorSettings): void {
+    writeProjectSettings(cwd, { vcs_mirror: mirror });
+    refreshVcsState(cwd);
+  }
+
+  function mirrorStatusNotification(mirror: VcsMirrorSettings, cwd: string): { message: string; level: "info" | "warning" } {
+    if (mirror.mode !== "git-mirror-of-fossil") {
+      return { message: "Mirror guidance disabled.", level: "info" };
+    }
+
+    const hasGit = detectGitRepo(cwd);
+    const hasFossil = detectFossil(cwd);
+    if (!hasGit || !hasFossil) {
+      return {
+        message: "Git mirror of Fossil configured, but detected metadata does not fully match yet.",
+        level: "warning",
+      };
+    }
+
+    return { message: "Fossil active, Git mirror configured.", level: "info" };
+  }
+
+  async function promptMirrorAutosyncSetup(ctx: any, cwd: string): Promise<void> {
+    if (typeof ctx.ui?.select !== "function") return;
+    const settings = readVcsMirrorSettings(cwd);
+    const choice = await ctx.ui.select(
+      "Auto-sync the Git mirror when you close a story with committed changes?",
+      ["Auto-sync at story closeout", "Manual only — use /vcs-mirror-sync"],
+    );
+    if (!choice) return;
+    const autosync = choice === "Auto-sync at story closeout";
+    persistMirrorSettings(cwd, { ...settings, autosync_closeout: autosync });
+    ctx.ui.notify(autosync ? "Mirror auto-sync enabled at story closeout." : "Mirror auto-sync disabled. Use /vcs-mirror-sync to sync manually.", "info");
+  }
+
+  async function promptMirrorPathSetup(ctx: any, cwd: string): Promise<void> {
+    if (typeof ctx.ui?.select !== "function") {
+      ctx.ui.notify("Mirror mode enabled. Set `vcs_mirror.path` in .context/settings/project.json to use /vcs-mirror-sync.", "info");
+      return;
+    }
+
+    const gitTopLevel = resolveGitTopLevel(cwd);
+    const options: string[] = [];
+    if (gitTopLevel) {
+      options.push(`Use current Git repo (${gitTopLevel})`);
+    }
+    options.push("Enter custom path", "Skip for now");
+
+    const choice = await ctx.ui.select(
+      "Choose a Git mirror path for Fossil exports:",
+      options,
+    );
+
+    if (!choice) return;
+
+    if (gitTopLevel && choice === `Use current Git repo (${gitTopLevel})`) {
+      const settings = readVcsMirrorSettings(cwd);
+      persistMirrorSettings(cwd, { ...settings, path: gitTopLevel });
+      ctx.ui.notify(`Mirror path set to current Git repo: ${gitTopLevel}`, "info");
+      await promptMirrorAutosyncSetup(ctx, cwd);
+      return;
+    }
+
+    if (choice === "Enter custom path") {
+      if (typeof ctx.ui?.input !== "function") {
+        ctx.ui.notify("Custom path entry requires an interactive session. Edit .context/settings/project.json manually.", "info");
+        return;
+      }
+      const customPath = (await ctx.ui.input("Enter the Git mirror checkout path:", "e.g. /path/to/git-mirror or ../git-mirror"))?.trim() ?? "";
+      if (!customPath) {
+        ctx.ui.notify("No path entered. Mirror mode enabled without a path; set it later in .context/settings/project.json.", "warning");
+        return;
+      }
+      const settings = readVcsMirrorSettings(cwd);
+      persistMirrorSettings(cwd, { ...settings, path: customPath });
+      ctx.ui.notify(`Mirror path set to: ${customPath}`, "info");
+      await promptMirrorAutosyncSetup(ctx, cwd);
+      return;
+    }
+
+    // Skip for now
+    ctx.ui.notify("Mirror mode enabled without a path. Set `vcs_mirror.path` before running /vcs-mirror-sync.", "warning");
+  }
+
+  function describeMirrorTarget(settings: VcsMirrorSettings, cwd: string): string {
+    const resolvedMirrorPath = resolveConfiguredMirrorPath(cwd, settings);
+    const target = resolvedMirrorPath ?? "(mirror path not configured)";
+    return `${target} [${settings.remoteName}/${settings.branch}]`;
+  }
+
+  function validateMirrorSyncContext(cwd: string): { ok: true; plan: ReturnType<typeof buildFossilGitExportPlan>; settings: VcsMirrorSettings; resolvedMirrorPath: string } | { ok: false; message: string } {
+    const activeMode = readActiveVcsMode(cwd);
+    if (activeMode !== "fossil") {
+      return { ok: false, message: `Mirror sync is only available when Fossil is the active VCS. Current active mode: ${activeMode}.` };
+    }
+
+    if (!commandExists("fossil", ["version"])) {
+      return { ok: false, message: "Fossil is not installed. Install Fossil before running /vcs-mirror-sync." };
+    }
+
+    if (!commandExists("git", ["--version"])) {
+      return { ok: false, message: "Git is not installed. Install Git before running /vcs-mirror-sync." };
+    }
+
+    const settings = readVcsMirrorSettings(cwd);
+    if (settings.mode !== "git-mirror-of-fossil") {
+      return { ok: false, message: "Enable Fossil→Git mirror mode first with /vcs-settings mirror git." };
+    }
+
+    if (!detectFossil(cwd)) {
+      return { ok: false, message: "No Fossil checkout was detected here. Mirror sync requires an active Fossil checkout." };
+    }
+
+    const repositoryPath = fossilRepositoryPath(cwd);
+    if (!repositoryPath) {
+      return { ok: false, message: "Could not resolve the Fossil repository path from `fossil info`." };
+    }
+
+    const resolvedMirrorPath = resolveConfiguredMirrorPath(cwd, settings);
+    if (!resolvedMirrorPath) {
+      return { ok: false, message: "No Git mirror path is configured. Set `vcs_mirror.path` in .context/settings/project.json before running /vcs-mirror-sync." };
+    }
+
+    if (!fs.existsSync(resolvedMirrorPath)) {
+      return { ok: false, message: `Configured Git mirror path does not exist: ${resolvedMirrorPath}` };
+    }
+
+    if (!detectGitRepo(resolvedMirrorPath)) {
+      return { ok: false, message: `Configured mirror path is not a Git checkout: ${resolvedMirrorPath}` };
+    }
+
+    return {
+      ok: true,
+      plan: buildFossilGitExportPlan(repositoryPath, resolvedMirrorPath),
+      settings,
+      resolvedMirrorPath,
+    };
+  }
+
+  async function runVcsMirrorSyncCommand(ctx: any): Promise<void> {
+    const cwd = ctx.cwd;
+    const validation = validateMirrorSyncContext(cwd);
+    if (!validation.ok) {
+      ctx.ui.notify(validation.message, "warning");
+      return;
+    }
+
+    const { plan, settings, resolvedMirrorPath } = validation;
+    const prompt = [
+      "Run assisted Fossil→Git mirror sync now?",
+      `Mirror target: ${describeMirrorTarget(settings, cwd)}`,
+      `Fossil repo: ${plan.repositoryPath}`,
+      `Git checkout: ${resolvedMirrorPath}`,
+      `Command: ${plan.commandText}`,
+    ].join("\n\n");
+
+    if (typeof ctx.ui?.select !== "function") {
+      ctx.ui.notify(`Mirror sync requires explicit confirmation in an interactive session. Planned command: ${plan.commandText}`, "info");
+      return;
+    }
+
+    const choice = await ctx.ui.select(prompt, ["Yes — run mirror sync", "No — cancel"]);
+    if (choice !== "Yes — run mirror sync") {
+      ctx.ui.notify("Mirror sync cancelled.", "info");
+      return;
+    }
+
+    try {
+      childProcess.execFileSync("fossil", plan.argv, { cwd, stdio: "pipe" });
+      pushGitMirror(resolvedMirrorPath);
+      ctx.ui.notify(`Mirror sync complete: exported Fossil history to ${describeMirrorTarget(settings, cwd)} and pushed.`, "info");
+    } catch (error: any) {
+      const message = error?.stderr?.toString?.("utf-8")?.trim() || error?.message || String(error);
+      ctx.ui.notify(`Mirror sync failed: ${message}`, "warning");
+    }
   }
 
   async function applyVcsSettingsCommand(rawArgs: string, ctx: any) {
     const cwd = ctx.cwd;
     const normalizedParts = rawArgs.trim().split(/\s+/).filter(Boolean);
 
-    let preference: "auto" | "git" | "jj" | "fossil" | null = null;
+    let preference: "auto" | "git" | "jj" | "fossil" | "mirror-git" | "mirror-none" | "mirror-autosync-on" | "mirror-autosync-off" | null = null;
     if (normalizedParts.length < 1) {
       preference = await chooseVcsPreferenceFromMenu(ctx);
       if (preference === undefined) {
-        ctx.ui.notify("Usage: /vcs-settings <auto|git|jj|fossil>", "info");
+        ctx.ui.notify("Usage: /vcs-settings <auto|git|jj|fossil|mirror <none|git|autosync <on|off>>>", "info");
         return;
       }
       if (preference === null) return;
     } else {
       const candidate = normalizedParts[0].toLowerCase();
-      if (candidate === "auto" || candidate === "git" || candidate === "jj" || candidate === "fossil") {
+      if (candidate === "mirror") {
+        const mirrorCandidate = normalizedParts[1]?.toLowerCase();
+        if (mirrorCandidate === "git") preference = "mirror-git";
+        else if (mirrorCandidate === "none" || mirrorCandidate === "off") preference = "mirror-none";
+        else if (mirrorCandidate === "autosync") {
+          const autosyncCandidate = normalizedParts[2]?.toLowerCase();
+          if (autosyncCandidate === "on") preference = "mirror-autosync-on";
+          else if (autosyncCandidate === "off") preference = "mirror-autosync-off";
+        }
+      } else if (candidate === "auto" || candidate === "git" || candidate === "jj" || candidate === "fossil") {
         preference = candidate;
       }
     }
 
     if (preference === null) {
-      ctx.ui.notify(`Invalid VCS preference: ${normalizedParts[0]}. Use auto, git, jj, or fossil.`, "warning");
+      ctx.ui.notify(`Invalid VCS setting: ${normalizedParts[0]}. Use auto, git, jj, fossil, or mirror <none|git|autosync <on|off>>.`, "warning");
+      return;
+    }
+
+    if (preference === "mirror-autosync-on" || preference === "mirror-autosync-off") {
+      const currentMirror = readVcsMirrorSettings(cwd);
+      if (currentMirror.mode !== "git-mirror-of-fossil") {
+        ctx.ui.notify("Enable mirror mode first with /vcs-settings mirror git before toggling autosync.", "warning");
+        return;
+      }
+      const nextMirror: VcsMirrorSettings = { ...currentMirror, autosync_closeout: preference === "mirror-autosync-on" };
+      persistMirrorSettings(cwd, nextMirror);
+      ctx.ui.notify(`Mirror auto-sync at story closeout ${preference === "mirror-autosync-on" ? "enabled" : "disabled"}.`, "info");
+      return;
+    }
+
+    if (preference === "mirror-git" || preference === "mirror-none") {
+      const currentMirror = readVcsMirrorSettings(cwd);
+      const nextMirror: VcsMirrorSettings = preference === "mirror-git"
+        ? { ...currentMirror, mode: "git-mirror-of-fossil" }
+        : { ...currentMirror, mode: "none" };
+      persistMirrorSettings(cwd, nextMirror);
+      const notification = mirrorStatusNotification(nextMirror, cwd);
+      ctx.ui.notify(notification.message, notification.level);
+
+      if (preference === "mirror-git") {
+        await promptMirrorPathSetup(ctx, cwd);
+      }
       return;
     }
 
@@ -2385,9 +2618,16 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.registerCommand("vcs-settings", {
-    description: "Pick or set the preferred VCS mode for Vazir",
+    description: "Set the active VCS mode and optional Fossil→Git mirror hint (mirror autosync <on|off>)",
     handler: async (args: string, ctx: any) => {
       await applyVcsSettingsCommand(args, ctx);
+    },
+  });
+
+  pi.registerCommand("vcs-mirror-sync", {
+    description: "Run an explicitly confirmed Fossil→Git mirror export",
+    handler: async (_args: string, ctx: any) => {
+      await runVcsMirrorSyncCommand(ctx);
     },
   });
 

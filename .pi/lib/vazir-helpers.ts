@@ -14,6 +14,30 @@ export interface StoryFrontmatter {
 }
 
 export type ActiveVcsMode = "git" | "fossil" | "none";
+export type VcsMirrorMode = "none" | "git-mirror-of-fossil";
+
+export interface VcsMirrorSettings {
+  mode: VcsMirrorMode;
+  path: string;
+  remoteName: string;
+  branch: string;
+  autosync_closeout: boolean;
+}
+
+export interface VcsMirrorStatus {
+  mode: VcsMirrorMode;
+  state: "disabled" | "configured" | "missing-git-metadata" | "inactive-active-vcs" | "missing-fossil-metadata" | "missing-path";
+  shortLabel: string;
+  warning: string | null;
+  severity: "success" | "warning" | "error" | null;
+}
+
+export interface FossilGitExportPlan {
+  repositoryPath: string;
+  mirrorPath: string;
+  argv: string[];
+  commandText: string;
+}
 
 export interface VcsApprovalRequirement {
   needsApproval: boolean;
@@ -111,6 +135,15 @@ export function detectGitRepo(cwd: string): boolean {
     return topLevel ? isCurrentDirectoryInsideRepo(cwd, topLevel) : false;
   } catch {
     return false;
+  }
+}
+
+export function resolveGitTopLevel(cwd: string): string | null {
+  try {
+    const topLevel = childProcess.execSync("git rev-parse --show-toplevel", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 3000 }).trim();
+    return topLevel || null;
+  } catch {
+    return null;
   }
 }
 
@@ -311,10 +344,197 @@ export function readProjectSettings(cwd: string): Record<string, unknown> {
   }
 }
 
+export function normalizeVcsMirrorSettings(raw: unknown): VcsMirrorSettings {
+  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const mode = typeof record.mode === "string" ? record.mode.trim().toLowerCase() : "";
+  const pathValue = typeof record.path === "string" ? record.path.trim() : "";
+  const remoteName = typeof record.remoteName === "string" && record.remoteName.trim() ? record.remoteName.trim() : "origin";
+  const branch = typeof record.branch === "string" && record.branch.trim() ? record.branch.trim() : "main";
+  const autosyncCloseout = typeof record.autosync_closeout === "boolean" ? record.autosync_closeout : false;
+
+  return {
+    mode: mode === "git-mirror-of-fossil" ? "git-mirror-of-fossil" : "none",
+    path: pathValue,
+    remoteName,
+    branch,
+    autosync_closeout: autosyncCloseout,
+  };
+}
+
+export function readVcsMirrorSettings(cwd: string): VcsMirrorSettings {
+  const settings = readProjectSettings(cwd);
+  return normalizeVcsMirrorSettings(settings.vcs_mirror);
+}
+
+export function describeVcsMirrorStatus(options: {
+  activeMode: ActiveVcsMode;
+  hasGitRepo: boolean;
+  hasFossilRepo: boolean;
+  settings: VcsMirrorSettings;
+}): VcsMirrorStatus {
+  const { activeMode, hasGitRepo, hasFossilRepo, settings } = options;
+
+  if (settings.mode !== "git-mirror-of-fossil") {
+    return {
+      mode: "none",
+      state: "disabled",
+      shortLabel: "",
+      warning: null,
+      severity: null,
+    };
+  }
+
+  if (activeMode !== "fossil") {
+    return {
+      mode: settings.mode,
+      state: "inactive-active-vcs",
+      shortLabel: "mirror inactive",
+      warning: "Git mirror mode is configured for Fossil, but Fossil is not the active VCS.",
+      severity: "warning",
+    };
+  }
+
+  if (!hasFossilRepo) {
+    return {
+      mode: settings.mode,
+      state: "missing-fossil-metadata",
+      shortLabel: "fossil missing",
+      warning: "Git mirror mode expects Fossil metadata, but no Fossil checkout was detected.",
+      severity: "error",
+    };
+  }
+
+  if (!settings.path.trim()) {
+    return {
+      mode: settings.mode,
+      state: "missing-path",
+      shortLabel: "mirror path missing",
+      warning: "Git mirror mode is enabled, but no mirror path is configured. Set vcs_mirror.path to use /vcs-mirror-sync.",
+      severity: "warning",
+    };
+  }
+
+  if (!hasGitRepo) {
+    return {
+      mode: settings.mode,
+      state: "missing-git-metadata",
+      shortLabel: "git missing",
+      warning: "Git mirror mode is enabled, but no Git metadata was detected in this repo.",
+      severity: "error",
+    };
+  }
+
+  return {
+    mode: settings.mode,
+    state: "configured",
+    shortLabel: "git mirror",
+    warning: null,
+    severity: "success",
+  };
+}
+
+export function resolveConfiguredMirrorPath(cwd: string, settings: VcsMirrorSettings): string | null {
+  const trimmedPath = settings.path.trim();
+  if (!trimmedPath) return null;
+  return path.resolve(cwd, trimmedPath);
+}
+
+export function fossilRepositoryPath(cwd: string): string | null {
+  try {
+    const info = childProcess.execSync("fossil info", { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_DETECT_TIMEOUT_MS });
+    const repositoryPath = info.match(/^repository:\s+(.+)$/m)?.[1]?.trim();
+    return repositoryPath || null;
+  } catch {
+    return null;
+  }
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+export function buildFossilGitExportPlan(repositoryPath: string, mirrorPath: string): FossilGitExportPlan {
+  const argv = ["git", "export", mirrorPath];
+  return {
+    repositoryPath,
+    mirrorPath,
+    argv,
+    commandText: ["fossil", ...argv].map(shellQuote).join(" "),
+  };
+}
+
+export function pushGitMirror(mirrorPath: string): void {
+  childProcess.execFileSync("git", ["-C", mirrorPath, "push"], { stdio: "pipe" });
+}
+
+export function runAutoMirrorExportAtCloseout(cwd: string): { ran: boolean; ok: boolean; message: string } {
+  const settings = readVcsMirrorSettings(cwd);
+
+  if (settings.mode !== "git-mirror-of-fossil") {
+    return { ran: false, ok: true, message: "" };
+  }
+
+  if (!settings.autosync_closeout) {
+    return { ran: false, ok: true, message: "" };
+  }
+
+  const activeMode = readActiveVcsMode(cwd);
+  if (activeMode !== "fossil") {
+    return { ran: false, ok: true, message: "Mirror autosync skipped: Fossil is not the active VCS." };
+  }
+
+  try {
+    childProcess.execFileSync("fossil", ["version"], { stdio: "pipe" });
+  } catch {
+    return { ran: false, ok: false, message: "Mirror autosync skipped: Fossil is not installed." };
+  }
+
+  if (!detectFossil(cwd)) {
+    return { ran: false, ok: false, message: "Mirror autosync skipped: no Fossil checkout detected." };
+  }
+
+  const repositoryPath = fossilRepositoryPath(cwd);
+  if (!repositoryPath) {
+    return { ran: false, ok: false, message: "Mirror autosync skipped: could not resolve Fossil repository path." };
+  }
+
+  const resolvedMirrorPath = resolveConfiguredMirrorPath(cwd, settings);
+  if (!resolvedMirrorPath) {
+    return { ran: false, ok: false, message: "Mirror autosync skipped: no mirror path is configured." };
+  }
+
+  if (!fs.existsSync(resolvedMirrorPath)) {
+    return { ran: false, ok: false, message: `Mirror autosync skipped: configured mirror path does not exist: ${resolvedMirrorPath}` };
+  }
+
+  if (!detectGitRepo(resolvedMirrorPath)) {
+    return { ran: false, ok: false, message: `Mirror autosync skipped: configured mirror path is not a Git checkout: ${resolvedMirrorPath}` };
+  }
+
+  const plan = buildFossilGitExportPlan(repositoryPath, resolvedMirrorPath);
+  try {
+    childProcess.execFileSync("fossil", plan.argv, { cwd, stdio: "pipe" });
+    pushGitMirror(resolvedMirrorPath);
+    return { ran: true, ok: true, message: `Mirror auto-sync complete: exported to ${resolvedMirrorPath} and pushed.` };
+  } catch (error: any) {
+    const stderr = error?.stderr?.toString?.("utf-8")?.trim() || error?.message || String(error);
+    return { ran: true, ok: false, message: `Mirror auto-sync failed: ${stderr}` };
+  }
+}
+
 export function writeProjectSettings(cwd: string, updates: Record<string, unknown>): Record<string, unknown> {
   const filePath = projectSettingsPath(cwd);
   const current = readProjectSettings(cwd);
   const next = { ...current, ...updates };
+
+  if ("vcs_mirror" in updates) {
+    next.vcs_mirror = {
+      ...normalizeVcsMirrorSettings(current.vcs_mirror),
+      ...normalizeVcsMirrorSettings(updates.vcs_mirror),
+    };
+  }
+
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(next, null, 2));
   return next;
