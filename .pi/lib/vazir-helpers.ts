@@ -13,6 +13,21 @@ export interface StoryFrontmatter {
   title: string;
 }
 
+export const VALID_STORY_STATUSES = ["not-started", "in-progress", "complete", "retired"] as const;
+
+export interface StoryValidationIssue {
+  file: string;
+  line: number | null;
+  code: "missing-heading" | "missing-frontmatter" | "invalid-status" | "missing-section" | "malformed-checklist";
+  message: string;
+}
+
+export interface StoryValidationResult {
+  ok: boolean;
+  issues: StoryValidationIssue[];
+  frontmatter: StoryFrontmatter | null;
+}
+
 export type ActiveVcsMode = "git" | "fossil" | "none";
 export type VcsMirrorMode = "none" | "git-mirror-of-fossil";
 
@@ -617,17 +632,40 @@ export function complaintsLogPath(cwd: string): string {
   return path.join(cwd, ".context", "complaints-log.md");
 }
 
-export function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null {
-  const content = readIfExists(filePath);
-  if (!content) return null;
+function lineNumberAtIndex(content: string, index: number): number | null {
+  if (index < 0) return null;
+  return content.slice(0, index).split("\n").length;
+}
 
+function lineNumberForPattern(content: string, pattern: RegExp): number | null {
+  const match = pattern.exec(content);
+  if (!match || typeof match.index !== "number") return null;
+  return lineNumberAtIndex(content, match.index);
+}
+
+function readStorySectionByHeading(content: string, heading: string): { body: string; line: number | null } | null {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^## ${escaped}(?:\\b|\\s|$)`, "m");
+  const match = pattern.exec(content);
+  if (!match || typeof match.index !== "number") return null;
+
+  const start = match.index + match[0].length;
+  const rest = content.slice(start);
+  const nextMatch = /\n##\s+/m.exec(rest);
+  const end = nextMatch && typeof nextMatch.index === "number" ? start + nextMatch.index : content.length;
+  return {
+    body: content.slice(start, end).trim(),
+    line: lineNumberAtIndex(content, match.index),
+  };
+}
+
+function buildStoryFrontmatterFromContent(filePath: string, content: string): StoryFrontmatter | null {
   const headingMatch = content.match(/^#\s+Story\s+(\d+):\s*(.+)$/m);
   const statusMatch = content.match(/^\*\*Status:\*\*\s*(.+)$/m);
   const lastAccessedMatch = content.match(/^\*\*Last accessed:\*\*\s*(.+)$/m);
   const completedMatch = content.match(/^\*\*Completed:\*\*\s*(.+)$/m);
   const fileName = path.basename(filePath);
   const numberMatch = fileName.match(/story-(\d+)\.md$/);
-
   if (!statusMatch || !numberMatch) return null;
 
   return {
@@ -638,6 +676,117 @@ export function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null
     number: parseInt(numberMatch[1], 10),
     title: headingMatch?.[2]?.trim() ?? "",
   };
+}
+
+export function validateStoryFile(filePath: string): StoryValidationResult {
+  const content = readIfExists(filePath);
+  const issues: StoryValidationIssue[] = [];
+  if (!content) {
+    issues.push({ file: filePath, line: null, code: "missing-frontmatter", message: `${path.basename(filePath)} is empty or unreadable.` });
+    return { ok: false, issues, frontmatter: null };
+  }
+
+  const headingMatch = content.match(/^#\s+Story\s+(\d+):\s*(.+)$/m);
+  if (!headingMatch) {
+    issues.push({
+      file: filePath,
+      line: 1,
+      code: "missing-heading",
+      message: `${path.basename(filePath)} is missing the required '# Story NNN: Title' heading.`,
+    });
+  }
+
+  const requiredFrontmatter = [
+    { label: "Status", pattern: /^\*\*Status:\*\*\s*(.+)$/m },
+    { label: "Created", pattern: /^\*\*Created:\*\*\s*(.+)$/m },
+    { label: "Last accessed", pattern: /^\*\*Last accessed:\*\*\s*(.+)$/m },
+    { label: "Completed", pattern: /^\*\*Completed:\*\*\s*(.+)$/m },
+  ];
+  for (const field of requiredFrontmatter) {
+    const match = content.match(field.pattern);
+    if (!match) {
+      issues.push({
+        file: filePath,
+        line: null,
+        code: "missing-frontmatter",
+        message: `${path.basename(filePath)} is missing the required '**${field.label}:**' frontmatter line.`,
+      });
+    }
+  }
+
+  const frontmatter = buildStoryFrontmatterFromContent(filePath, content);
+  if (frontmatter) {
+    if (!VALID_STORY_STATUSES.includes(frontmatter.status as (typeof VALID_STORY_STATUSES)[number])) {
+      issues.push({
+        file: filePath,
+        line: lineNumberForPattern(content, /^\*\*Status:\*\*\s*(.+)$/m),
+        code: "invalid-status",
+        message: `${path.basename(filePath)} has invalid status '${frontmatter.status}'. Expected one of: ${VALID_STORY_STATUSES.join(", ")}.`,
+      });
+    }
+  }
+
+  const requiredSections = ["Goal", "Verification", "Scope", "Out of scope", "Dependencies", "Checklist", "Issues", "Completion Summary"];
+  for (const section of requiredSections) {
+    const resolved = readStorySectionByHeading(content, section);
+    if (!resolved) {
+      issues.push({
+        file: filePath,
+        line: null,
+        code: "missing-section",
+        message: `${path.basename(filePath)} is missing the required '## ${section}' section.`,
+      });
+    }
+  }
+
+  const checklistSection = readStorySectionByHeading(content, "Checklist");
+  if (checklistSection) {
+    const checklistLines = checklistSection.body.split("\n");
+    let sawChecklistItem = false;
+    let sawChecklistContent = false;
+    for (let index = 0; index < checklistLines.length; index += 1) {
+      const rawLine = checklistLines[index];
+      const trimmed = rawLine.trim();
+      if (!trimmed) continue;
+      if (trimmed === "---") continue;
+      if (/^<!--.*-->$/.test(trimmed)) continue;
+      sawChecklistContent = true;
+      if (/^- \[(?: |x)\] .+/.test(trimmed)) {
+        sawChecklistItem = true;
+        continue;
+      }
+      issues.push({
+        file: filePath,
+        line: (checklistSection.line ?? 0) + index + 1,
+        code: "malformed-checklist",
+        message: `${path.basename(filePath)} has malformed checklist item '${trimmed}'. Expected '- [ ] task' or '- [x] task'.`,
+      });
+    }
+    if (!sawChecklistItem && !sawChecklistContent) {
+      issues.push({
+        file: filePath,
+        line: checklistSection.line,
+        code: "malformed-checklist",
+        message: `${path.basename(filePath)} must include at least one checklist item formatted as '- [ ] task' or '- [x] task'.`,
+      });
+    }
+  }
+
+  const isValid = issues.length === 0 && frontmatter !== null;
+  return { ok: isValid, issues, frontmatter: isValid ? frontmatter : null };
+}
+
+export function parseStoryFrontmatter(filePath: string): StoryFrontmatter | null {
+  return buildStoryFrontmatterFromContent(filePath, readIfExists(filePath));
+}
+
+export function listStoryValidationIssues(cwd: string): StoryValidationIssue[] {
+  const dir = storiesDir(cwd);
+  if (!fs.existsSync(dir)) return [];
+
+  return fs.readdirSync(dir)
+    .filter((name: string) => /^story-\d+\.md$/.test(name))
+    .flatMap((name: string) => validateStoryFile(path.join(dir, name)).issues);
 }
 
 export function listStories(cwd: string): StoryFrontmatter[] {

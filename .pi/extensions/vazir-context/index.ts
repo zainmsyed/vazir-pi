@@ -19,6 +19,7 @@ import {
   fossilRepositoryPath,
   hasVcsSafetyPolicyText,
   listStories,
+  listStoryValidationIssues,
   nowISO,
   readActiveVcsMode,
   readIfExists,
@@ -29,6 +30,7 @@ import {
   todayDate,
   writeProjectSettings,
   updateStoryFrontmatter,
+  type StoryValidationIssue,
   type VcsMirrorSettings,
 } from "../../lib/vazir-helpers.ts";
 import {
@@ -216,6 +218,8 @@ const pendingCompleteStoryRequests = new Map<string, PendingCompleteStoryRequest
 const pendingManualReviewRequests = new Map<string, PendingManualReviewRequest>();
 const approvedStoryCloseouts = new Map<string, Set<string>>();
 const missingFallowNoticeShown = new Set<string>();
+const MAX_PLAN_REPAIR_RETRIES = 2;
+const pendingPlanRepairRequests = new Map<string, { retries: number; storyCountAtStart: number }>();
 type ManualReviewScope = "story" | "whole-codebase";
 type ReviewCloseoutTarget = "story" | "review";
 const INTERNAL_AGENT_MESSAGE_TYPE = "vazir-internal-request";
@@ -973,6 +977,38 @@ export default function (pi: ExtensionAPI) {
     );
   }
 
+  function isPlanPrompt(prompt: string): boolean {
+    return /^\s*\/plan\b/.test(prompt);
+  }
+
+  function buildPlanRepairInstruction(cwd: string, issues: StoryValidationIssue[]): string {
+    const issuesByFile = new Map<string, StoryValidationIssue[]>();
+    for (const issue of issues) {
+      const fileIssues = issuesByFile.get(issue.file) ?? [];
+      fileIssues.push(issue);
+      issuesByFile.set(issue.file, fileIssues);
+    }
+
+    const parts = [
+      "Some generated story files are malformed and must be repaired before the plan is complete.",
+      "Fix ONLY the specific issues listed below. Edit the affected story files surgically — change only the malformed lines or fields. Do not regenerate entire files and do not alter content that is already correct.",
+      "",
+    ];
+
+    for (const [filePath, fileIssues] of issuesByFile) {
+      parts.push(`File: ${path.relative(cwd, filePath)}`);
+      for (const issue of fileIssues) {
+        parts.push(`  - ${issue.message}`);
+      }
+      parts.push("");
+    }
+
+    parts.push("After fixing, ensure every story file uses one of these statuses: not-started, in-progress, complete, retired.");
+    parts.push("Every story must include the required sections: Goal, Verification, Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary.");
+    parts.push("Every checklist item must be formatted as '- [ ] task' or '- [x] task'.");
+    return parts.join("\n");
+  }
+
   function markStoryCloseoutApproved(ctx: any, storyPath: string): void {
     const cwd = ctx.cwd;
     const approved = approvedStoryCloseouts.get(cwd) ?? new Set<string>();
@@ -1039,6 +1075,14 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     storyFrontmatterSnapshots.set(ctx.cwd, snapshotStoryFrontmatter(ctx.cwd));
 
+    if (isPlanPrompt(event.prompt ?? "")) {
+      const storyDir = storiesDir(ctx.cwd);
+      const storyCountAtStart = fs.existsSync(storyDir)
+        ? fs.readdirSync(storyDir).filter((name: string) => /^story-\d+\.md$/.test(name)).length
+        : 0;
+      pendingPlanRepairRequests.set(ctx.cwd, { retries: 0, storyCountAtStart });
+    }
+
     const workable = findWorkableStory(ctx.cwd);
     if (workable && workable.status === "not-started" && userExplicitlyApprovedStatusChange(event.prompt ?? "", "in-progress")) {
       updateStoryFrontmatter(workable.file, { status: "in-progress", lastAccessed: todayDate() });
@@ -1097,6 +1141,7 @@ export default function (pi: ExtensionAPI) {
     pendingManualReviewRequests.delete(ctx.cwd);
     approvedStoryCloseouts.delete(ctx.cwd);
     missingFallowNoticeShown.delete(ctx.cwd);
+    pendingPlanRepairRequests.delete(ctx.cwd);
   });
 
   // ── turn_end: review closeout prompt dispatch while agent is still alive ─
@@ -1269,6 +1314,40 @@ export default function (pi: ExtensionAPI) {
         trigger: "post-story-completion",
       });
       break;
+    }
+
+    // ── Plan story repair loop ──────────────────────────────────────────
+    const planRepair = pendingPlanRepairRequests.get(cwd);
+    if (planRepair) {
+      const storyDir = storiesDir(cwd);
+      const currentStoryCount = fs.existsSync(storyDir)
+        ? fs.readdirSync(storyDir).filter((name: string) => /^story-\d+\.md$/.test(name)).length
+        : 0;
+      const storiesChanged = currentStoryCount !== planRepair.storyCountAtStart;
+
+      // Skip validation during clarifying-question turns before any stories have been written.
+      if (!storiesChanged && planRepair.retries === 0) {
+        // State stays active for future turns.
+      } else {
+        const issues = listStoryValidationIssues(cwd);
+        if (issues.length === 0) {
+          pendingPlanRepairRequests.delete(cwd);
+        } else if (planRepair.retries < MAX_PLAN_REPAIR_RETRIES) {
+          planRepair.retries += 1;
+          sendInternalAgentMessage(ctx, buildPlanRepairInstruction(cwd, issues), {
+            purpose: "plan-repair",
+            retry: planRepair.retries,
+          });
+          return;
+        } else {
+          const brokenFiles = [...new Set(issues.map(i => path.relative(cwd, i.file)))].join(", ");
+          ctx.ui.notify(
+            `Failed to repair generated story files after ${MAX_PLAN_REPAIR_RETRIES} attempts. Issues remain in ${brokenFiles}`,
+            "error",
+          );
+          pendingPlanRepairRequests.delete(cwd);
+        }
+      }
     }
 
     // ── index.md structural updates ─────────────────────────────────────
