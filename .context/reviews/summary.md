@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-06-02T10:36:42Z
+**Last updated:** 2026-06-06T10:46:03Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -31,6 +31,7 @@
 - When a validation stub stands in for a persistence layer, make it store and verify the same payload shape that production reads back so escaping bugs cannot hide behind marker-only assertions. | count: 1 | status: tracked | sources: review-20260531-022600.md | stories: story-046
 - When adding an instruction-driven file-update workflow, validate at least one downstream file-mutation path end-to-end instead of only asserting prompt text. | count: 1 | status: tracked | sources: review-20260531-010258.md | stories: story-044
 - When adding or tightening VCS detection, validate extension behavior from both the repo root and a nested project directory. | count: 1 | status: tracked | sources: review-20260518-124246.md
+- When auto-finalizing a workflow document from checklist state, validate all checklist sections that the template requires, not just the primary checklist block. | count: 1 | status: tracked | sources: review-20260603-142147.md | stories: story-052
 - When checklist calls for coverage across a set of states, verify more than one representative state. | count: 1 | status: tracked | sources: review-20260602-011510.md | stories: story-047
 - When extracting a command into a new extension, update every validation script that exercises that command to load the new extension module alongside the original entrypoint. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
 - When extracting a large block of helpers from a module, run a reference check for every removed function name against the remaining code in that module before committing the extraction. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
