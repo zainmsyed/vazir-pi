@@ -1,27 +1,23 @@
 # Intake Brief
 
-**Last updated:** 2026-05-30
+**Last updated:** 2026-06-02
 
 ## Planning brief
-i want to update the help and readme. i want the help overlay to be selectable and when the user selcts a line they are taken to another overlay that describes that that command does. also i want to highlight the most common workflow as a quickstart for users. which is /plan, /implement, /complete-story. and i also want to update the readme to a quickstart quide that the user can use if needed
+Plan a new Vazir feature for Fossil + Git mirror awareness. Goal: Add an optional VCS settings feature for repositories where Fossil is the active/canonical VCS and Git exists as a public mirror (for example, GitHub). Vazir should understand this workflow without assuming it automatically from dual detection alone. Requirements: - Keep one explicit active VCS mode for real workflow operations (`fossil`, `git`, or `jj`) - Add a separate optional mirror-related setting under VCS settings - The setting should be explicit/user-declared, not inferred solely from detecting both Fossil and Git metadata - Primary target workflow is: Fossil is canonical, Git is a mirror - Vazir should use Fossil for story/checkpoint/diff/reset/restore/workflow behavior when Fossil is active - Git mirror mode should be informational/guidance-focused, not automatic sync - Do not auto-push, auto-export, auto-switch VCS mode, or assume the mirror is current - Vazir may show status hints/warnings when mirror mode is enabled and Git metadata is present/missing - Consider whether a future assisted command like `/vcs-mirror-sync` should be planned now or deferred - Mixed VCS detection should improve UX and clarity, but should not change behavior unless settings explicitly opt in - Preserve existing VCS safety/guardrail behavior Please produce: 1. A short problem statement 2. A recommended settings/schema design 3. Expected UX behavior in footer/status/settings/prompts 4. Command behavior changes, if any 5. Edge cases and safety constraints 6. A small implementation plan with concrete tasks 7. Whether mirror sync should be in scope now or deferred to a follow-up story Keep the checklist to 7 tasks or fewer.
 
-follow-up: the README item in Ctrl+? breaks on fresh installs because it tries to read a local file. replace that entry with a built-in Vazir quickstart/help doc instead. that in-app doc should explain the core workflow, what the `.context/` folders are for, and especially why `.context/intake/` matters before running `/plan`.
+## Final distilled answers
+- **Users:** Vazir users working in mixed-VCS repos where Fossil is the canonical workflow repo and Git exists as a public or compatibility mirror.
+- **Most important thing to get right in v1:** Clear, explicit configuration and UX that keeps Fossil authoritative for workflow actions while explaining the presence of a Git mirror without changing behavior implicitly.
+- **Explicitly not building in v1:** No automatic sync, export, push, mode switching, or mirror freshness guarantees; no `/vcs-mirror-sync` command yet.
+- **Default scope assumption:** v1 targets the common `fossil -> git mirror` workflow first, while keeping the settings model clean enough to extend later.
+- **Safety constraints:** Preserve existing VCS safety/guardrail behavior and do not let dual detection alone alter command routing or destructive behavior.
 
 ## Source files
 - .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_E.md (12100 bytes)
 
 ## Distilled notes
-### User intent
-- Keep the existing Ctrl+? quick-reference help list (command + one-line description).
-- Make the help overlay selectable: navigating to a command and pressing Enter opens a detail overlay with richer docs.
-- Rich detail overlays must include usage syntax, examples, arguments, and a longer description.
-- Highlight the most common workflow as a quickstart banner inside the help overlay: `/plan` → `/implement` → `/complete-story`.
-- Rewrite the root `README.md` into a concise quickstart guide users can read outside of pi.
-- Replace the Ctrl+? README file entry with a built-in Vazir quickstart/help document so fresh installs do not depend on a project-local `README.md`.
-- Include a short explanation of the `.context/` folders in that quickstart, with extra emphasis on `.context/intake/` as the place for PRDs, specs, notes, screenshots, and other planning inputs that improve `/plan` quality.
-
 ### .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_E.md
-Addendum E establishes shared TUI overlay helpers (`showSelectionList`, `showMarkdownViewer`, `VazirPanel`) in `.pi/lib/vazir-ui.ts`, built on pi's `SelectList`, `Markdown`, and `Container` primitives. The overlay infrastructure already exists from story-035 and story-036. This replan builds on that foundation.
+Large file (12100 bytes). Read enough of it to extract evidence for every planning field before asking questions.
 
 ## Planning rules
 - Treat listed source files as user-authored planning inputs unless they are explicitly marked as generated artifacts.

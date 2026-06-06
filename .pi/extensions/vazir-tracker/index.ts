@@ -434,6 +434,7 @@ export default function (pi: ExtensionAPI) {
     ) => {
       const cwd = ctx.cwd;
       refreshDetectedVcs(cwd);
+      syncAndPublishVcs(cwd);
       deferInitialVcsRefresh(cwd);
 
       const sessionManager = {

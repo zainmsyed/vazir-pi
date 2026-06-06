@@ -2,5 +2,12 @@
   "project_name": "",
   "model_tier": "balanced",
   "active_vcs_mode": "fossil",
-  "vcs_preference": "fossil"
+  "vcs_preference": "fossil",
+  "vcs_mirror": {
+    "mode": "git-mirror-of-fossil",
+    "path": "/home/zain/Documents/coding/vazir-pi",
+    "remoteName": "origin",
+    "branch": "main",
+    "autosync_closeout": true
+  }
 }

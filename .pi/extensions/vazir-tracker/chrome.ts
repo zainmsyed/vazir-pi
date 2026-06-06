@@ -71,7 +71,8 @@ const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/unlearn", description: "remove a promoted rule from system memory" },
   { command: "/consolidate", description: "cluster complaints and promote repeated rule candidates" },
   { command: "/design", description: "review and edit design system, brand, components" },
-  { command: "/vcs-settings", description: "pick or set the preferred VCS mode for Vazir" },
+  { command: "/vcs-settings", description: "set the active VCS mode and optional Fossil→Git mirror hint (mirror autosync <on|off>)" },
+  { command: "/vcs-mirror-sync", description: "run a confirmed Fossil→Git mirror export" },
   { command: "/diff", description: "show the diff for one changed file" },
   { command: "/edits", description: "show the recent file edit stream" },
   { command: "/checkpoint", description: "pick a checkpoint to restore" },
@@ -177,11 +178,19 @@ const VAZIR_COMMAND_DOCS: CommandDoc[] = [
   },
   {
     command: "/vcs-settings",
-    shortDesc: "pick or set the preferred VCS mode for Vazir",
-    usage: "/vcs-settings [mode]",
-    args: ["mode — auto, git, jj, or fossil"],
-    examples: ["/vcs-settings", "/vcs-settings fossil"],
-    longDesc: "Configures the preferred version control system for Vazir. Supports Auto (detect), Git/JJ, and Fossil modes. When a tool is missing, prompts to show install guidance. When a repo is not initialized, prompts before creating one. Updates .context/settings/project.json.",
+    shortDesc: "set the active VCS mode and optional Fossil→Git mirror hint",
+    usage: "/vcs-settings [auto|git|jj|fossil|mirror <none|git|autosync <on|off>>]",
+    args: ["mode — auto, git, jj, fossil, or mirror <none|git|autosync <on|off>>"],
+    examples: ["/vcs-settings", "/vcs-settings fossil", "/vcs-settings mirror git", "/vcs-settings mirror none", "/vcs-settings mirror autosync on"],
+    longDesc: "Configures Vazir's active version control system and optional mirror guidance. Supports Auto (detect), Git/JJ, and Fossil modes. Mirror mode is explicit and informational only: use `/vcs-settings mirror git` when Fossil is canonical and Git exists as a mirror. Use `/vcs-settings mirror autosync on|off` to optionally auto-export the Git mirror when closing a story with committed changes. Vazir will not auto-sync, auto-push, or switch modes just because both metadata directories are present. Updates .context/settings/project.json.",
+  },
+  {
+    command: "/vcs-mirror-sync",
+    shortDesc: "run a confirmed Fossil→Git mirror export",
+    usage: "/vcs-mirror-sync",
+    args: [],
+    examples: ["/vcs-mirror-sync"],
+    longDesc: "Validates the current Fossil→Git mirror configuration, shows the exact `fossil git export ... --autopush` command it plans to run, and requires explicit confirmation before executing it. The command only works when Fossil is the active VCS, mirror mode is `git-mirror-of-fossil`, and `vcs_mirror.path` points at an existing Git checkout.",
   },
   {
     command: "/diff",
@@ -318,7 +327,7 @@ let _hasGitRepo = false;
 let _useJJ = false;
 let _hasFossilRepo = false;
 let _vcsKind: "none" | "git" | "jj" | "fossil" = "none";
-let _vcsDisplay = { refLabel: "workspace", workingLabel: "", syncLabel: "" };
+let _vcsDisplay = { refLabel: "workspace", workingLabel: "", syncLabel: "", mirrorLabel: "", mirrorSeverity: null as "success" | "warning" | "error" | null };
 let _vcsOverridden = false;
 
 // ── Lifecycle setters (called from index.ts) ───────────────────────────
@@ -327,7 +336,7 @@ export function setVcsFlags(
   hasGitRepo: boolean,
   useJJ: boolean,
   vcsKind: "none" | "git" | "jj" | "fossil" = hasGitRepo ? "git" : "none",
-  display: { refLabel: string; workingLabel: string; syncLabel: string } = { refLabel: "workspace", workingLabel: "", syncLabel: "" },
+  display: { refLabel: string; workingLabel: string; syncLabel: string; mirrorLabel: string; mirrorSeverity: "success" | "warning" | "error" | null } = { refLabel: "workspace", workingLabel: "", syncLabel: "", mirrorLabel: "", mirrorSeverity: null },
   isOverridden: boolean = false,
 ): void {
   _hasGitRepo = hasGitRepo;
@@ -1069,13 +1078,17 @@ function issueBadgeSegment(openIssues: number, compact = false): string {
 function footerVcsStatusSegment(): string {
   const workingLabel = _vcsDisplay.workingLabel;
   const syncLabel = _vcsDisplay.syncLabel;
+  const mirrorLabel = _vcsDisplay.mirrorLabel;
   const dirtyCount = changedFiles.size;
   const workingTone: VazirTone = dirtyCount <= 0 ? "success" : dirtyCount <= 5 ? "warning" : "error";
   const syncTone: VazirTone = syncLabel === "autosync off" ? "warning" : syncLabel === "not synced" ? "error" : "dim";
+  const mirrorSeverity = _vcsDisplay.mirrorSeverity;
+  const mirrorTone: VazirTone = mirrorSeverity === "error" ? "error" : mirrorSeverity === "warning" ? "warning" : mirrorSeverity === "success" ? "success" : "dim";
 
   return [
     workingLabel ? paint(workingLabel, workingTone) : "",
     syncLabel ? paint(syncLabel, syncTone) : "",
+    mirrorLabel ? paint(mirrorLabel, mirrorTone) : "",
   ].filter(Boolean).join(separatorDot());
 }
 

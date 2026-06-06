@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-05-30T19:57:19Z
+**Last updated:** 2026-06-06T10:46:03Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -23,18 +23,27 @@
 - Require CI to run the repo validation suite and static analysis before merge (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Substring-based approval detection must guard against negation prefixes; use word-boundary regexes or explicit allow-list tokens rather than naive `includes()`. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Temporary validation extensions or scripts must be deleted before story closeout; if they must persist, move them to a `tests/` or `scripts/` directory and document their purpose. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
+- Validation of VCS restore and undo behavior should exercise real repositories with actual tool commands rather than only stubs, because stubs can mask semantic mismatches between assumed and actual tool behavior. | count: 1 | status: tracked | sources: review-20260602-102619.md | stories: story-051
+- When a command has distinct success, cancel, validation-failure, and execution-failure paths, add at least one regression assertion for each path. | count: 1 | status: tracked | sources: review-20260602-012723.md | stories: story-048
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
+- When a UI flow has conditional option branches based on environment state, add at least one regression test for each branch (present vs. absent). | count: 1 | status: tracked | sources: review-20260602-024801.md | stories: story-049
 - When a validation stub replaces a real function, the stub must support every parameter that production code calls; otherwise the test suite gives false confidence. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
+- When a validation stub stands in for a persistence layer, make it store and verify the same payload shape that production reads back so escaping bugs cannot hide behind marker-only assertions. | count: 1 | status: tracked | sources: review-20260531-022600.md | stories: story-046
+- When adding an instruction-driven file-update workflow, validate at least one downstream file-mutation path end-to-end instead of only asserting prompt text. | count: 1 | status: tracked | sources: review-20260531-010258.md | stories: story-044
 - When adding or tightening VCS detection, validate extension behavior from both the repo root and a nested project directory. | count: 1 | status: tracked | sources: review-20260518-124246.md
+- When auto-finalizing a workflow document from checklist state, validate all checklist sections that the template requires, not just the primary checklist block. | count: 1 | status: tracked | sources: review-20260603-142147.md | stories: story-052
+- When checklist calls for coverage across a set of states, verify more than one representative state. | count: 1 | status: tracked | sources: review-20260602-011510.md | stories: story-047
 - When extracting a command into a new extension, update every validation script that exercises that command to load the new extension module alongside the original entrypoint. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
 - When extracting a large block of helpers from a module, run a reference check for every removed function name against the remaining code in that module before committing the extraction. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
 - When extracting helpers into a new module, update every validation/import site that exercises those helpers and rerun the moved module's validation scripts before closing the story. | count: 1 | status: tracked | sources: review-20260518-220211.md | stories: story-020
 - When extracting lifecycle handlers into a new extension, remove the original registration to avoid duplicate event processing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
+- When generated assets are described as design-spec-driven, make validation prove that representative spec changes affect the emitted output rather than only being read into metadata comments. | count: 1 | status: tracked | sources: review-20260531-011428.md | stories: story-045
 - When generating numbered requirement lists in instruction builders, scan for duplicate ordinals before committing. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When parsing VCS status output, include rename/move states explicitly; they are common and silently dropping them creates UI gaps. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When reverting a UI rollout, update or remove the validation expectations for the abandoned interaction model in the same change so the targeted regression suite still describes the shipped behavior. | count: 1 | status: tracked | sources: review-20260530-020034.md | stories: story-037
 - When stripping ANSI for width calculations, use a regex that matches the full CSI range (`\x1b[...letter`) rather than only SGR (`\x1b[...m`). | count: 1 | status: tracked | sources: review-20260529-215920.md | stories: story-036
+- When tests replace a real external tool with a fake binary, the fake must match the real tool's accepted argument syntax so the test suite does not give false confidence. | count: 1 | status: tracked | sources: review-20260602-102619.md | stories: story-051
 - When the same literal union appears more than once in a module, extract a named type alias to reduce drift during future changes. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - When tracking async tool lifecycle, correlate start and end events with a unique call identifier, not just the tool name. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When validating tool input for security, always check every documented alias of a target field (`path` / `filePath`), not just the primary one. | count: 1 | status: tracked | sources: review-20260518-145628.md
