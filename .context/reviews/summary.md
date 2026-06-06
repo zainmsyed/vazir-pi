@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-06-06T11:27:11Z
+**Last updated:** 2026-06-06T16:57:18Z
 
 ## Findings
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
@@ -15,6 +15,7 @@
 - Every state-machine or guardrail helper that blocks or auto-approves user-facing actions must have at least one direct unit test exercising both the allow and deny paths. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Extracted closeout flows must preserve all terminal branches of the original state machine, including commit-and-close paths. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Footer should always include the active story slug for easy orientation. | count: 1 | status: tracked | sources: review-20260422-120959.md
+- Keep shared data-structure parsers lenient by default so downstream consumers do not silently lose records; reserve strict validation for explicit guard, repair, and closeout paths where the caller intentionally opts in. | count: 1 | status: tracked | sources: review-20260606-130432.md | stories: story-055
 - Make the team policy explicit about which .context subpaths (if any) are authoritative and tracked. | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Never hardcode story labels or temporal identifiers in reusable command handlers; always derive them from runtime state. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Promote a rule requiring shared test harness utilities for repository validation scripts (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
@@ -30,7 +31,9 @@
 - When a UI flow has conditional option branches based on environment state, add at least one regression test for each branch (present vs. absent). | count: 1 | status: tracked | sources: review-20260602-024801.md | stories: story-049
 - When a validation stub replaces a real function, the stub must support every parameter that production code calls; otherwise the test suite gives false confidence. | count: 1 | status: tracked | sources: review-20260529-024720.md | stories: story-035
 - When a validation stub stands in for a persistence layer, make it store and verify the same payload shape that production reads back so escaping bugs cannot hide behind marker-only assertions. | count: 1 | status: tracked | sources: review-20260531-022600.md | stories: story-046
+- When a workflow transition depends on both in-memory flags and persisted file frontmatter, centralize the transition in one shared helper so both state sources change together. | count: 1 | status: tracked | sources: review-20260606-141016.md | stories: story-056
 - When adding an instruction-driven file-update workflow, validate at least one downstream file-mutation path end-to-end instead of only asserting prompt text. | count: 1 | status: tracked | sources: review-20260531-010258.md | stories: story-044
+- When adding lifecycle state machines that span multiple turns, add regression coverage for every intermediate state transition, not just the final outcome. | count: 1 | status: tracked | sources: review-20260606-141016.md | stories: story-056
 - When adding or tightening VCS detection, validate extension behavior from both the repo root and a nested project directory. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - When auto-finalizing a workflow document from checklist state, validate all checklist sections that the template requires, not just the primary checklist block. | count: 1 | status: tracked | sources: review-20260603-142147.md | stories: story-052
 - When checklist calls for coverage across a set of states, verify more than one representative state. | count: 1 | status: tracked | sources: review-20260602-011510.md | stories: story-047
