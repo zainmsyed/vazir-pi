@@ -1,7 +1,7 @@
 # Vazir POC - Addenda C & D Implementation Plan
 
 **Created:** 2026-05-05
-**Last updated:** 2026-05-30
+**Last updated:** 2026-06-06
 
 ---
 
@@ -91,7 +91,10 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-048 | Assisted mirror sync command for Fossil→Git export | not-started | story-047 |
 | story-049 | Prompt for Git mirror path when enabling Fossil→Git mirror mode | not-started | story-047, story-048 |
 | story-050 | Compact mirror-health footer status for Fossil→Git workflows | not-started | story-047, story-049 |
-| story-051 | Auto-export Fossil→Git mirror at story closeout with opt-in autosync | not-started | story-047, story-049, story-050 |
+| story-051 | Auto-export Fossil→Git mirror at story closeout with opt-in autosync | complete | story-047, story-049, story-050 |
+| story-052 | Harden `/complete-story` review deferral and review-finalization flow | complete | story-025, story-026 |
+| story-053 | Make Vazir story-status chrome width-safe in split panes | in-progress | story-035 |
+| story-054 | Harden tracker chrome ANSI width measurement and narrow-width regressions | in-progress | story-053 |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
@@ -110,3 +113,4 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-06-02** - Replanned from the user request to support Fossil as the canonical repo with Git as an optional public mirror. Preserved all existing story history and appended story-047 for explicit mirror-aware VCS settings plus UX/status guidance, while deferring any assisted sync command to follow-up story-048.
 - **2026-06-02** — Replanned after testing the first mirror UX. Preserved existing story history and appended story-049 to capture the mirror path at mirror-mode enable time, including a "use current Git repo" path rooted at the detected Git top-level, plus story-050 to replace the verbose footer sentence with compact color-coded mirror health status.
 - **2026-06-02** — Replanned from the user request to optionally auto-sync the Git mirror when a story closes. Preserved existing story history and appended story-051 for an opt-in `autosync_closeout` setting that runs `fossil git export --autopush` during `/complete-story` closeout when the user commits changes.
+- **2026-06-06** — Replanned from the split-pane Pi crash caused by Vazir chrome rendering past terminal width. Marked story-051 and story-052 complete to match the merged branch state, then appended story-053 for the immediate story-status truncation fix and story-054 for follow-up ANSI-width/helper hardening plus narrow-width regression coverage.

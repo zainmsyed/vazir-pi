@@ -56,7 +56,8 @@ const EDIT_STREAM_LIMIT = 48;
 const EDIT_WIDGET_LINE_LIMIT = 3;
 const WORKING_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const CHANGE_SYNC_INTERVAL_MS = 1000;
-const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
+const ANSI_CSI_PATTERN = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+const ANSI_OSC_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 // Keep this list in sync with command registration across vazir-context.ts and this file.
 const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/vazir-init", description: "bootstrap .context and seed the project brain" },
@@ -407,28 +408,45 @@ function paint(text: string, tone: VazirTone, bold = false): string {
 }
 
 function stripAnsi(text: string): string {
-  return text.replace(ANSI_PATTERN, "");
+  return text.replace(ANSI_OSC_PATTERN, "").replace(ANSI_CSI_PATTERN, "");
 }
 
 function visibleLength(text: string): number {
+  const visibleWidth = (piTui as { visibleWidth?: (value: string) => number }).visibleWidth;
+  if (typeof visibleWidth === "function") {
+    return visibleWidth(text);
+  }
   return stripAnsi(text).length;
+}
+
+function matchTerminalEscape(text: string, index: number): string | null {
+  if (text[index] !== "\x1b") return null;
+  const slice = text.slice(index);
+  const oscMatch = slice.match(/^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/);
+  if (oscMatch) return oscMatch[0];
+  const csiMatch = slice.match(/^\x1b\[[0-?]*[ -/]*[@-~]/);
+  if (csiMatch) return csiMatch[0];
+  return null;
 }
 
 function truncateAnsi(text: string, width: number): string {
   const safeWidth = Math.max(0, width || 0);
   if (safeWidth === 0) return "";
 
+  const truncateToWidth = (piTui as { truncateToWidth?: (value: string, width: number, ellipsis?: string) => string }).truncateToWidth;
+  if (typeof truncateToWidth === "function") {
+    return truncateToWidth(text, safeWidth, "");
+  }
+
   let visible = 0;
   let index = 0;
   let result = "";
   while (index < text.length && visible < safeWidth) {
-    if (text[index] === "\x1b") {
-      const match = text.slice(index).match(/^\x1b\[[0-9;]*m/);
-      if (match) {
-        result += match[0];
-        index += match[0].length;
-        continue;
-      }
+    const escape = matchTerminalEscape(text, index);
+    if (escape) {
+      result += escape;
+      index += escape.length;
+      continue;
     }
 
     const codePoint = text.codePointAt(index);
@@ -469,7 +487,7 @@ function alignFooterLine(left: string, right: string, width: number): string {
   if (leftLength + 1 + rightLength >= safeWidth) {
     return combined;
   }
-  return `${left}${" ".repeat(safeWidth - leftLength - rightLength)}${right}`;
+  return `${left}${" ".repeat(Math.max(0, safeWidth - leftLength - rightLength))}${right}`;
 }
 
 function formatRelativeAge(timestampMs: number): string {
@@ -1178,10 +1196,11 @@ function footerSeparatorLine(width: number): string {
 function storyStatusWidgetLines(
   cwd: string,
   _theme: { fg: (label: string, text: string) => string },
+  width: number,
 ): string[] {
   if (!isVazirInitialized(cwd)) {
     return [
-      `${paint("▸", "accent", true)} ${paint("run /vazir-init to bootstrap Vazir", "text")}`,
+      truncateAnsi(`${paint("▸", "accent", true)} ${paint("run /vazir-init to bootstrap Vazir", "text")}`, Math.max(1, width || 1)),
     ];
   }
 
@@ -1189,7 +1208,7 @@ function storyStatusWidgetLines(
 
   if (!summary) {
     return [
-      `${paint("▸", "accent", true)} ${paint("no active story", "text")}`,
+      truncateAnsi(`${paint("▸", "accent", true)} ${paint("no active story", "text")}`, Math.max(1, width || 1)),
     ];
   }
 
@@ -1214,14 +1233,14 @@ function storyStatusWidgetLines(
   }
 
   return [
-    segments.join(separatorDot()),
+    truncateAnsi(segments.join(separatorDot()), Math.max(1, width || 1)),
   ];
 }
 
 function createStoryStatusWidgetComponent(cwd: string) {
   return (_tui: { requestRender(): void }, theme: { fg: (label: string, text: string) => string }) => ({
-    render(): string[] {
-      return storyStatusWidgetLines(cwd, theme);
+    render(width: number): string[] {
+      return storyStatusWidgetLines(cwd, theme, width);
     },
     invalidate() {},
   });
