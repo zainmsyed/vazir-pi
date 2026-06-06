@@ -97,7 +97,7 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-054 | Harden tracker chrome ANSI width measurement and narrow-width regressions | in-progress | story-053 |
 | story-055 | Add shared story-file structure validation for Vazir workflows | in-progress | story-053, story-054 |
 | story-056 | Repair malformed `/plan` story output before the user sees it | complete | story-055 |
-| story-057 | Block `/implement` on malformed stories and add drift regressions | not-started | story-055, story-056 |
+| story-057 | Block `/implement` on malformed stories and add drift regressions | retired | story-055, story-056 |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
