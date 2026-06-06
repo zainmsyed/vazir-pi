@@ -991,7 +991,7 @@ export default function (pi: ExtensionAPI) {
 
     const parts = [
       "Some generated story files are malformed and must be repaired before the plan is complete.",
-      "Fix ONLY the specific issues listed below. Rewrite the affected story files in place. Do not create new files and do not change files that are already valid.",
+      "Fix ONLY the specific issues listed below. Edit the affected story files surgically — change only the malformed lines or fields. Do not regenerate entire files and do not alter content that is already correct.",
       "",
     ];
 
