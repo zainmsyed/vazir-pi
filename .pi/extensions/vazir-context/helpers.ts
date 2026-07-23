@@ -966,16 +966,16 @@ export function storyFileName(num: number): string {
   return `story-${String(num).padStart(3, "0")}.md`;
 }
 
-export function storyTemplate(num: number, title: string): string {
+export function buildStoryPromptTemplate(num: number, title: string): string {
   const today = todayDate();
   return [
-    `# Story ${String(num).padStart(3, "0")}: ${title}`,
+    "# Story " + String(num).padStart(3, "0") + ": " + title,
     "",
-    `**Status:** not-started  `,
-    `**Type:** —  `,
-    `**Created:** ${today}  `,
-    `**Last accessed:** ${today}  `,
-    `**Completed:** —`,
+    "**Status:** not-started  ",
+    "**Type:** —  ",
+    "**Created:** " + today + "  ",
+    "**Last accessed:** " + today + "  ",
+    "**Completed:** —",
     "",
     "---",
     "",
@@ -998,6 +998,8 @@ export function storyTemplate(num: number, title: string): string {
     "",
     "## Checklist",
     "- [ ] ",
+    "- [ ] ",
+    "- [ ] ",
     "",
     "---",
     "",
@@ -1009,6 +1011,7 @@ export function storyTemplate(num: number, title: string): string {
     "",
   ].join("\n");
 }
+
 
 // ── Design system helpers ──────────────────────────────────────────────
 

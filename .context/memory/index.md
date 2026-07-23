@@ -24,3 +24,4 @@ types/pi-runtime-ambient.d.ts — Minimal ambient Pi SDK and pi-tui module typin
 .pi/lib/vazir-ui.ts — Shared pi TUI overlay helpers for Vazir selection lists, markdown viewers, and bordered panel rendering.
 install.sh — One-line installer script for macOS/Linux that bootstraps pi-coding-agent and installs the Vazir extension.
 .pi/lib/vazir-fossil-theme.ts — (undescribed)
+.pi/skills/herdr/SKILL.md — (undescribed)

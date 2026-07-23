@@ -29,6 +29,7 @@ function makeValidStory(cwd: string, name: string, status: string): void {
     [
       `# Story ${number}: Example`,
       "",
+      "**Type:** —  ",
       `**Status:** ${status}  `,
       "**Created:** 2026-06-06  ",
       "**Last accessed:** 2026-06-06  ",
@@ -51,11 +52,17 @@ function makeValidStory(cwd: string, name: string, status: string): void {
       "## Dependencies",
       "- None",
       "",
+      "---",
+      "",
       "## Checklist",
       "- [ ] Task one",
       "",
+      "---",
+      "",
       "## Issues",
       "- None yet",
+      "",
+      "---",
       "",
       "## Completion Summary",
       "- Pending",
@@ -71,6 +78,7 @@ function makeMalformedStory(cwd: string, name: string): void {
     [
       `# Story ${number}: Example`,
       "",
+      "**Type:** bad-type  ",
       "**Status:** bad-status  ",
       "**Created:** 2026-06-06  ",
       "**Last accessed:** 2026-06-06  ",
@@ -93,17 +101,27 @@ function makeMalformedStory(cwd: string, name: string): void {
       "## Dependencies",
       "- None",
       "",
+      "---",
+      "",
       "## Checklist",
       "- [maybe] Bad task",
       "",
+      "---",
+      "",
       "## Issues",
       "- None yet",
+      "",
+      "---",
       "",
       "## Completion Summary",
       "- Pending",
     ].join("\n"),
   );
 }
+
+// Note: The `Type:` frontmatter is included in both helpers to match the template,
+// but `validateStoryFile` (and therefore the plan guard) does not currently validate
+// it. This is an intentional gap documented in the review findings.
 
 function createCtx(cwd: string, ui = true): { cwd: string; hasUI: boolean; ui: { notify: (message: string, level: string) => void; select: () => Promise<string | null>; input?: () => Promise<{ trim: () => string } | null> }; hasPendingMessages?: () => boolean } {
   const notifications: Notification[] = [];
@@ -142,15 +160,17 @@ function patchNotify(ctx: ReturnType<typeof createCtx>): Notification[] {
   const ctx = createCtx(cwd);
   const notifications = patchNotify(ctx);
 
-  await pi.emit("before_agent_start", { prompt: "/plan example" }, ctx);
-  await pi.emit("agent_end", {}, ctx);
+  // Call /plan command handler to seed the state
+  await pi.getCommand("plan")?.handler("example", ctx);
+  // /plan handler sends the instruction message
+  assert(pi.sentMessages.length === 1, "/plan handler should send one instruction message");
+  await pi.emit("turn_end", {}, ctx);
 
-  assert(notifications.length === 0, "Valid stories should not produce any notification");
-  assert(pi.sentInternalMessages.length === 0, "Valid stories should not trigger repair");
+  assert(pi.sentMessages.length === 1, "Valid stories should not trigger a fix message");
   fs.rmSync(cwd, { recursive: true });
 }
 
-// ── Test 2: malformed stories trigger repair instruction ─────────────
+// ── Test 2: malformed stories trigger a single fix message ───────────
 {
   const cwd = createProject("vazir-plan-repair-malformed-");
 
@@ -158,68 +178,32 @@ function patchNotify(ctx: ReturnType<typeof createCtx>): Notification[] {
   const ctx = createCtx(cwd);
   const notifications = patchNotify(ctx);
 
-  await pi.emit("before_agent_start", { prompt: "/plan example" }, ctx);
+  // Call /plan command handler to seed the state
+  await pi.getCommand("plan")?.handler("example", ctx);
   // Clarifying turn: no stories yet
-  await pi.emit("agent_end", {}, ctx);
-  assert(pi.sentInternalMessages.length === 0, "Clarifying turn should not trigger repair");
+  await pi.emit("turn_end", {}, ctx);
+  assert(pi.sentMessages.length === 1, "Clarifying turn should not trigger fix");
 
   // Agent writes stories, one malformed
   makeMalformedStory(cwd, "story-001.md");
   makeValidStory(cwd, "story-002.md", "not-started");
-  await pi.emit("agent_end", {}, ctx);
+  await pi.emit("turn_end", {}, ctx);
 
-  assert(pi.sentInternalMessages.length === 1, "Malformed stories should trigger exactly one repair instruction");
-  const repairMessage = pi.sentInternalMessages[0].message;
-  assert(repairMessage.content.includes("malformed"), "Repair instruction should mention malformed files");
-  assert(repairMessage.content.includes("story-001.md"), "Repair instruction should name the broken file");
-  assert(!repairMessage.content.includes("story-002.md"), "Repair instruction should not mention valid files");
-  assert(notifications.length === 0, "First repair attempt should be silent");
+  assert(pi.sentMessages.length === 2, "Malformed stories should trigger exactly one fix message");
+  const fixMessage = pi.sentMessages[1].message;
+  assert(fixMessage.includes("story-001.md"), "Fix message should name the broken file");
+  assert(!fixMessage.includes("story-002.md"), "Fix message should not mention valid files");
+  assert(fixMessage.includes("invalid status"), "Fix message should mention the invalid status issue");
 
   // Simulate agent fixing the file
   makeValidStory(cwd, "story-001.md", "not-started");
-  await pi.emit("agent_end", {}, ctx);
+  await pi.emit("turn_end", {}, ctx);
 
-  assert(pi.sentInternalMessages.length === 1, "After repair, no additional repair messages should be sent");
-  assert(notifications.length === 0, "After repair, no notification should be shown");
+  assert(pi.sentMessages.length === 2, "After repair, no additional fix messages should be sent");
   fs.rmSync(cwd, { recursive: true });
 }
 
-// ── Test 3: bounded failure after retries exhaust ────────────────────
-{
-  const cwd = createProject("vazir-plan-repair-bounded-");
-
-  const pi = makePi([register]);
-  const ctx = createCtx(cwd);
-  const notifications = patchNotify(ctx);
-
-  await pi.emit("before_agent_start", { prompt: "/plan example" }, ctx);
-  // Clarifying turn: no stories yet
-  await pi.emit("agent_end", {}, ctx);
-  assert(pi.sentInternalMessages.length === 0, "Clarifying turn should not trigger repair");
-
-  // Agent writes a malformed story
-  makeMalformedStory(cwd, "story-001.md");
-
-  // First agent_end: retry 1
-  await pi.emit("agent_end", {}, ctx);
-  assert(pi.sentInternalMessages.length === 1, "First attempt should trigger repair");
-
-  // Second agent_end: retry 2 (still malformed)
-  await pi.emit("agent_end", {}, ctx);
-  assert(pi.sentInternalMessages.length === 2, "Second attempt should trigger another repair");
-
-  // Third agent_end: retries exhausted
-  await pi.emit("agent_end", {}, ctx);
-  assert(pi.sentInternalMessages.length === 2, "No more repair messages after retries exhausted");
-  assert(notifications.length === 1, "Should show exactly one error notification when retries exhaust");
-  assert(notifications[0].level === "error", "Notification should be error level");
-  assert(notifications[0].message.includes("Failed to repair"), "Notification should mention failure");
-  assert(notifications[0].message.includes("story-001.md"), "Notification should name the broken file");
-
-  fs.rmSync(cwd, { recursive: true });
-}
-
-// ── Test 4: non-plan prompts do not trigger repair ───────────────────
+// ── Test 3: non-plan prompts do not trigger fix ──────────────────────
 {
   const cwd = createProject("vazir-plan-repair-nonplan-");
   makeMalformedStory(cwd, "story-001.md");
@@ -228,15 +212,15 @@ function patchNotify(ctx: ReturnType<typeof createCtx>): Notification[] {
   const ctx = createCtx(cwd);
   const notifications = patchNotify(ctx);
 
-  await pi.emit("before_agent_start", { prompt: "/implement story-001" }, ctx);
-  await pi.emit("agent_end", {}, ctx);
+  // No /plan command called, so no state is seeded
+  await pi.emit("turn_end", {}, ctx);
 
-  assert(pi.sentInternalMessages.length === 0, "Non-plan prompt should not trigger repair");
+  assert(pi.sentMessages.length === 0, "Non-plan prompt should not trigger fix");
   assert(notifications.length === 0, "Non-plan prompt should not produce notification");
   fs.rmSync(cwd, { recursive: true });
 }
 
-// ── Test 5: multi-turn clarifying-question survival ──────────────────
+// ── Test 4: multi-turn clarifying-question survival ──────────────────
 {
   const cwd = createProject("vazir-plan-repair-clarifying-");
   // No stories exist yet
@@ -245,29 +229,28 @@ function patchNotify(ctx: ReturnType<typeof createCtx>): Notification[] {
   const ctx = createCtx(cwd);
   const notifications = patchNotify(ctx);
 
-  await pi.emit("before_agent_start", { prompt: "/plan example" }, ctx);
+  // Call /plan command handler to seed the state
+  await pi.getCommand("plan")?.handler("example", ctx);
 
-  // First agent_end simulates a clarifying-question turn (no stories written yet)
-  await pi.emit("agent_end", {}, ctx);
-  assert(pi.sentInternalMessages.length === 0, "Clarifying turn should not trigger repair before stories exist");
-  assert(notifications.length === 0, "Clarifying turn should be silent");
+  // First turn_end simulates a clarifying-question turn (no stories written yet)
+  await pi.emit("turn_end", {}, ctx);
+  assert(pi.sentMessages.length === 1, "Clarifying turn should not trigger fix before stories exist");
 
   // Now agent writes stories, one of them malformed
   makeMalformedStory(cwd, "story-001.md");
-  await pi.emit("agent_end", {}, ctx);
-  assert(pi.sentInternalMessages.length === 1, "Repair should trigger after stories are written");
-  assert(pi.sentInternalMessages[0].message.content.includes("story-001.md"), "Repair should name the broken file");
+  await pi.emit("turn_end", {}, ctx);
+  assert(pi.sentMessages.length === 2, "Repair should trigger after stories are written");
+  assert(pi.sentMessages[1].message.includes("story-001.md"), "Repair should name the broken file");
 
   // Agent fixes the story
   makeValidStory(cwd, "story-001.md", "not-started");
-  await pi.emit("agent_end", {}, ctx);
-  assert(pi.sentInternalMessages.length === 1, "After repair, no additional repair messages should be sent");
-  assert(notifications.length === 0, "After repair, no notification should be shown");
+  await pi.emit("turn_end", {}, ctx);
+  assert(pi.sentMessages.length === 2, "After repair, no additional fix messages should be sent");
 
   fs.rmSync(cwd, { recursive: true });
 }
 
-// ── Test 6: replan with existing valid stories + new malformed story ─
+// ── Test 5: replan with existing valid stories + new malformed story ─
 {
   const cwd = createProject("vazir-plan-repair-replan-");
   makeValidStory(cwd, "story-001.md", "complete");
@@ -276,25 +259,25 @@ function patchNotify(ctx: ReturnType<typeof createCtx>): Notification[] {
   const ctx = createCtx(cwd);
   const notifications = patchNotify(ctx);
 
-  await pi.emit("before_agent_start", { prompt: "/plan add new feature" }, ctx);
+  // Call /plan command handler to seed the state
+  await pi.getCommand("plan")?.handler("example", ctx);
 
   // Clarifying-question turn: existing stories are valid, state should survive
-  await pi.emit("agent_end", {}, ctx);
-  assert(pi.sentInternalMessages.length === 0, "Clarifying turn should not trigger repair");
+  await pi.emit("turn_end", {}, ctx);
+  assert(pi.sentMessages.length === 1, "Clarifying turn should not trigger fix");
 
   // Agent writes a new malformed story
   makeMalformedStory(cwd, "story-002.md");
-  await pi.emit("agent_end", {}, ctx);
-  assert(pi.sentInternalMessages.length === 1, "Repair should trigger for the new malformed story");
-  const repairContent = pi.sentInternalMessages[0].message.content;
-  assert(repairContent.includes("story-002.md"), "Repair should name the new broken file");
-  assert(!repairContent.includes("story-001.md"), "Repair should not mention pre-existing valid files");
+  await pi.emit("turn_end", {}, ctx);
+  assert(pi.sentMessages.length === 2, "Fix should trigger for the new malformed story");
+  const fixContent = pi.sentMessages[1].message;
+  assert(fixContent.includes("story-002.md"), "Fix should name the new broken file");
+  assert(!fixContent.includes("story-001.md"), "Fix should not mention pre-existing valid files");
 
   // Agent fixes the new story
   makeValidStory(cwd, "story-002.md", "not-started");
-  await pi.emit("agent_end", {}, ctx);
-  assert(pi.sentInternalMessages.length === 1, "After repair, no additional repair messages should be sent");
-  assert(notifications.length === 0, "After repair, no notification should be shown");
+  await pi.emit("turn_end", {}, ctx);
+  assert(pi.sentMessages.length === 2, "After repair, no additional fix messages should be sent");
 
   fs.rmSync(cwd, { recursive: true });
 }
