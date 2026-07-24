@@ -1,0 +1,17 @@
+{
+  "note": "Two reusable rules emerged from the /plan stall and its review: explicit write commands at workflow boundaries, and explicit enumeration of formatting invariants in generator instructions.",
+  "candidates": [
+    {
+      "text": "When an agent instruction transitions from information-gathering to file creation, it must explicitly command the write action, name the target files, and forbid waiting for user confirmation before writing.",
+      "confidence": "high",
+      "sources": ["story issue", "review finding"],
+      "rationale": "The /plan stall occurred because the instruction said 'Then proceed' after the boundary phrase, which the agent interpreted as optional. The fix required explicit language ('immediately write all new story files using the write tool', name plan.md and intake-brief.md, 'Do not wait for the user to confirm')."
+    },
+    {
+      "text": "When an instruction or template generates files that downstream validators enforce format invariants on, the instruction must enumerate those invariants explicitly rather than relying solely on a copy-paste template.",
+      "confidence": "medium",
+      "sources": ["review finding"],
+      "rationale": "Condensing /plan's formatting rules into a single line removed explicit statements about frontmatter trailing spaces, exact heading format, and required sections, creating a regression risk for malformed stories even though the template still showed them."
+    }
+  ]
+}

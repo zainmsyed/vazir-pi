@@ -14,7 +14,7 @@ Make `/plan` self-heal malformed generated story files by running a bounded inte
 ## Verification
 Simulate `/plan` output that contains malformed story status values and checklist formatting, then verify Vazir detects the invalid files, sends a targeted repair pass, rewrites the same story files in place, revalidates them, and only returns success once all generated stories pass validation. Verify bounded retries fail cleanly if repair cannot converge.
 
-## Scope
+## Scope — files this story may touch
 - `.pi/extensions/vazir-context/index.ts`
 - planning helpers that write and re-read generated story files
 - targeted repair-loop prompt/instruction wiring
@@ -22,13 +22,15 @@ Simulate `/plan` output that contains malformed story status values and checklis
 - `.context/stories/plan.md`
 - `.context/stories/story-056.md`
 
-## Out of scope
+## Out of scope — do not touch
 - Defensive validation for later manual story drift outside `/plan`
 - Broader `/plan` regeneration redesign beyond malformed-story repair
 - Auto-fixing unrelated markdown files outside the generated story set
 
 ## Dependencies
 - story-055
+
+---
 
 ## Checklist
 - [x] Trace where `/plan` currently writes generated stories and hands control back to the user
@@ -37,8 +39,12 @@ Simulate `/plan` output that contains malformed story status values and checklis
 - [x] Keep the happy path silent while surfacing a clear failure only when retries exhaust without valid stories
 - [x] Add regression coverage for already-valid output, successful repair after malformed output, and bounded failure when repair cannot converge
 
+---
+
 ## Issues
 - None yet.
+
+---
 
 ## Completion Summary
 
