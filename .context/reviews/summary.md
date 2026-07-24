@@ -1,8 +1,9 @@
 # Review Summary
 
-**Last updated:** 2026-07-23T14:42:09Z
+**Last updated:** 2026-07-24T00:20:17Z
 
 ## Findings
+- `/plan` instructions must enumerate every formatting invariant that downstream story-file validators enforce. | count: 1 | status: tracked | sources: review-20260724-001406.md | stories: story-059
 - Add regression coverage for both repo-root and nested-directory execution whenever repository detection drives command routing. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - After extracting helpers to a new module, delete the original copies to prevent drift and confusion. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - After extracting or migrating UI behavior to a new helper, remove the now-unused import from the original consumer so the compiler/loader doesn't drag in dead code. | count: 1 | status: tracked | sources: review-20260529-215920.md | stories: story-036

@@ -282,5 +282,42 @@ function patchNotify(ctx: ReturnType<typeof createCtx>): Notification[] {
   fs.rmSync(cwd, { recursive: true });
 }
 
+// ── Test 6: /plan instruction explicitly directs the agent to write files ──
+{
+  const cwd = createProject("vazir-plan-instruction-");
+
+  const pi = makePi([register]);
+  const ctx = createCtx(cwd);
+
+  await pi.getCommand("plan")?.handler("example", ctx);
+  assert(pi.sentMessages.length === 1, "/plan handler should send exactly one instruction message");
+  const instruction = pi.sentMessages[0].message;
+
+  assert(instruction.includes("I have what I need — writing the plan and stories now."), "Instruction should include the boundary phrase");
+  assert(
+    /immediately write|write all new story files|write files/i.test(instruction),
+    "Instruction must explicitly direct the agent to write story files after the boundary phrase",
+  );
+  assert(instruction.includes("write tool"), "Instruction must tell the agent to use the write tool");
+  assert(instruction.includes(".context/stories/plan.md"), "Instruction must name plan.md as a file to write");
+  assert(instruction.includes(".context/stories/intake-brief.md"), "Instruction must name intake-brief.md as a file to write");
+  assert(
+    /do not wait|without waiting|before asking|without asking/i.test(instruction),
+    "Instruction must tell the agent not to wait for confirmation before writing files",
+  );
+  assert(
+    /after all files are written/i.test(instruction),
+    "Instruction must defer final presentation until after files are written",
+  );
+  assert(instruction.includes("exactly two trailing spaces"), "Instruction must preserve the frontmatter trailing-space rule");
+  assert(instruction.includes("'# Story NNN: Title'"), "Instruction must preserve the exact heading rule");
+  assert(
+    instruction.includes("Goal, Verification, Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary"),
+    "Instruction must preserve the required-sections rule",
+  );
+
+  fs.rmSync(cwd, { recursive: true });
+}
+
 cleanupStubModules(stubModuleDirs);
 console.log("validate-vazir-plan-repair: all tests passed");

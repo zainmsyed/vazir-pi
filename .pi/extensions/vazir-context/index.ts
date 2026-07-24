@@ -1849,17 +1849,9 @@ export default function (pi: ExtensionAPI) {
         "",
         "Your job:",
         `1. Read .context/stories/intake-brief.md first.${planningSources.length > 0 ? ` Sources: ${planningSourcesList}.` : ""}`,
-        planningSources.length > 0
-          ? "   Read intake sources before asking anything. Skim large files selectively."
-          : "",
-        "2. Ask exactly ONE clarifying question at a time. Wait for the answer before asking the next. Do NOT ask multiple questions in one turn.",
-        "   Only ask about genuinely missing or conflicting information. Do not list, number, or categorize questions.",
-        "   Default questions if still unclear after review:",
-        "   - Who are the users?",
-        "   - What's the most important thing to get right in v1?",
-        "   - What are we explicitly NOT building in v1?",
-        "   - What stack are we using / what already exists?",
-        "3. Once you have enough to write stories, say: 'I have what I need — writing the plan and stories now.' Then proceed.",
+        planningSources.length > 0 ? "   Read intake sources before asking anything. Skim large files selectively." : "",
+        "2. Ask exactly ONE clarifying question at a time. Wait for the answer before asking the next. Do NOT ask multiple questions in one turn. Only ask about genuinely missing or conflicting information. Do not list, number, or categorize questions. If still unclear after review, ask: Who are the users? What's the most important thing to get right in v1? What are we explicitly NOT building in v1? What stack are we using / what already exists?",
+        "3. Once you have enough information, STOP asking clarifying questions. Say 'I have what I need — writing the plan and stories now.' Then immediately write all new story files using the write tool, update .context/stories/plan.md, and update .context/stories/intake-brief.md. Do not wait for the user to confirm before writing files.",
         `4. Update .context/stories/intake-brief.md with the final distilled answers. Current brief: ${planningBrief}`,
         planExists
           ? "5. Update .context/stories/plan.md as an addendum: keep existing queue rows, append only new rows, and add a replanning log entry."
@@ -1875,11 +1867,10 @@ export default function (pi: ExtensionAPI) {
         "   - All sections must be present: Goal, Verification, Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary.",
         "   - Checklist items must be exactly '- [ ] task' or '- [x] task'. No other prefixes, no bullet-only lines.",
         "   - Include 4–7 checklist items per story; 7 is a hard cap.",
-        "",
         "   Copy-paste template (fill in bracketed placeholders):",
         ...buildStoryPromptTemplate(0, "[Title]").split("\n").map(line => "   " + line),
         `8. Number any new stories from ${nextStoryNumber(cwd)}.`,
-        "9. Present the final story list to the user and ask if anything needs adjusting.",
+        "9. AFTER all files are written, present the final story list to the user and ask if anything needs adjusting.",
         "",
         planModeNote,
       ].filter(Boolean).join("\n");

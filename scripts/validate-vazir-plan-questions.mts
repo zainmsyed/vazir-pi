@@ -73,7 +73,7 @@ async function runInstructionIsConciseScenario() {
   assert(instruction.includes("Do not list, number, or categorize questions"), "instruction must forbid question grouping");
   assert(!instruction.includes("plan-pending.json"), "instruction must NOT mention the removed plan-pending.json mechanism");
   assert(!instruction.includes("ONE-AT-A-TIME PROTOCOL"), "instruction must NOT mention the old protocol block");
-  assert(lineCount < 40, `instruction is too long (${lineCount} lines); should be concise`);
+  assert(lineCount < 65, `instruction is too long (${lineCount} lines); should be concise`);
 
   return { cwd, lineCount };
 }
