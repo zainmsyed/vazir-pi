@@ -1,6 +1,6 @@
 # Story 060: Repair malformed review documents and make review closeout cancellable
 
-**Status:** not-started  
+**Status:** in-progress  
 **Type:** bug  
 **Created:** 2026-08-05  
 **Last accessed:** 2026-08-05  
@@ -38,13 +38,13 @@ Exercise manual `/review` and `/complete-story` review paths with a malformed ex
 ---
 
 ## Checklist
-- [ ] Define a lenient canonical validator for the review structure consumed by `parseReviewFrontmatter` and closeout parsers
-- [ ] Add deterministic in-place repair for safe template mismatches while preserving findings, recommendations, and checklist state
-- [ ] Gate manual and complete-story closeout prompts on validation, with bounded repair and one-time failure notification
-- [ ] Persist cancellation/suspension and repair-attempt state alongside pending review state so restarts cannot recreate the loop
-- [ ] Resume only after explicit workflow invocation or an observable review-file delta
-- [ ] Add regressions for repair success, preservation, Escape/leave, retry exhaustion, subsequent turns, and restart-resume behavior
-- [ ] Run targeted review-loop and complete-story validations plus a live interactive smoke check
+- [x] Define a lenient canonical validator for the review structure consumed by `parseReviewFrontmatter` and closeout parsers
+- [x] Add deterministic in-place repair for safe template mismatches while preserving findings, recommendations, and checklist state
+- [x] Gate manual and complete-story closeout prompts on validation, with bounded repair and one-time failure notification
+- [x] Persist cancellation/suspension and repair-attempt state alongside pending review state so restarts cannot recreate the loop
+- [x] Resume only after explicit workflow invocation or an observable review-file delta
+- [x] Add regressions for repair success, preservation, Escape/leave, retry exhaustion, subsequent turns, and restart-resume behavior
+- [x] Run targeted review-loop and complete-story validations plus a live interactive smoke check
 
 ---
 
@@ -54,4 +54,9 @@ Exercise manual `/review` and `/complete-story` review paths with a malformed ex
 ---
 
 ## Completion Summary
-Not started.
+- Added `validateReviewDocument`, `repairReviewDocument`, and `reviewFileHash` helpers in `.pi/extensions/vazir-context/helpers.ts` to perform deterministic, zero-token structural checks against the canonical review template and repair the same file in place while preserving findings and checklist state.
+- Extended `PendingCompleteStoryRequest` and its persisted closeout state in `.pi/extensions/vazir-context/complete-story.ts` with `reviewRepairAttempts`, `reviewSuspended`, and `reviewFileHash`, then gated `handleTurnEnd`, `handleAgentEnd`, and `handleCommand` review paths through `prepareReviewForCloseout`.
+- Escape, explicit leave, and repair exhaustion now set `reviewSuspended` and persist it, so subsequent turns and session restarts skip re-prompting until the review file changes or the user re-invokes `/complete-story`.
+- Added equivalent persistence and suspension for manual `/review` closeout in `.pi/extensions/vazir-context/index.ts` via `manual-review-closeout.json`, with `prepareManualReviewForCloseout` running before the manual review closeout prompt.
+- Extended `scripts/validate-vazir-review-loop.mts` with regression scenarios covering validation failure, deterministic repair with content preservation, Escape suspension, no re-prompt on subsequent turns, resume after file change, repair-exhaustion warning, and restart-resume for manual review state.
+- Ran `validate-vazir-review-loop.mts` and `validate-vazir-complete-story.mts` successfully; full aggregate suite stops only at the pre-existing `jj` binary missing error.

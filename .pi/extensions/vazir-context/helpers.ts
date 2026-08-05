@@ -1625,6 +1625,202 @@ export function parseReviewFrontmatter(filePath: string): ReviewFrontmatter | nu
   };
 }
 
+export type ReviewDocumentIssueCode =
+  | "missing-file"
+  | "empty-file"
+  | "missing-frontmatter-key"
+  | "invalid-status"
+  | "invalid-scope"
+  | "missing-section";
+
+export interface ReviewDocumentIssue {
+  code: ReviewDocumentIssueCode;
+  message: string;
+  line?: number;
+}
+
+export interface ReviewDocumentValidationResult {
+  valid: boolean;
+  issues: ReviewDocumentIssue[];
+}
+
+const REQUIRED_REVIEW_FRONTMATTER_KEYS = [
+  "Status",
+  "Created",
+  "Completed",
+  "Scope",
+  "Story",
+  "Focus",
+  "Trigger",
+];
+
+const VALID_REVIEW_STATUS_VALUES = new Set(["in-progress", "complete"]);
+const VALID_REVIEW_SCOPE_VALUES = new Set(["story", "whole-codebase"]);
+const REQUIRED_REVIEW_SECTIONS = [
+  "Goal",
+  "Checklist",
+  "Findings",
+  "Fallow Findings",
+  "Recommended Fixes",
+  "Other Fixes",
+  "Completion Summary",
+];
+
+export function validateReviewDocument(filePath: string): ReviewDocumentValidationResult {
+  const issues: ReviewDocumentIssue[] = [];
+
+  if (!fs.existsSync(filePath)) {
+    return { valid: false, issues: [{ code: "missing-file", message: `Review file does not exist: ${filePath}` }] };
+  }
+
+  const content = readIfExists(filePath);
+  if (!content.trim()) {
+    return { valid: false, issues: [{ code: "empty-file", message: `Review file is empty: ${filePath}` }] };
+  }
+
+  const lines = content.split("\n");
+
+  for (const key of REQUIRED_REVIEW_FRONTMATTER_KEYS) {
+    const pattern = new RegExp(`^\\*\\*${key}:\\*\\*\\s+.+$`, "m");
+    if (!pattern.test(content)) {
+      issues.push({ code: "missing-frontmatter-key", message: `Missing or empty frontmatter key: ${key}` });
+    }
+  }
+
+  const statusMatch = content.match(/^\*\*Status:\*\*\s*(.+)$/m);
+  if (statusMatch) {
+    const status = statusMatch[1].trim().toLowerCase();
+    if (!VALID_REVIEW_STATUS_VALUES.has(status)) {
+      issues.push({ code: "invalid-status", message: `Invalid status value: "${statusMatch[1].trim()}"` });
+    }
+  }
+
+  const scopeMatch = content.match(/^\*\*Scope:\*\*\s*(.+)$/m);
+  if (scopeMatch) {
+    const scope = scopeMatch[1].trim().toLowerCase();
+    if (!VALID_REVIEW_SCOPE_VALUES.has(scope)) {
+      issues.push({ code: "invalid-scope", message: `Invalid scope value: "${scopeMatch[1].trim()}"` });
+    }
+  }
+
+  const missingSections = new Set(REQUIRED_REVIEW_SECTIONS);
+  for (const line of lines) {
+    if (line.startsWith("## ")) {
+      const heading = line.slice(3).trim();
+      missingSections.delete(heading);
+    }
+  }
+
+  for (const missing of missingSections) {
+    issues.push({ code: "missing-section", message: `Missing required section: ## ${missing}` });
+  }
+
+  return { valid: issues.length === 0, issues };
+}
+
+export function reviewFileHash(filePath: string): string {
+  try {
+    const content = fs.readFileSync(filePath, "utf-8");
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash |= 0;
+    }
+    return hash.toString(16);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeReviewFrontmatterLine(content: string, key: string, defaultValue: string): string {
+  const pattern = new RegExp(`^(\\*\\*${key}:\\*\\*)\\s*.*$`, "m");
+  if (pattern.test(content)) {
+    return content.replace(pattern, `$1 ${defaultValue}`);
+  }
+  const frontmatterEnd = content.search(/\n\n/);
+  const insertPosition = frontmatterEnd >= 0 ? frontmatterEnd : 0;
+  const before = content.slice(0, insertPosition);
+  const after = content.slice(insertPosition);
+  return `${before}${before.endsWith("\n") ? "" : "\n"}**${key}:** ${defaultValue}${after}`;
+}
+
+function ensureReviewSection(content: string, heading: string, placeholder: string): string {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(^|\\n)## ${escapedHeading}\\n`, "m");
+  if (pattern.test(content)) return content;
+  const separator = content.endsWith("\n") ? "" : "\n";
+  return `${content}${separator}\n## ${heading}\n${placeholder}\n`;
+}
+
+export function repairReviewDocument(filePath: string): { ok: boolean; repaired: boolean; issues: ReviewDocumentIssue[] } {
+  if (!fs.existsSync(filePath)) {
+    return { ok: false, repaired: false, issues: [{ code: "missing-file", message: `Review file does not exist: ${filePath}` }] };
+  }
+
+  let content = readIfExists(filePath);
+  if (!content.trim()) {
+    return { ok: false, repaired: false, issues: [{ code: "empty-file", message: `Review file is empty: ${filePath}` }] };
+  }
+
+  let updated = content;
+  const today = todayDate();
+
+  const statusMatch = updated.match(/^\*\*Status:\*\*\s*(.+)$/m);
+  if (!statusMatch) {
+    updated = normalizeReviewFrontmatterLine(updated, "Status", "in-progress");
+  } else {
+    const status = statusMatch[1].trim().toLowerCase();
+    if (!VALID_REVIEW_STATUS_VALUES.has(status)) {
+      const replacement = status === "completed" || status === "done" ? "complete" : "in-progress";
+      updated = updated.replace(/^\*\*Status:\*\*\s*.+$/m, `**Status:** ${replacement}`);
+    }
+  }
+
+  if (!/^\*\*Created:\*\*\s*.+$/m.test(updated)) {
+    updated = normalizeReviewFrontmatterLine(updated, "Created", today);
+  }
+  if (!/^\*\*Completed:\*\*\s*.+$/m.test(updated)) {
+    updated = normalizeReviewFrontmatterLine(updated, "Completed", "—");
+  }
+  if (!/^\*\*Scope:\*\*\s*.+$/m.test(updated)) {
+    updated = normalizeReviewFrontmatterLine(updated, "Scope", "story");
+  } else {
+    const scopeMatch = updated.match(/^\*\*Scope:\*\*\s*(.+)$/m);
+    if (scopeMatch) {
+      const scope = scopeMatch[1].trim().toLowerCase();
+      if (!VALID_REVIEW_SCOPE_VALUES.has(scope)) {
+        updated = updated.replace(/^\*\*Scope:\*\*\s*.+$/m, "**Scope:** story");
+      }
+    }
+  }
+  if (!/^\*\*Story:\*\*\s*.+$/m.test(updated)) {
+    updated = normalizeReviewFrontmatterLine(updated, "Story", "—");
+  }
+  if (!/^\*\*Focus:\*\*\s*.+$/m.test(updated)) {
+    updated = normalizeReviewFrontmatterLine(updated, "Focus", "—");
+  }
+  if (!/^\*\*Trigger:\*\*\s*.+$/m.test(updated)) {
+    updated = normalizeReviewFrontmatterLine(updated, "Trigger", "manual");
+  }
+
+  updated = ensureReviewSection(updated, "Goal", "Review the requested scope for issues.");
+  updated = ensureReviewSection(updated, "Checklist", "- [ ] Inspect the relevant diff and touched files");
+  updated = ensureReviewSection(updated, "Findings", "### Finding 1\n- Severity: medium\n- Category: bug\n- Summary: \n- Evidence: \n- Recommendation: \n- Rule candidate: —\n");
+  updated = ensureReviewSection(updated, "Fallow Findings", "- No Fallow findings.");
+  updated = ensureReviewSection(updated, "Recommended Fixes", "[Add one checklist item per finding using `- [ ] severity — action`.]");
+  updated = ensureReviewSection(updated, "Other Fixes", "[Add any additional follow-up tasks here.]");
+  updated = ensureReviewSection(updated, "Completion Summary", "[Summarize the review outcome.]");
+
+  const repaired = updated !== content;
+  if (repaired) {
+    fs.writeFileSync(filePath, updated);
+  }
+
+  const afterValidation = validateReviewDocument(filePath);
+  return { ok: afterValidation.valid, repaired, issues: afterValidation.issues };
+}
+
 export function reviewContributesToSummary(filePath: string): boolean {
   const review = parseReviewFrontmatter(filePath);
   if (!review) return true;

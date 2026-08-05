@@ -75,13 +75,16 @@ import {
   isUiStory,
   prepareLearnedRulesForConsolidation,
   parseReviewFrontmatter,
+  repairReviewDocument,
   reviewFallowFindingsFromFile,
+  reviewFileHash,
   reviewFindingsFromFile,
   reviewRecommendedFixesFromFile,
   reviewOtherFixesFromFile,
   reviewRecommendedFixesFromFindings,
   reviewDetailFiles,
   activeStoryLabelForManualReview,
+  validateReviewDocument,
   defaultReviewFocus,
   defaultStoryLabelForReview,
   detectGitRepo,
@@ -213,7 +216,134 @@ let lastUserPrompt = "";
 let useJJ = false;
 let pendingInitSummary: string | null = null;
 const storyFrontmatterSnapshots = new Map<string, Map<string, { status: string; completed: string }>>();
-type PendingManualReviewRequest = { reviewFile: string; reviewCloseoutReady?: boolean };
+type PendingManualReviewRequest = {
+  reviewFile: string;
+  reviewCloseoutReady?: boolean;
+  repairAttempts?: number;
+  suspended?: boolean;
+  reviewFileHash?: string;
+};
+
+const MAX_MANUAL_REVIEW_REPAIR_ATTEMPTS = 2;
+
+function manualReviewCloseoutStatePath(cwd: string): string {
+  return path.join(settingsDir(cwd), "manual-review-closeout.json");
+}
+
+function persistManualReviewCloseoutState(cwd: string, request: PendingManualReviewRequest): void {
+  const statePath = manualReviewCloseoutStatePath(cwd);
+  try {
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.writeFileSync(statePath, JSON.stringify(request, null, 2));
+  } catch {
+    /* ignore persistence failures */
+  }
+}
+
+function readPersistedManualReviewCloseoutState(cwd: string): PendingManualReviewRequest | null {
+  const statePath = manualReviewCloseoutStatePath(cwd);
+  if (!fs.existsSync(statePath)) return null;
+  try {
+    const raw = JSON.parse(fs.readFileSync(statePath, "utf-8"));
+    if (!raw || typeof raw !== "object") return null;
+    const reviewFile = typeof raw.reviewFile === "string" ? raw.reviewFile.trim() : "";
+    if (!reviewFile || !fs.existsSync(reviewFile)) return null;
+    return {
+      reviewFile,
+      reviewCloseoutReady: typeof raw.reviewCloseoutReady === "boolean" ? raw.reviewCloseoutReady : false,
+      repairAttempts: typeof raw.repairAttempts === "number" ? raw.repairAttempts : 0,
+      suspended: typeof raw.suspended === "boolean" ? raw.suspended : false,
+      reviewFileHash: typeof raw.reviewFileHash === "string" ? raw.reviewFileHash : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clearPersistedManualReviewCloseoutState(cwd: string): void {
+  const statePath = manualReviewCloseoutStatePath(cwd);
+  try {
+    if (fs.existsSync(statePath)) fs.rmSync(statePath, { force: true });
+  } catch {
+    /* ignore cleanup failures */
+  }
+}
+
+function setPendingManualReviewRequest(
+  pendingRequests: Map<string, PendingManualReviewRequest>,
+  cwd: string,
+  request: PendingManualReviewRequest,
+): PendingManualReviewRequest {
+  pendingRequests.set(cwd, request);
+  persistManualReviewCloseoutState(cwd, request);
+  return request;
+}
+
+function hasManualReviewFileChanged(reviewFilePath: string, previousHash?: string): boolean {
+  if (!fs.existsSync(reviewFilePath)) return previousHash !== undefined;
+  return reviewFileHash(reviewFilePath) !== previousHash;
+}
+
+function prepareManualReviewForCloseout(
+  pendingRequests: Map<string, PendingManualReviewRequest>,
+  ctx: any,
+  cwd: string,
+  request: PendingManualReviewRequest,
+): { ok: boolean; repaired: boolean } {
+  const reviewFilePath = request.reviewFile;
+  if (!reviewFilePath) return { ok: true, repaired: false };
+
+  const changed = hasManualReviewFileChanged(reviewFilePath, request.reviewFileHash);
+  const currentHash = fs.existsSync(reviewFilePath) ? reviewFileHash(reviewFilePath) : "";
+
+  if (request.suspended && !changed) {
+    return { ok: false, repaired: false };
+  }
+
+  if (request.suspended && changed) {
+    request.suspended = false;
+    request.repairAttempts = 0;
+  }
+
+  const validation = validateReviewDocument(reviewFilePath);
+  if (validation.valid) {
+    request.reviewFileHash = currentHash;
+    setPendingManualReviewRequest(pendingRequests, cwd, request);
+    return { ok: true, repaired: false };
+  }
+
+  const attempts = request.repairAttempts ?? 0;
+  if (attempts < MAX_MANUAL_REVIEW_REPAIR_ATTEMPTS) {
+    const repair = repairReviewDocument(reviewFilePath);
+    request.repairAttempts = attempts + 1;
+    request.reviewFileHash = currentHash;
+    setPendingManualReviewRequest(pendingRequests, cwd, request);
+
+    if (repair.ok) {
+      return { ok: true, repaired: true };
+    }
+  }
+
+  request.suspended = true;
+  request.reviewFileHash = currentHash;
+  setPendingManualReviewRequest(pendingRequests, cwd, request);
+  const reviewLabel = path.relative(cwd, reviewFilePath).replace(/\\/g, "/");
+  ctx.ui.notify(
+    `Review ${reviewLabel} could not be automatically repaired after ${request.repairAttempts ?? 1} attempt${(request.repairAttempts ?? 1) === 1 ? "" : "s"}. Fix the document structure manually, then re-run /review.`,
+    "warning",
+  );
+  return { ok: false, repaired: false };
+}
+
+function suspendManualReview(
+  pendingRequests: Map<string, PendingManualReviewRequest>,
+  cwd: string,
+  request: PendingManualReviewRequest,
+): void {
+  request.suspended = true;
+  request.reviewFileHash = request.reviewFile ? reviewFileHash(request.reviewFile) : "";
+  setPendingManualReviewRequest(pendingRequests, cwd, request);
+}
 const pendingCompleteStoryRequests = new Map<string, PendingCompleteStoryRequest>();
 const pendingManualReviewRequests = new Map<string, PendingManualReviewRequest>();
 const approvedStoryCloseouts = new Map<string, Set<string>>();
@@ -1168,17 +1298,25 @@ export default function (pi: ExtensionAPI) {
     }
 
     // ── Manual review closeout ──────────────────────────────────────────
-    const pendingManualReview = pendingManualReviewRequests.get(cwd);
+    let pendingManualReview = pendingManualReviewRequests.get(cwd);
+    if (!pendingManualReview) {
+      const persisted = readPersistedManualReviewCloseoutState(cwd);
+      if (persisted) pendingManualReview = setPendingManualReviewRequest(pendingManualReviewRequests, cwd, persisted);
+    }
     if (!pendingManualReview) return;
+
+    const preparation = prepareManualReviewForCloseout(pendingManualReviewRequests, ctx, cwd, pendingManualReview);
+    if (!preparation.ok) return;
 
     const reviewFrontmatter = parseReviewFrontmatter(pendingManualReview.reviewFile);
     const canResumeCloseout = pendingManualReview.reviewCloseoutReady === true;
     if (reviewFrontmatter?.status !== "complete" && !canResumeCloseout) return;
 
     pendingManualReviewRequests.set(cwd, {
-      reviewFile: pendingManualReview.reviewFile,
+      ...pendingManualReview,
       reviewCloseoutReady: true,
     });
+    persistManualReviewCloseoutState(cwd, pendingManualReviewRequests.get(cwd)!);
 
     recordCompletedReviewFallowFindings(cwd, pendingManualReview.reviewFile);
     const findings = reviewFindingsFromFile(pendingManualReview.reviewFile);
@@ -1189,14 +1327,21 @@ export default function (pi: ExtensionAPI) {
       : null;
     const targetNoun: ReviewCloseoutTarget = attachedStoryPath && fs.existsSync(attachedStoryPath) ? "story" : "review";
     const decision = await promptReviewFindingsCloseout(ctx, pendingManualReview.reviewFile, findings, targetNoun);
-    if (decision == null) return;
+    if (decision == null || decision === "not-yet") {
+      suspendManualReview(pendingManualReviewRequests, cwd, pendingManualReview);
+      return;
+    }
 
     if (decision === "fix-high" || decision === "fix-all") {
       const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
-      pendingManualReviewRequests.set(cwd, {
-        reviewFile: pendingManualReview.reviewFile,
+      const nextRequest: PendingManualReviewRequest = {
+        ...pendingManualReview,
         reviewCloseoutReady: false,
-      });
+        repairAttempts: 0,
+        suspended: false,
+      };
+      pendingManualReviewRequests.set(cwd, nextRequest);
+      persistManualReviewCloseoutState(cwd, nextRequest);
       resetReviewFileForRemediation(pendingManualReview.reviewFile);
       sendInternalAgentMessage(
         ctx,
@@ -1217,15 +1362,17 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    if (decision === "not-yet") return;
-
     let closeChoice: "close" | "close-commit" | null = decision === "close" || decision === "close-commit" ? decision : null;
     if (targetNoun === "story" && attachedStoryPath && closeChoice) {
       closeChoice = await resolveContextPersistenceChoice(ctx, attachedStoryPath, closeChoice);
-      if (closeChoice == null) return;
+      if (closeChoice == null) {
+        suspendManualReview(pendingManualReviewRequests, cwd, pendingManualReview);
+        return;
+      }
     }
 
     pendingManualReviewRequests.delete(cwd);
+    clearPersistedManualReviewCloseoutState(cwd);
     if (closeChoice === "close-commit" && targetNoun === "story" && attachedStoryPath) {
       completeApprovedStoryAndCommitNow(ctx, attachedStoryPath);
     } else if (closeChoice === "close" && targetNoun === "story" && attachedStoryPath) {
@@ -1940,9 +2087,20 @@ export default function (pi: ExtensionAPI) {
         scope = "whole-codebase";
       }
 
+      const persistedManual = readPersistedManualReviewCloseoutState(cwd);
+      if (persistedManual) {
+        pendingManualReviewRequests.set(cwd, persistedManual);
+      }
+
       const focus = parsed.focus || defaultReviewFocus(cwd, { scope, storyLabel });
       await startReviewFlow(ctx, { focus, scope, storyLabel, trigger: "manual" }, review => {
-        pendingManualReviewRequests.set(cwd, { reviewFile: review.filePath, reviewCloseoutReady: false });
+        clearPersistedManualReviewCloseoutState(cwd);
+        setPendingManualReviewRequest(pendingManualReviewRequests, cwd, {
+          reviewFile: review.filePath,
+          reviewCloseoutReady: false,
+          repairAttempts: 0,
+          suspended: false,
+        });
       });
     },
   });
