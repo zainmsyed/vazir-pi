@@ -19,7 +19,6 @@ import {
   fossilRepositoryPath,
   hasVcsSafetyPolicyText,
   listStories,
-  listStoryValidationIssues,
   nowISO,
   readActiveVcsMode,
   readIfExists,
@@ -30,7 +29,7 @@ import {
   todayDate,
   writeProjectSettings,
   updateStoryFrontmatter,
-  type StoryValidationIssue,
+  validateStoryFile,
   type VcsMirrorSettings,
 } from "../../lib/vazir-helpers.ts";
 import {
@@ -57,6 +56,7 @@ import {
   applyLocalRuleDedupe,
   assessStoryCompletionReadiness,
   brandPath,
+  buildStoryPromptTemplate,
   buildConsolidationInstruction,
   buildContextMapDraftInstruction,
   buildInitSummary,
@@ -218,8 +218,7 @@ const pendingCompleteStoryRequests = new Map<string, PendingCompleteStoryRequest
 const pendingManualReviewRequests = new Map<string, PendingManualReviewRequest>();
 const approvedStoryCloseouts = new Map<string, Set<string>>();
 const missingFallowNoticeShown = new Set<string>();
-const MAX_PLAN_REPAIR_RETRIES = 2;
-const pendingPlanRepairRequests = new Map<string, { retries: number; storyCountAtStart: number }>();
+const pendingPlanRepairRequests = new Map<string, { storyCountAtStart: number }>();
 type ManualReviewScope = "story" | "whole-codebase";
 type ReviewCloseoutTarget = "story" | "review";
 const INTERNAL_AGENT_MESSAGE_TYPE = "vazir-internal-request";
@@ -977,36 +976,23 @@ export default function (pi: ExtensionAPI) {
     );
   }
 
-  function isPlanPrompt(prompt: string): boolean {
-    return /^\s*\/plan\b/.test(prompt);
-  }
+  function checkStoryPitfalls(cwd: string): Array<{ file: string; issues: string[] }> | null {
+    const dir = storiesDir(cwd);
+    if (!fs.existsSync(dir)) return null;
 
-  function buildPlanRepairInstruction(cwd: string, issues: StoryValidationIssue[]): string {
-    const issuesByFile = new Map<string, StoryValidationIssue[]>();
-    for (const issue of issues) {
-      const fileIssues = issuesByFile.get(issue.file) ?? [];
-      fileIssues.push(issue);
-      issuesByFile.set(issue.file, fileIssues);
-    }
-
-    const parts = [
-      "Some generated story files are malformed and must be repaired before the plan is complete.",
-      "Fix ONLY the specific issues listed below. Edit the affected story files surgically — change only the malformed lines or fields. Do not regenerate entire files and do not alter content that is already correct.",
-      "",
-    ];
-
-    for (const [filePath, fileIssues] of issuesByFile) {
-      parts.push(`File: ${path.relative(cwd, filePath)}`);
-      for (const issue of fileIssues) {
-        parts.push(`  - ${issue.message}`);
+    const results: Array<{ file: string; issues: string[] }> = [];
+    for (const file of fs.readdirSync(dir).filter((n: string) => /^story-\d+\.md$/.test(n))) {
+      const filePath = path.join(dir, file);
+      const validation = validateStoryFile(filePath);
+      if (!validation.ok && validation.issues.length > 0) {
+        results.push({
+          file: path.relative(cwd, filePath),
+          issues: validation.issues.map(issue => issue.message),
+        });
       }
-      parts.push("");
     }
 
-    parts.push("After fixing, ensure every story file uses one of these statuses: not-started, in-progress, complete, retired.");
-    parts.push("Every story must include the required sections: Goal, Verification, Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary.");
-    parts.push("Every checklist item must be formatted as '- [ ] task' or '- [x] task'.");
-    return parts.join("\n");
+    return results.length > 0 ? results : null;
   }
 
   function markStoryCloseoutApproved(ctx: any, storyPath: string): void {
@@ -1074,14 +1060,6 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     storyFrontmatterSnapshots.set(ctx.cwd, snapshotStoryFrontmatter(ctx.cwd));
-
-    if (isPlanPrompt(event.prompt ?? "")) {
-      const storyDir = storiesDir(ctx.cwd);
-      const storyCountAtStart = fs.existsSync(storyDir)
-        ? fs.readdirSync(storyDir).filter((name: string) => /^story-\d+\.md$/.test(name)).length
-        : 0;
-      pendingPlanRepairRequests.set(ctx.cwd, { retries: 0, storyCountAtStart });
-    }
 
     const workable = findWorkableStory(ctx.cwd);
     if (workable && workable.status === "not-started" && userExplicitlyApprovedStatusChange(event.prompt ?? "", "in-progress")) {
@@ -1155,6 +1133,39 @@ export default function (pi: ExtensionAPI) {
 
     // ── Complete-story follow-up orchestration ─────────────────────────
     if (await completeStoryController.handleTurnEnd(ctx)) return;
+
+    // ── Plan story fix check ──────────────────────────────────────────
+    const planRepair = pendingPlanRepairRequests.get(cwd);
+    if (planRepair) {
+      const storyDir = storiesDir(cwd);
+      const currentStoryCount = fs.existsSync(storyDir)
+        ? fs.readdirSync(storyDir).filter((name: string) => /^story-\d+\.md$/.test(name)).length
+        : 0;
+      const storiesChanged = currentStoryCount !== planRepair.storyCountAtStart;
+
+      if (!storiesChanged) {
+        // Still clarifying, skip until stories are written.
+      } else {
+        const pitfalls = checkStoryPitfalls(cwd);
+        if (!pitfalls) {
+          pendingPlanRepairRequests.delete(cwd);
+        } else {
+          const message = [
+            "Some generated story files have formatting issues. Please fix them now:",
+            "",
+            ...pitfalls.flatMap(({ file, issues }) => [
+              `File: ${file}`,
+              ...issues.map(issue => `  - ${issue}`),
+              "",
+            ]),
+            "Fix only the listed issues. Do not rewrite entire files unless necessary.",
+          ].join("\n");
+          await pi.sendUserMessage(message, { deliverAs: "steer", triggerTurn: true });
+          pendingPlanRepairRequests.delete(cwd);
+          return;
+        }
+      }
+    }
 
     // ── Manual review closeout ──────────────────────────────────────────
     const pendingManualReview = pendingManualReviewRequests.get(cwd);
@@ -1314,40 +1325,6 @@ export default function (pi: ExtensionAPI) {
         trigger: "post-story-completion",
       });
       break;
-    }
-
-    // ── Plan story repair loop ──────────────────────────────────────────
-    const planRepair = pendingPlanRepairRequests.get(cwd);
-    if (planRepair) {
-      const storyDir = storiesDir(cwd);
-      const currentStoryCount = fs.existsSync(storyDir)
-        ? fs.readdirSync(storyDir).filter((name: string) => /^story-\d+\.md$/.test(name)).length
-        : 0;
-      const storiesChanged = currentStoryCount !== planRepair.storyCountAtStart;
-
-      // Skip validation during clarifying-question turns before any stories have been written.
-      if (!storiesChanged && planRepair.retries === 0) {
-        // State stays active for future turns.
-      } else {
-        const issues = listStoryValidationIssues(cwd);
-        if (issues.length === 0) {
-          pendingPlanRepairRequests.delete(cwd);
-        } else if (planRepair.retries < MAX_PLAN_REPAIR_RETRIES) {
-          planRepair.retries += 1;
-          sendInternalAgentMessage(ctx, buildPlanRepairInstruction(cwd, issues), {
-            purpose: "plan-repair",
-            retry: planRepair.retries,
-          });
-          return;
-        } else {
-          const brokenFiles = [...new Set(issues.map(i => path.relative(cwd, i.file)))].join(", ");
-          ctx.ui.notify(
-            `Failed to repair generated story files after ${MAX_PLAN_REPAIR_RETRIES} attempts. Issues remain in ${brokenFiles}`,
-            "error",
-          );
-          pendingPlanRepairRequests.delete(cwd);
-        }
-      }
     }
 
     // ── index.md structural updates ─────────────────────────────────────
@@ -1857,6 +1834,12 @@ export default function (pi: ExtensionAPI) {
         : "NOTE: Create as many story files as needed for the scoped work. Do not stop at an arbitrary count.";
       const planningSourcesList = planningSources.length > 0 ? planningSources.join(", ") : "none";
 
+      const storyDir = storiesDir(cwd);
+      const storyCountAtStart = fs.existsSync(storyDir)
+        ? fs.readdirSync(storyDir).filter((name: string) => /^story-\d+\.md$/.test(name)).length
+        : 0;
+      pendingPlanRepairRequests.set(cwd, { storyCountAtStart });
+
       // Instruct the agent to run the planning conversation
       const instruction = [
         "The user wants to plan their project.",
@@ -1866,17 +1849,9 @@ export default function (pi: ExtensionAPI) {
         "",
         "Your job:",
         `1. Read .context/stories/intake-brief.md first.${planningSources.length > 0 ? ` Sources: ${planningSourcesList}.` : ""}`,
-        planningSources.length > 0
-          ? "   Read intake sources before asking anything. Skim large files selectively."
-          : "",
-        "2. Ask exactly ONE clarifying question at a time. Wait for the answer before asking the next. Do NOT ask multiple questions in one turn.",
-        "   Only ask about genuinely missing or conflicting information. Do not list, number, or categorize questions.",
-        "   Default questions if still unclear after review:",
-        "   - Who are the users?",
-        "   - What's the most important thing to get right in v1?",
-        "   - What are we explicitly NOT building in v1?",
-        "   - What stack are we using / what already exists?",
-        "3. Once you have enough to write stories, say: 'I have what I need — writing the plan and stories now.' Then proceed.",
+        planningSources.length > 0 ? "   Read intake sources before asking anything. Skim large files selectively." : "",
+        "2. Ask exactly ONE clarifying question at a time. Wait for the answer before asking the next. Do NOT ask multiple questions in one turn. Only ask about genuinely missing or conflicting information. Do not list, number, or categorize questions. If still unclear after review, ask: Who are the users? What's the most important thing to get right in v1? What are we explicitly NOT building in v1? What stack are we using / what already exists?",
+        "3. Once you have enough information, STOP asking clarifying questions. Say 'I have what I need — writing the plan and stories now.' Then immediately write all new story files using the write tool, update .context/stories/plan.md, and update .context/stories/intake-brief.md. Do not wait for the user to confirm before writing files.",
         `4. Update .context/stories/intake-brief.md with the final distilled answers. Current brief: ${planningBrief}`,
         planExists
           ? "5. Update .context/stories/plan.md as an addendum: keep existing queue rows, append only new rows, and add a replanning log entry."
@@ -1884,10 +1859,18 @@ export default function (pi: ExtensionAPI) {
         existingStoryFiles.length > 0
           ? `6. Preserve existing story files: ${existingStoryFiles.join(", ")}. Do NOT overwrite or renumber them. Add new story-NNN.md files only for follow-up work.`
           : "6. Create as many story-NNN.md files as needed for the scoped work. There is NO preset cap.",
-        "7. Every story must use the exact template: Status, Created, Last accessed, Goal, Verification, Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary.",
-        "   Checklist items must be concrete tasks — not questions. Target 4–7 tasks per story; 7 is a hard cap.",
+        "7. EVERY new story must be written by copying the exact template below and filling it in. Do NOT deviate from this format.",
+        "   Formatting rules:",
+        "   - Frontmatter lines use '**Label:** value' with exactly two trailing spaces on every line except the last one (Completed).",
+        "   - Status must be exactly one of: not-started, in-progress, complete, retired.",
+        "   - The heading must be exactly '# Story NNN: Title'.",
+        "   - All sections must be present: Goal, Verification, Scope, Out of scope, Dependencies, Checklist, Issues, Completion Summary.",
+        "   - Checklist items must be exactly '- [ ] task' or '- [x] task'. No other prefixes, no bullet-only lines.",
+        "   - Include 4–7 checklist items per story; 7 is a hard cap.",
+        "   Copy-paste template (fill in bracketed placeholders):",
+        ...buildStoryPromptTemplate(0, "[Title]").split("\n").map(line => "   " + line),
         `8. Number any new stories from ${nextStoryNumber(cwd)}.`,
-        "9. Present the final story list to the user and ask if anything needs adjusting.",
+        "9. AFTER all files are written, present the final story list to the user and ask if anything needs adjusting.",
         "",
         planModeNote,
       ].filter(Boolean).join("\n");

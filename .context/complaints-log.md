@@ -4,3 +4,5 @@
 
 2026-05-24T12:41:37Z | story-023 | [fallow] No Fallow findings pre-populated for this review. | status: noted
 2026-06-02T10:30:41Z | story-051 | "Warning: Mirror auto-sync failed: unrecognized command-line option or missing argument: --autopush" | status: pending
+
+2026-06-15T21:43:48Z | story-058 | [fallow] No Fallow findings were pre-populated for this review scope. | status: noted
