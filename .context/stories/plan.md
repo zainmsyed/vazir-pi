@@ -1,7 +1,7 @@
 # Vazir POC - Addenda C & D Implementation Plan
 
 **Created:** 2026-05-05
-**Last updated:** 2026-06-06
+**Last updated:** 2026-08-06
 
 ---
 
@@ -101,8 +101,8 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-058 | Fix `/plan` story-format guard so malformed stories are auto-detected and repaired | complete | story-055, story-056 |
 | story-059 | Fix `/plan` stall at the write-stories boundary | complete | story-055, story-056, story-058 |
 | story-060 | Repair malformed review documents and make review closeout cancellable | complete | story-025, story-026, story-052 |
-| story-061 | Idea file foundation and `/idea [description]` direct capture | not-started | - |
-| story-062 | `/idea` browse selector, lightweight list, and viewer reuse | not-started | story-061 |
+| story-061 | Idea file foundation and `/idea [description]` direct capture | complete | - |
+| story-062 | `/idea` browse selector, lightweight list, and viewer reuse | in-progress | story-061 |
 | story-063 | `/plan idea-NNN` seeding and promotion status flip | not-started | story-061, story-062 |
 
 ## Replanning log
@@ -127,4 +127,4 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-06-15** — Replanned from story-056 completion to fix the `/plan` guard's state seeding and lifecycle hook wiring. Appended story-058 to move `pendingPlanRepairRequests` seeding into the `/plan` handler, remove dead `isPlanPrompt`, move the guard to `turn_end`, and add `triggerTurn: true` so the fix message actually triggers a new agent turn.
 - **2026-07-23** — Completed story-058 after targeted validation and interactive smoke review. Preserved the existing queue and appended story-059 for the separate `/plan` stall where the agent says it has enough information but does not proceed to writing story files.
 - **2026-08-05** — Replanned from the malformed-review closeout loop reported in manual and complete-story review flows. Synchronized story-059 with its completed story file and appended story-060 for zero-token validation, safe in-place structural repair that preserves findings, bounded recovery, and restart-safe cancellation so dismissed prompts do not recur on every turn.
-- **2026-08-06** — Replanned from Addendum G (idea tracker). Preserved all existing story history and appended story-061 through story-063 for the `.context/ideas/` file foundation plus `/idea [description]` direct capture, bare-`/idea` user-prompt capture with empty-input retry and cancel support, and `/plan idea-NNN` planning seeding with promotion to `promoted` only after story file(s) exist.
+- **2026-08-06** — Replanned from Addendum G (idea tracker). Preserved all existing story history and appended story-061 through story-063 for the `.context/ideas/` file foundation plus `/idea [description]` direct capture, bare-`/idea` selector with capture/view options and viewer reuse, and `/plan idea-NNN` planning seeding with promotion to `promoted` only after story file(s) exist. Marked story-061 complete and story-062 in-progress after implementing the browse selector.

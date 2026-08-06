@@ -39,6 +39,9 @@ const ctx = {
     async input() {
       return inputValues.shift();
     },
+    async select(_title: string, _labels: string[]) {
+      return inputValues.shift() ?? null;
+    },
     notify(message: string, level: string) {
       notifications.push({ message, level });
     },
@@ -72,16 +75,18 @@ assert(parsed?.number === 1, "idea parser did not parse the filename number");
 assert(parsed?.status === "discarded", "idea parser did not parse the supported discarded status");
 assert(parsed?.title === "Existing idea", "idea parser did not parse the title");
 
-inputValues.push("", "Capture a third improvement");
+// Bare /idea → selector → capture option → empty retry → capture.
+inputValues.push("1. Capture a new idea", "", "Capture a third improvement");
 await idea!.handler("", ctx);
 const thirdPath = path.join(ideasDir, "idea-004.md");
-assert(fs.readFileSync(thirdPath, "utf-8").includes("# Idea 004: Capture a third improvement"), "bare idea did not retry after empty input and capture the entered idea");
-assert(notifications.some(note => note.message.includes("Please enter an idea or cancel")), "empty bare-idea input did not prompt for input or cancel");
+assert(fs.readFileSync(thirdPath, "utf-8").includes("# Idea 004: Capture a third improvement"), "bare idea selector capture did not retry after empty input and capture the entered idea");
+assert(notifications.some(note => note.message.includes("Please enter an idea or cancel")), "empty capture prompt did not retry");
 
-inputValues.push(undefined);
+// Bare /idea → selector → cancel.
+inputValues.push("Cancel");
 await idea!.handler("", ctx);
 assert(!fs.existsSync(path.join(ideasDir, "idea-005.md")), "cancelled bare idea created a file");
-assert(notifications.some(note => note.message === "Idea capture cancelled."), "bare idea cancel was not reported");
+assert(notifications.some(note => note.message === "Idea tracker closed."), "bare idea selector cancel was not reported");
 assert(notifications.some(note => note.message.includes("Captured idea-002")), "direct capture did not notify first capture success");
 assert(notifications.some(note => note.message.includes("Captured idea-003")), "direct capture did not notify second capture success");
 

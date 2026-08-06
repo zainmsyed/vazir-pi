@@ -47,7 +47,7 @@ import {
 } from "./complete-story.ts";
 import { showScrollableText } from "../vazir-tracker/chrome.ts";
 import { refreshVcsState } from "../vazir-tracker/index.ts";
-import { showMarkdownViewer } from "../../lib/vazir-ui.ts";
+import { showMarkdownViewer, showSelectionList } from "../../lib/vazir-ui.ts";
 import {
   appendFallowToComplaintsLog,
   archiveDir,
@@ -62,6 +62,8 @@ import {
   buildInitSummary,
   buildIntakeBrief,
   captureIdea,
+  listIdeas,
+  formatIdeaListItem,
   buildRememberInstruction,
   buildReviewInstruction,
   clearLegacyPendingLearnings,
@@ -2032,34 +2034,94 @@ export default function (pi: ExtensionAPI) {
 
   // ── /idea ────────────────────────────────────────────────────────────
 
+  async function runIdeaCapturePrompt(cwd: string, ctx: any, initialDescription = ""): Promise<void> {
+    let captureDescription = initialDescription.trim();
+    while (!captureDescription) {
+      const input = await ctx.ui.input("What idea would you like to capture?", "Enter an idea, or cancel");
+      if (input == null) {
+        ctx.ui.notify("Idea capture cancelled.", "info");
+        return;
+      }
+      captureDescription = String(input).trim();
+      if (!captureDescription) {
+        ctx.ui.notify("Please enter an idea or cancel.", "warning");
+      }
+    }
+
+    try {
+      const captured = captureIdea(cwd, captureDescription);
+      ctx.ui.notify(`Captured idea-${String(captured.number).padStart(3, "0")}: ${captured.title}`, "info");
+    } catch (error: any) {
+      if (error?.code === "EEXIST") {
+        ctx.ui.notify("An idea file already exists; nothing was overwritten. Try again.", "warning");
+        return;
+      }
+      throw error;
+    }
+  }
+
   pi.registerCommand("idea", {
-    description: "Capture an idea without interrupting the active story; without text, prompt the user for input",
+    description: "Capture or browse ideas without interrupting the active story; without text, show a capture-or-view selector",
     handler: async (args: string, ctx: any) => {
       const cwd = ctx.cwd;
       const description = args.trim();
 
-      let captureDescription = description;
-      while (!captureDescription) {
-        const input = await ctx.ui.input("What idea would you like to capture?", "Enter an idea, or cancel");
-        if (input == null) {
-          ctx.ui.notify("Idea capture cancelled.", "info");
-          return;
-        }
-        captureDescription = String(input).trim();
-        if (!captureDescription) {
-          ctx.ui.notify("Please enter an idea or cancel.", "warning");
-        }
+      if (description) {
+        await runIdeaCapturePrompt(cwd, ctx, description);
+        return;
       }
 
-      try {
-        const captured = captureIdea(cwd, captureDescription);
-        ctx.ui.notify(`Captured idea-${String(captured.number).padStart(3, "0")}: ${captured.title}`, "info");
-      } catch (error: any) {
-        if (error?.code === "EEXIST") {
-          ctx.ui.notify("An idea file already exists; nothing was overwritten. Try again.", "warning");
+      const selectorResult = await showSelectionList(ctx, "Idea tracker", [
+        { value: "capture", label: "1. Capture a new idea" },
+        { value: "view", label: "2. View existing ideas" },
+        { value: "cancel", label: "Cancel" },
+      ]);
+
+      if (selectorResult == null || selectorResult === "cancel") {
+        ctx.ui.notify("Idea tracker closed.", "info");
+        return;
+      }
+
+      if (selectorResult === "capture") {
+        await runIdeaCapturePrompt(cwd, ctx);
+        return;
+      }
+
+      if (selectorResult === "view") {
+        const ideas = listIdeas(cwd);
+        if (ideas.length === 0) {
+          ctx.ui.notify("No ideas have been captured yet.", "info");
           return;
         }
-        throw error;
+
+        const ideaItems = ideas.map((idea, index) => ({
+          value: String(idea.number),
+          label: `${index + 1}. ${formatIdeaListItem(idea)}`,
+        }));
+
+        const viewResult = await showSelectionList(ctx, "Open ideas", [
+          ...ideaItems,
+          { value: "cancel", label: "Cancel" },
+        ]);
+
+        if (viewResult == null || viewResult === "cancel") {
+          ctx.ui.notify("Idea viewer closed.", "info");
+          return;
+        }
+
+        const selectedIdea = ideas.find(idea => String(idea.number) === viewResult);
+        if (!selectedIdea) {
+          ctx.ui.notify("Selected idea could not be found.", "warning");
+          return;
+        }
+
+        const content = readIfExists(selectedIdea.file);
+        if (!content) {
+          ctx.ui.notify("Selected idea file is empty.", "warning");
+          return;
+        }
+
+        await showMarkdownViewer(ctx, path.basename(selectedIdea.file), content);
       }
     },
   });

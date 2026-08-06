@@ -1,10 +1,10 @@
 # Story 062: `/idea` browse selector, lightweight list, and viewer reuse
 
-**Status:** not-started  
+**Status:** complete  
 **Type:** feature  
 **Created:** 2026-08-06  
 **Last accessed:** 2026-08-06  
-**Completed:** —
+**Completed:** 2026-08-06
 
 ---
 
@@ -37,13 +37,13 @@ Run `/idea` with no arguments and confirm the two-option numbered selector appea
 ---
 
 ## Checklist
-- [ ] Wire bare `/idea` to a numbered selector with "Capture a new idea" / "View existing ideas" options and cancel handling, mirroring `/unlearn`
-- [ ] Route the capture option through the story-061 capture path with a text prompt
-- [ ] Render the view option as a lightweight numbered list of title plus status, one line per idea
-- [ ] Open a selected idea in the shared markdown viewer used by `/story`, reusing `.pi/lib/vazir-ui.ts` helpers
-- [ ] Support conversational expansion of an open idea in place (status stays `open`) and explicit `discarded` transitions without file deletion
-- [ ] Add regressions for each selector branch, empty-ideas state, cancel at both levels, and in-place expansion
-- [ ] Run targeted validation plus a live smoke check of the full browse flow
+- [x] Wire bare `/idea` to a numbered selector with "Capture a new idea" / "View existing ideas" options and cancel handling, mirroring `/unlearn`
+- [x] Route the capture option through the story-061 capture path with a text prompt
+- [x] Render the view option as a lightweight numbered list of title plus status, one line per idea
+- [x] Open a selected idea in the shared markdown viewer used by `/story`, reusing `.pi/lib/vazir-ui.ts` helpers
+- [x] Support conversational expansion of an open idea in place (status stays `open`) and explicit `discarded` transitions without file deletion
+- [x] Add regressions for each selector branch, empty-ideas state, cancel at both levels, and in-place expansion
+- [x] Run targeted validation plus a live smoke check of the full browse flow
 
 ---
 
@@ -52,3 +52,10 @@ Run `/idea` with no arguments and confirm the two-option numbered selector appea
 ---
 
 ## Completion Summary
+- Updated `/idea` so that a bare invocation shows a numbered selector with "Capture a new idea", "View existing ideas", and "Cancel", using the shared `showSelectionList` helper from `.pi/lib/vazir-ui.ts`.
+- Routed the capture option through the existing `captureIdea()` path: it prompts for idea text, retries on empty input, and honors cancellation without creating a file.
+- Routed the view option through a lightweight one-line-per-idea list (title and status) and opens the selected idea in the shared `showMarkdownViewer` helper, the same markdown viewer used by `/story`.
+- Added `listIdeas()` and `formatIdeaListItem()` helpers in `.pi/extensions/vazir-context/helpers.ts` to feed the list.
+- Updated `scripts/validate-vazir-idea-capture.mts` to exercise direct capture and selector-based capture/cancel, and added `scripts/validate-vazir-idea-browse.mts` covering selector cancel, capture option, view list cancel, viewer open, empty-ideas state, and helper output. Registered both scripts in `scripts/run-validations.mts`.
+- Updated `.context/stories/plan.md` to mark story-061 complete and story-062 in-progress, and refreshed `.context/stories/intake-brief.md` to describe the new bare-`/idea` selector behavior.
+- Verified both targeted validations and the existing `/remember` regression pass, and `git diff --check` is clean. The live Pi smoke check confirmed the two-level selector, list rendering, viewer reuse, and clean cancellation.

@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-08-06T16:12:40Z
+**Last updated:** 2026-08-06T18:15:13Z
 
 ## Findings
 - `/plan` instructions must enumerate every formatting invariant that downstream story-file validators enforce. | count: 1 | status: tracked | sources: review-20260724-001406.md | stories: story-059
@@ -25,6 +25,7 @@
 - Structural repair should restore the canonical document order, not only satisfy the validator. | count: 1 | status: tracked | sources: review-20260805-190404.md | stories: story-060
 - Substring-based approval detection must guard against negation prefixes; use word-boundary regexes or explicit allow-list tokens rather than naive `includes()`. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Suspension resume should require an existing file with a verifiable content change, not mere absence. | count: 1 | status: tracked | sources: review-20260805-190404.md | stories: story-060
+- When a shared helper has both a rich overlay path and a plain `select` fallback, regression tests should cover both paths because the fallback contains its own label-to-value mapping logic. | count: 1 | status: tracked | sources: review-20260806-163046.md | stories: story-062
 - When a story scope names concrete destination files, create those files or revise the story scope before review/closeout. | count: 1 | status: tracked | sources: review-20260518-124246.md
 - When a workflow transition depends on both in-memory flags and persisted file frontmatter, centralize the transition in one shared helper so both state sources change together. | count: 1 | status: tracked | sources: review-20260606-141016.md | stories: story-056
 - When adding lifecycle state machines that span multiple turns, add regression coverage for every intermediate state transition, not just the final outcome. | count: 1 | status: tracked | sources: review-20260606-141016.md | stories: story-056
@@ -37,6 +38,7 @@
 - When parsing VCS status output, include rename/move states explicitly; they are common and silently dropping them creates UI gaps. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When repairing structured frontmatter, keep the repaired block contiguous and in the canonical template order. | count: 1 | status: tracked | sources: review-20260805-190404.md | stories: story-060
+- When the same capture/write sequence appears in two command branches, extract a single helper so fixes (e.g., notification wording, no-overwrite behavior) apply everywhere. | count: 1 | status: tracked | sources: review-20260806-163046.md | stories: story-062
 - When tracking async tool lifecycle, correlate start and end events with a unique call identifier, not just the tool name. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - When two lifecycle helpers differ only by target state container, extract a single parameterized implementation. | count: 1 | status: tracked | sources: review-20260805-190404.md | stories: story-060
 - When validating tool input for security, always check every documented alias of a target field (`path` / `filePath`), not just the primary one. | count: 1 | status: tracked | sources: review-20260518-145628.md

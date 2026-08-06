@@ -343,6 +343,21 @@ export function captureIdea(cwd: string, description: string): { number: number;
   return { number, title, filePath };
 }
 
+export function listIdeas(cwd: string): IdeaFrontmatter[] {
+  const dir = ideasDir(cwd);
+  if (!fs.existsSync(dir)) return [];
+
+  return fs.readdirSync(dir)
+    .filter((name: string) => /^idea-\d+\.md$/i.test(name))
+    .map((name: string) => parseIdeaFrontmatter(path.join(dir, name)))
+    .filter((idea): idea is IdeaFrontmatter => idea !== null)
+    .sort((a, b) => a.number - b.number);
+}
+
+export function formatIdeaListItem(idea: IdeaFrontmatter): string {
+  return `${ideaFileName(idea.number)} — ${idea.title} (${idea.status})`;
+}
+
 export function reviewsDir(cwd: string) {
   return path.join(cwd, ".context", "reviews");
 }
