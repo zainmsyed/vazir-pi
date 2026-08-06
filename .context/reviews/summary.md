@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-08-06T14:00:16Z
+**Last updated:** 2026-08-06T16:12:40Z
 
 ## Findings
 - `/plan` instructions must enumerate every formatting invariant that downstream story-file validators enforce. | count: 1 | status: tracked | sources: review-20260724-001406.md | stories: story-059
@@ -11,9 +11,11 @@
 - Consider adding a rule disallowing editor/backup artifacts (.bak, ~, .orig) in source tree (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md
 - Do not commit large binary backups into the main repository; use external storage or LFS. | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Every entry point that can trigger recovery should have a representative regression test. | count: 1 | status: tracked | sources: review-20260805-190404.md | stories: story-060
+- Every new targeted validation script must be registered in the aggregate runner so it is exercised alongside existing regressions. | count: 1 | status: tracked | sources: review-20260806-160724.md | stories: story-061
 - Every state-machine or guardrail helper that blocks or auto-approves user-facing actions must have at least one direct unit test exercising both the allow and deny paths. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Extracted closeout flows must preserve all terminal branches of the original state machine, including commit-and-close paths. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Footer should always include the active story slug for easy orientation. | count: 1 | status: tracked | sources: review-20260422-120959.md
+- Keep command descriptions synchronized with handler behavior; mismatched descriptions become misleading UI copy and fail code review. | count: 1 | status: tracked | sources: review-20260806-160724.md | stories: story-061
 - Make the team policy explicit about which .context subpaths (if any) are authoritative and tracked. | count: 1 | status: tracked | sources: review-20260422-120959.md
 - Never hardcode story labels or temporal identifiers in reusable command handlers; always derive them from runtime state. | count: 1 | status: tracked | sources: review-20260518-145628.md
 - Promote a rule requiring shared test harness utilities for repository validation scripts (yes) | count: 1 | status: tracked | sources: review-20260429-024531.md

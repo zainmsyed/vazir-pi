@@ -61,6 +61,7 @@ import {
   buildContextMapDraftInstruction,
   buildInitSummary,
   buildIntakeBrief,
+  captureIdea,
   buildRememberInstruction,
   buildReviewInstruction,
   clearLegacyPendingLearnings,
@@ -2026,6 +2027,40 @@ export default function (pi: ExtensionAPI) {
       appendLearnedRules(cwd, [{ text: rule, sourceStories: activeStoryLabel === "—" ? [] : [activeStoryLabel] }]);
       syncReviewSummaryAndPromoteRules(cwd);
       ctx.ui.notify(`Remembered: ${rule}`, "info");
+    },
+  });
+
+  // ── /idea ────────────────────────────────────────────────────────────
+
+  pi.registerCommand("idea", {
+    description: "Capture an idea without interrupting the active story; without text, prompt the user for input",
+    handler: async (args: string, ctx: any) => {
+      const cwd = ctx.cwd;
+      const description = args.trim();
+
+      let captureDescription = description;
+      while (!captureDescription) {
+        const input = await ctx.ui.input("What idea would you like to capture?", "Enter an idea, or cancel");
+        if (input == null) {
+          ctx.ui.notify("Idea capture cancelled.", "info");
+          return;
+        }
+        captureDescription = String(input).trim();
+        if (!captureDescription) {
+          ctx.ui.notify("Please enter an idea or cancel.", "warning");
+        }
+      }
+
+      try {
+        const captured = captureIdea(cwd, captureDescription);
+        ctx.ui.notify(`Captured idea-${String(captured.number).padStart(3, "0")}: ${captured.title}`, "info");
+      } catch (error: any) {
+        if (error?.code === "EEXIST") {
+          ctx.ui.notify("An idea file already exists; nothing was overwritten. Try again.", "warning");
+          return;
+        }
+        throw error;
+      }
     },
   });
 

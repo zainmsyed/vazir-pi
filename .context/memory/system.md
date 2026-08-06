@@ -83,6 +83,8 @@
 - When an instruction or template generates files that downstream validators enforce format invariants on, the instruction must enumerate those invariants explicitly rather than relying solely on a copy-paste template. <!-- source: story-059 --> <!-- confidence: high -->
 - When repairing a structured document in place, rebuild the canonical section and frontmatter order rather than appending missing pieces, so the repaired file matches the template expected by downstream parsers. <!-- source: story-060 --> <!-- confidence: high -->
 - When a suspended workflow resumes on a file delta, treat file absence as unchanged and require an existing file with a verifiable content change before clearing suspension. <!-- source: story-060 --> <!-- confidence: high -->
+- Keep command descriptions synchronized with handler behavior; mismatched descriptions become misleading UI copy and fail code review. <!-- source: story-061 --> <!-- confidence: high -->
+- Every new targeted validation script must be registered in the aggregate runner so it is exercised alongside existing regressions. <!-- source: story-061 --> <!-- confidence: high -->
 ### From successes
 - When a closeout prompt aggregates work from multiple checklist sections, reuse the same aggregation helper in the action path so the selected work actually executes. <!-- source: story-020 --> <!-- confidence: low — no signal in last 5 stories -->
 - When redesigning a noisy restore workflow, layer curated user-facing choices on top of one exact restore helper so every entry point keeps the same semantics. <!-- source: story-029, story-030 --> <!-- confidence: low — no signal in last 5 stories -->
