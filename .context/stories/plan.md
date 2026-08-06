@@ -102,8 +102,9 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-059 | Fix `/plan` stall at the write-stories boundary | complete | story-055, story-056, story-058 |
 | story-060 | Repair malformed review documents and make review closeout cancellable | complete | story-025, story-026, story-052 |
 | story-061 | Idea file foundation and `/idea [description]` direct capture | complete | - |
-| story-062 | `/idea` browse selector, lightweight list, and viewer reuse | in-progress | story-061 |
-| story-063 | `/plan idea-NNN` seeding and promotion status flip | in-progress | story-061, story-062 |
+| story-062 | `/idea` browse selector, lightweight list, and viewer reuse | complete | story-061 |
+| story-063 | `/plan idea-NNN` seeding and promotion status flip | complete | story-061, story-062 |
+| story-064 | Suppress premature in-progress review prompt during active complete-story reviews | in-progress | story-052, story-060 |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
@@ -128,3 +129,4 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-07-23** — Completed story-058 after targeted validation and interactive smoke review. Preserved the existing queue and appended story-059 for the separate `/plan` stall where the agent says it has enough information but does not proceed to writing story files.
 - **2026-08-05** — Replanned from the malformed-review closeout loop reported in manual and complete-story review flows. Synchronized story-059 with its completed story file and appended story-060 for zero-token validation, safe in-place structural repair that preserves findings, bounded recovery, and restart-safe cancellation so dismissed prompts do not recur on every turn.
 - **2026-08-06** — Replanned from Addendum G (idea tracker). Preserved all existing story history and appended story-061 through story-063 for the `.context/ideas/` file foundation plus `/idea [description]` direct capture, bare-`/idea` selector with capture/view options and viewer reuse, and `/plan idea-NNN` planning seeding with promotion to `promoted` only after story file(s) exist. Marked story-061 complete and story-062 in-progress after implementing the browse selector.
+- **2026-08-06** — Replanned from the live observation that `/complete-story` → "Start code review before closing" interrupts the user with the in-progress review prompt after every agent turn while the review is actively being written. Marked story-062 and story-063 complete to match their story files and appended story-064 to suppress the prompt during active review turns while preserving the stalled-review fallback.
