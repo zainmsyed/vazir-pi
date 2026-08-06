@@ -12,6 +12,11 @@ const closeoutModule = await loadFileModule<{
   deriveCompleteStoryPhase: (input: { pendingRequest?: any; readinessBlocked?: boolean; reviewStatus?: string | null }) => { phase: string };
   resetReviewFileForRemediation: (reviewFile: string) => void;
 }> (path.join(repoRoot, ".pi", "extensions", "vazir-context", "complete-story.ts"));
+const helperModule = await loadFileModule<{
+  validateReviewDocument: (filePath: string) => { valid: boolean; issues: Array<{ code: string; message: string }> };
+  repairReviewDocument: (filePath: string) => { ok: boolean; repaired: boolean; issues: Array<{ code: string; message: string }> };
+  reviewFileHash: (filePath: string) => string;
+}>(path.join(repoRoot, ".pi", "extensions", "vazir-context", "helpers.ts"));
 const register = extensionModule.default;
 
 type Notification = { message: string; level: string };
@@ -130,9 +135,12 @@ function makePi() {
   const harness = createPiHarness([register]);
   const review = harness.getCommand("review");
   assert(Boolean(review), "review command was not registered");
+  const completeStory = harness.getCommand("complete-story");
+  assert(Boolean(completeStory), "complete-story command was not registered");
 
   return {
     review: review!,
+    completeStory: completeStory!,
     sentMessages: harness.sentMessages,
     async emit(name: string, event: any, ctx: any) {
       await harness.emit(name, event, ctx);
@@ -546,6 +554,347 @@ assert(!summary.includes("draft reviews should not affect learned rules until co
 assert(systemMd.includes("- do not rename auth helpers during refactors without updating call sites"), "system.md did not receive the promoted review rule");
 assert(!systemMd.includes("- draft reviews should not affect learned rules until complete"), "in-progress reviews should not promote learned rules");
 assert(notifications.some(note => note.message.includes("Promoted review rule")), "agent_end did not notify about promoted review rules");
+
+async function runMalformedReviewScenarios(): Promise<void> {
+  // 1. Deterministic validation catches missing frontmatter and sections
+  const validationCwd = createProject("vazir-review-validate-");
+  const malformedPath = path.join(validationCwd, ".context", "reviews", "review-malformed.md");
+  fs.mkdirSync(path.dirname(malformedPath), { recursive: true });
+  fs.writeFileSync(
+    malformedPath,
+    [
+      "# Bad Review",
+      "",
+      "**Status:** in-progress  ",
+      "**Scope:** story",
+      "",
+      "---",
+      "",
+      "## Findings",
+      "### Finding 1",
+      "- Severity: high",
+      "- Category: bug",
+      "- Summary: preserved finding",
+      "- Evidence: still here",
+      "- Recommendation: keep it",
+      "- Rule candidate: —",
+      "",
+      "## Recommended Fixes",
+      "- [ ] high — preserved fix item",
+      "",
+    ].join("\n"),
+  );
+
+  const validation = helperModule.validateReviewDocument(malformedPath);
+  assert(!validation.valid, "validator should reject malformed review");
+  assert(validation.issues.some(i => i.code === "missing-frontmatter-key"), "validator should report missing frontmatter keys");
+  assert(validation.issues.some(i => i.code === "missing-section"), "validator should report missing sections");
+
+  // 2. Deterministic repair preserves findings and checklist state
+  const repair = helperModule.repairReviewDocument(malformedPath);
+  assert(repair.ok, "repair should produce a valid document");
+  assert(repair.repaired, "repair should report that it changed the file");
+
+  const repaired = fs.readFileSync(malformedPath, "utf-8");
+  assert(repaired.includes("**Status:** in-progress"), "repair should keep status in-progress");
+  assert(repaired.includes("**Created:**"), "repair should add Created frontmatter");
+  assert(repaired.includes("**Completed:** —"), "repair should add Completed frontmatter");
+  assert(repaired.includes("**Story:** —"), "repair should add Story frontmatter");
+  assert(repaired.includes("**Focus:**"), "repair should add Focus frontmatter");
+  assert(/\*\*Trigger:\*\*/.test(repaired), "repair should add Trigger frontmatter");
+  assert(repaired.includes("## Goal"), "repair should add Goal section");
+  assert(repaired.includes("## Checklist"), "repair should add Checklist section");
+  assert(repaired.includes("## Fallow Findings"), "repair should add Fallow Findings section");
+  assert(repaired.includes("## Other Fixes"), "repair should add Other Fixes section");
+  assert(repaired.includes("## Completion Summary"), "repair should add Completion Summary section");
+  assert(repaired.includes("preserved finding"), "repair should preserve existing findings");
+  assert(repaired.includes("preserved fix item"), "repair should preserve existing recommended fixes");
+
+  const revalidation = helperModule.validateReviewDocument(malformedPath);
+  assert(revalidation.valid, "repaired document should pass validation");
+
+  // 3. Complete-story closeout with malformed review: repair then suspend on Escape
+  const escapeCwd = createProject("vazir-review-escape-");
+  writeCompletedStory(escapeCwd, 1, "2026-04-05", "2026-04-05");
+  const escapeReviewDir = path.join(escapeCwd, ".context", "reviews");
+  const escapeReviewPath = path.join(escapeReviewDir, "review-escape.md");
+  fs.mkdirSync(escapeReviewDir, { recursive: true });
+  fs.writeFileSync(
+    escapeReviewPath,
+    [
+      "# Escape Review",
+      "",
+      "**Status:** complete  ",
+      "**Scope:** story  ",
+      "**Story:** story-001  ",
+      "",
+      "---",
+      "",
+      "## Findings",
+      "### Finding 1",
+      "- Severity: medium",
+      "- Category: bug",
+      "- Summary: escape test finding",
+      "- Evidence: test",
+      "- Recommendation: test",
+      "- Rule candidate: —",
+      "",
+      "## Recommended Fixes",
+      "- [ ] medium — escape test fix",
+      "",
+    ].join("\n"),
+  );
+
+  const escapeNotifications: Notification[] = [];
+  const escapeSelectCalls: SelectCall[] = [];
+  const escapeHarness = makePi();
+  const escapeCtx = makeCtx(escapeCwd, escapeNotifications, {
+    hasUI: true,
+    selectResponses: [undefined],
+    selectCalls: escapeSelectCalls,
+  });
+
+  // Seed the complete-story pending request by directly invoking the controller through a command isn't easy,
+  // so we write the persisted closeout state and emit turn_end.
+  const closeoutStatePath = path.join(escapeReviewDir, "story-001-complete-story-closeout.json");
+  fs.writeFileSync(
+    closeoutStatePath,
+    JSON.stringify({ storyFile: path.join(escapeCwd, ".context", "stories", "story-001.md"), reviewFile: escapeReviewPath, reviewCloseoutReady: true }, null, 2),
+  );
+
+  await escapeHarness.emit("turn_end", {}, escapeCtx);
+
+  assert(helperModule.validateReviewDocument(escapeReviewPath).valid, "turn_end should repair the malformed review before prompting");
+  assert(escapeSelectCalls.length > 0, "turn_end should prompt for closeout after repair");
+  const escapeWarnings = escapeNotifications.filter(n => n.level === "warning").map(n => n.message);
+  assert(
+    !escapeWarnings.some(m => m.includes("could not be automatically repaired")),
+    `no premature repair-exhaustion warning; got warnings: ${JSON.stringify(escapeWarnings)}`,
+  );
+
+  // Second turn_end after Escape must not prompt again because the flow is suspended
+  const secondEscapeNotifications: Notification[] = [];
+  const secondEscapeSelectCalls: SelectCall[] = [];
+  const secondEscapeCtx = makeCtx(escapeCwd, secondEscapeNotifications, {
+    hasUI: true,
+    selectResponses: [undefined],
+    selectCalls: secondEscapeSelectCalls,
+  });
+
+  await escapeHarness.emit("turn_end", {}, secondEscapeCtx);
+  assert(secondEscapeSelectCalls.length === 0, "subsequent turn_end should not re-prompt after Escape suspension");
+  assert(fs.existsSync(closeoutStatePath), "closeout state should persist suspension");
+  const suspendedState = JSON.parse(fs.readFileSync(closeoutStatePath, "utf-8"));
+  assert(suspendedState.reviewSuspended === true, "persisted closeout state should mark review as suspended");
+
+  // 4. Resume after meaningful file change
+  const beforeHash = helperModule.reviewFileHash(escapeReviewPath);
+  const currentReview = fs.readFileSync(escapeReviewPath, "utf-8");
+  fs.writeFileSync(escapeReviewPath, currentReview + "\n");
+  const afterHash = helperModule.reviewFileHash(escapeReviewPath);
+  assert(afterHash !== beforeHash, "file change should alter review hash");
+
+  const resumeNotifications: Notification[] = [];
+  const resumeSelectCalls: SelectCall[] = [];
+  const resumeCtx = makeCtx(escapeCwd, resumeNotifications, {
+    hasUI: true,
+    selectResponses: [undefined],
+    selectCalls: resumeSelectCalls,
+  });
+
+  await escapeHarness.emit("turn_end", {}, resumeCtx);
+  assert(resumeSelectCalls.length > 0, "turn_end should re-prompt after review file change");
+
+  // 5. Repair exhaustion notifies once and suspends
+  const exhaustCwd = createProject("vazir-review-exhaust-");
+  writeCompletedStory(exhaustCwd, 1, "2026-04-05", "2026-04-05");
+  const exhaustReviewDir = path.join(exhaustCwd, ".context", "reviews");
+  const exhaustReviewPath = path.join(exhaustReviewDir, "review-exhaust.md");
+  fs.mkdirSync(exhaustReviewDir, { recursive: true });
+  fs.writeFileSync(exhaustReviewPath, "# Unrepairable\n\n**Status:** complete\n");
+
+  const exhaustNotifications: Notification[] = [];
+  const exhaustSelectCalls: SelectCall[] = [];
+  const exhaustHarness = makePi();
+  const exhaustCtx = makeCtx(exhaustCwd, exhaustNotifications, {
+    hasUI: true,
+    selectResponses: [undefined],
+    selectCalls: exhaustSelectCalls,
+  });
+
+  const exhaustStatePath = path.join(exhaustReviewDir, "story-001-complete-story-closeout.json");
+  fs.writeFileSync(
+    exhaustStatePath,
+    JSON.stringify({
+      storyFile: path.join(exhaustCwd, ".context", "stories", "story-001.md"),
+      reviewFile: exhaustReviewPath,
+      reviewCloseoutReady: true,
+      reviewRepairAttempts: 2,
+    }, null, 2),
+  );
+
+  await exhaustHarness.emit("turn_end", {}, exhaustCtx);
+  assert(exhaustNotifications.some(n => n.level === "warning" && n.message.includes("could not be automatically repaired")), "exhausted repair should warn once");
+  assert(exhaustSelectCalls.length === 0, "exhausted repair should not prompt");
+  const exhaustedState = JSON.parse(fs.readFileSync(exhaustStatePath, "utf-8"));
+  assert(exhaustedState.reviewSuspended === true, "exhausted repair should persist suspension");
+
+  // 6. Manual /review restart-resume: a fresh Pi instance should load persisted suspension and skip prompting
+  const restartCwd = createProject("vazir-review-restart-");
+  const restartReviewDir = path.join(restartCwd, ".context", "reviews");
+  fs.mkdirSync(restartReviewDir, { recursive: true });
+  const restartReviewPath = path.join(restartReviewDir, "review-restart.md");
+  fs.writeFileSync(
+    restartReviewPath,
+    [
+      "# Restart Review",
+      "",
+      "**Status:** complete  ",
+      "**Created:** 2026-04-05T00:00:00Z  ",
+      "**Completed:** 2026-04-06  ",
+      "**Scope:** whole-codebase  ",
+      "**Story:** —  ",
+      "**Focus:** restart test  ",
+      "**Trigger:** manual",
+      "",
+      "---",
+      "",
+      "## Findings",
+      "### Finding 1",
+      "- Severity: low",
+      "- Category: simplification",
+      "- Summary: restart finding",
+      "- Evidence: test",
+      "- Recommendation: test",
+      "- Rule candidate: —",
+      "",
+      "## Recommended Fixes",
+      "- [x] low — restart fix",
+      "",
+    ].join("\n"),
+  );
+
+  fs.mkdirSync(path.join(restartCwd, ".context", "settings"), { recursive: true });
+  fs.writeFileSync(
+    path.join(restartCwd, ".context", "settings", "manual-review-closeout.json"),
+    JSON.stringify({ reviewFile: restartReviewPath, reviewCloseoutReady: false, suspended: true, repairAttempts: 0, reviewFileHash: helperModule.reviewFileHash(restartReviewPath) }, null, 2),
+  );
+
+  const restartNotifications: Notification[] = [];
+  const restartSelectCalls: SelectCall[] = [];
+  const restartHarness = makePi();
+  const restartCtx = makeCtx(restartCwd, restartNotifications, {
+    hasUI: true,
+    selectResponses: [undefined],
+    selectCalls: restartSelectCalls,
+  });
+
+  await restartHarness.emit("turn_end", {}, restartCtx);
+  assert(restartSelectCalls.length === 0, "fresh Pi session should not prompt a suspended manual review");
+
+  // 7. /complete-story handleCommand resumption repairs a malformed persisted review
+  const cmdCwd = createProject("vazir-review-cmd-");
+  const cmdStoryPath = path.join(cmdCwd, ".context", "stories", "story-001.md");
+  fs.writeFileSync(
+    cmdStoryPath,
+    [
+      "# Story 001: Example",
+      "",
+      "**Status:** in-progress  ",
+      "**Created:** 2026-04-01  ",
+      "**Last accessed:** 2026-04-05  ",
+      "**Completed:** —",
+      "",
+      "---",
+      "",
+      "## Goal",
+      "Example goal.",
+      "",
+      "## Verification",
+      "Example verification.",
+      "",
+      "## Scope — files this story may touch",
+      "- src/example.ts",
+      "",
+      "## Out of scope — do not touch",
+      "- src/other.ts",
+      "",
+      "## Dependencies",
+      "- ",
+      "",
+      "---",
+      "",
+      "## Checklist",
+      "- [x] Example task",
+      "",
+      "---",
+      "",
+      "## Issues",
+      "",
+      "---",
+      "",
+      "## Completion Summary",
+      "Done.",
+      "",
+    ].join("\n"),
+  );
+  const cmdReviewDir = path.join(cmdCwd, ".context", "reviews");
+  const cmdReviewPath = path.join(cmdReviewDir, "review-cmd.md");
+  fs.mkdirSync(cmdReviewDir, { recursive: true });
+  fs.writeFileSync(
+    cmdReviewPath,
+    [
+      "# Command Review",
+      "",
+      "**Status:** complete  ",
+      "**Scope:** story  ",
+      "**Story:** story-001  ",
+      "",
+      "---",
+      "",
+      "## Findings",
+      "### Finding 1",
+      "- Severity: medium",
+      "- Category: bug",
+      "- Summary: cmd test finding",
+      "- Evidence: test",
+      "- Recommendation: test",
+      "- Rule candidate: —",
+      "",
+      "## Recommended Fixes",
+      "- [ ] medium — cmd test fix",
+      "",
+    ].join("\n"),
+  );
+
+  const cmdStatePath = path.join(cmdReviewDir, "story-001-complete-story-closeout.json");
+  fs.writeFileSync(
+    cmdStatePath,
+    JSON.stringify({
+      storyFile: cmdStoryPath,
+      reviewFile: cmdReviewPath,
+      reviewCloseoutReady: true,
+    }, null, 2),
+  );
+
+  const cmdNotifications: Notification[] = [];
+  const cmdSelectCalls: SelectCall[] = [];
+  const cmdHarness = makePi();
+  const cmdCtx = makeCtx(cmdCwd, cmdNotifications, {
+    hasUI: true,
+    selectResponses: ["close"],
+    selectCalls: cmdSelectCalls,
+  });
+
+  await cmdHarness.completeStory.handler("", cmdCtx);
+  assert(helperModule.validateReviewDocument(cmdReviewPath).valid, "/complete-story handleCommand should repair the malformed review before prompting");
+  assert(cmdSelectCalls.length > 0, "/complete-story handleCommand should prompt for closeout after repair");
+  const cmdRepaired = fs.readFileSync(cmdReviewPath, "utf-8");
+  assert(cmdRepaired.includes("cmd test finding"), "handleCommand repair should preserve existing findings");
+  assert(cmdRepaired.includes("cmd test fix"), "handleCommand repair should preserve existing fixes");
+}
+
+await runMalformedReviewScenarios();
 
 console.log("Review loop validation");
 console.log(`cwd: ${cwd}`);

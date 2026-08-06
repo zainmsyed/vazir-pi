@@ -29,6 +29,8 @@ import {
   promoteRulesToSystemMd,
   readLearnedRuleCloseoutDraft,
   readStorySection,
+  prepareReviewFileForCloseout,
+  reviewFileHash,
   reviewsDir,
   reviewFallowFindingsFromFile,
   reviewFindingsFromFile,
@@ -52,9 +54,14 @@ export type PendingCompleteStoryRequest = {
   reviewCloseoutReady?: boolean;
   closeIntent?: CompleteStoryCloseIntent;
   learnedRuleCloseoutFile?: string;
+  reviewRepairAttempts?: number;
+  reviewSuspended?: boolean;
+  reviewFileHash?: string;
 };
 
 type PersistedCompleteStoryCloseoutState = PendingCompleteStoryRequest;
+
+const MAX_REVIEW_REPAIR_ATTEMPTS = 2;
 
 export type CompleteStoryPhase =
   | "idle"
@@ -155,6 +162,15 @@ function readPersistedCompleteStoryCloseoutState(cwd: string, storyFile: string)
     const learnedRuleCloseoutFileValue = typeof (raw as { learnedRuleCloseoutFile?: unknown }).learnedRuleCloseoutFile === "string"
       ? String((raw as { learnedRuleCloseoutFile: unknown }).learnedRuleCloseoutFile).trim()
       : undefined;
+    const reviewRepairAttemptsValue = typeof (raw as { reviewRepairAttempts?: unknown }).reviewRepairAttempts === "number"
+      ? Number((raw as { reviewRepairAttempts: unknown }).reviewRepairAttempts)
+      : undefined;
+    const reviewSuspendedValue = typeof (raw as { reviewSuspended?: unknown }).reviewSuspended === "boolean"
+      ? Boolean((raw as { reviewSuspended: unknown }).reviewSuspended)
+      : undefined;
+    const reviewFileHashValue = typeof (raw as { reviewFileHash?: unknown }).reviewFileHash === "string"
+      ? String((raw as { reviewFileHash: unknown }).reviewFileHash)
+      : undefined;
 
     return {
       storyFile: storyFileValue,
@@ -162,6 +178,9 @@ function readPersistedCompleteStoryCloseoutState(cwd: string, storyFile: string)
       reviewCloseoutReady: reviewCloseoutReadyValue,
       closeIntent: closeIntentValue,
       learnedRuleCloseoutFile: learnedRuleCloseoutFileValue,
+      reviewRepairAttempts: reviewRepairAttemptsValue,
+      reviewSuspended: reviewSuspendedValue,
+      reviewFileHash: reviewFileHashValue,
     };
   } catch {
     return null;
@@ -196,7 +215,10 @@ function samePendingCompleteStoryRequest(
     && left.reviewFile === right.reviewFile
     && left.reviewCloseoutReady === right.reviewCloseoutReady
     && left.closeIntent === right.closeIntent
-    && left.learnedRuleCloseoutFile === right.learnedRuleCloseoutFile;
+    && left.learnedRuleCloseoutFile === right.learnedRuleCloseoutFile
+    && left.reviewRepairAttempts === right.reviewRepairAttempts
+    && left.reviewSuspended === right.reviewSuspended
+    && left.reviewFileHash === right.reviewFileHash;
 }
 
 function listPersistedCompleteStoryCloseoutStates(cwd: string): PersistedCompleteStoryCloseoutState[] {
@@ -439,6 +461,50 @@ export function clearCompleteStoryCloseout(
 export function isHighPrioritySeverity(severity: string): boolean {
   const normalized = severity.trim().toLowerCase();
   return normalized === "critical" || normalized === "high";
+}
+
+function notifyCompleteStoryReviewRepairFailure(ctx: any, reviewFilePath: string, attempts: number): void {
+  const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
+  ctx.ui.notify(
+    `Review ${reviewLabel} could not be automatically repaired after ${attempts} attempt${attempts === 1 ? "" : "s"}. Fix the document structure manually, then re-run /complete-story or /review.`,
+    "warning",
+  );
+}
+
+function prepareReviewForCloseout(
+  pendingRequests: Map<string, PendingCompleteStoryRequest>,
+  ctx: any,
+  cwd: string,
+  pendingRequest: PendingCompleteStoryRequest,
+): { ok: boolean; repaired: boolean } {
+  const reviewFilePath = pendingRequest.reviewFile;
+  if (!reviewFilePath) return { ok: true, repaired: false };
+
+  const preparation = prepareReviewFileForCloseout({
+    filePath: reviewFilePath,
+    previousHash: pendingRequest.reviewFileHash,
+    suspended: pendingRequest.reviewSuspended ?? false,
+    repairAttempts: pendingRequest.reviewRepairAttempts ?? 0,
+    maxRepairAttempts: MAX_REVIEW_REPAIR_ATTEMPTS,
+    onRepairExhausted: attempts => notifyCompleteStoryReviewRepairFailure(ctx, reviewFilePath, attempts),
+  });
+
+  pendingRequest.reviewFileHash = preparation.currentHash;
+  pendingRequest.reviewSuspended = preparation.suspended;
+  pendingRequest.reviewRepairAttempts = preparation.repairAttempts;
+  setPendingCompleteStoryRequest(pendingRequests, cwd, pendingRequest);
+
+  return { ok: preparation.ok, repaired: preparation.repaired };
+}
+
+function suspendCompleteStoryReview(
+  pendingRequests: Map<string, PendingCompleteStoryRequest>,
+  cwd: string,
+  pendingRequest: PendingCompleteStoryRequest,
+): void {
+  pendingRequest.reviewSuspended = true;
+  pendingRequest.reviewFileHash = pendingRequest.reviewFile ? reviewFileHash(pendingRequest.reviewFile) : "";
+  setPendingCompleteStoryRequest(pendingRequests, cwd, pendingRequest);
 }
 
 export function listCompletionBlockers(readiness: StoryCompletionReadiness): string[] {
@@ -1063,7 +1129,7 @@ async function promptInProgressCompleteStoryReview(
   ctx: any,
   reviewFilePath: string,
   storyLabel: string,
-): Promise<"stay" | null> {
+): Promise<"suspend" | null> {
   const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
 
   if (!ctx.hasUI) {
@@ -1071,7 +1137,7 @@ async function promptInProgressCompleteStoryReview(
       `Review ${reviewLabel} for ${storyLabel} is still in progress. Re-run /complete-story in an interactive session to open the review or keep the story open while the review finishes.`,
       "info",
     );
-    return "stay";
+    return "suspend";
   }
 
   while (true) {
@@ -1085,12 +1151,12 @@ async function promptInProgressCompleteStoryReview(
       ["Open review document", "Keep story open and stay in review"],
     );
 
-    if (choice == null) return null;
+    if (choice == null) return "suspend";
     if (choice === "Open review document") {
       await viewReviewDocument(ctx, reviewFilePath, reviewLabel);
       continue;
     }
-    return "stay";
+    return "suspend";
   }
 }
 
@@ -1103,10 +1169,15 @@ async function processCompleteStoryReviewCloseout(
   reviewFilePath: string,
 ): Promise<boolean> {
   const storyLabel = path.basename(storyPath, ".md");
+  const pendingRequest = pendingRequests.get(cwd);
+  if (!pendingRequest) return false;
+
+  const preparation = prepareReviewForCloseout(pendingRequests, ctx, cwd, pendingRequest);
+  if (!preparation.ok) return true;
+
   finalizeReviewFileAfterRemediation(reviewFilePath);
   const reviewFrontmatter = parseReviewFrontmatter(reviewFilePath);
-  const pendingRequest = pendingRequests.get(cwd);
-  const canResumeCloseout = pendingRequest?.reviewFile === reviewFilePath && pendingRequest.reviewCloseoutReady === true;
+  const canResumeCloseout = pendingRequest.reviewFile === reviewFilePath && pendingRequest.reviewCloseoutReady === true;
   if (reviewFrontmatter?.status !== "complete" && !canResumeCloseout) {
     return false;
   }
@@ -1121,7 +1192,10 @@ async function processCompleteStoryReviewCloseout(
     ? [...recommendedFixes, ...otherFixes]
     : reviewRecommendedFixesFromFindings(findings);
   const decision = await promptReviewFindingsCloseout(ctx, reviewFilePath, findings, "story");
-  if (decision == null) return true;
+  if (decision == null || decision === "not-yet") {
+    suspendCompleteStoryReview(pendingRequests, cwd, pendingRequest);
+    return true;
+  }
 
   if (decision === "fix-high" || decision === "fix-all") {
     const targetedFixes = trackedFixes.filter(fix => !fix.checked && (decision === "fix-all" || isHighPrioritySeverity(fix.severity)));
@@ -1200,12 +1274,23 @@ export function createCompleteStoryController(deps: CompleteStoryControllerDepen
       });
 
       if (resumedPhase.phase === "review-closeout") {
+        const preparation = prepareReviewForCloseout(deps.pendingRequests, ctx, cwd, persistedPending);
+        if (!preparation.ok) return;
         await processCompleteStoryReviewCloseout(deps.pendingRequests, deps, ctx, cwd, storyPath, persistedPending.reviewFile);
         return;
       }
 
       if (resumedPhase.phase === "review-in-progress") {
-        await promptInProgressCompleteStoryReview(ctx, persistedPending.reviewFile, storyLabel);
+        const preparation = prepareReviewForCloseout(deps.pendingRequests, ctx, cwd, persistedPending);
+        if (!preparation.ok) return;
+        if (finalizeReviewFileAfterRemediation(persistedPending.reviewFile)) {
+          await handleCommand(ctx);
+          return;
+        }
+        const result = await promptInProgressCompleteStoryReview(ctx, persistedPending.reviewFile, storyLabel);
+        if (result === "suspend") {
+          suspendCompleteStoryReview(deps.pendingRequests, cwd, persistedPending);
+        }
         return;
       }
     }
@@ -1261,8 +1346,17 @@ export function createCompleteStoryController(deps: CompleteStoryControllerDepen
     }
 
     if (closeoutPhase.phase === "review-in-progress" && pendingCompleteStory.reviewFile) {
+      const preparation = prepareReviewForCloseout(deps.pendingRequests, ctx, cwd, pendingCompleteStory);
+      if (!preparation.ok) return true;
+
       if (finalizeReviewFileAfterRemediation(pendingCompleteStory.reviewFile)) {
         return await handleTurnEnd(ctx);
+      }
+
+      const storyLabel = path.basename(pendingCompleteStory.storyFile, ".md");
+      const result = await promptInProgressCompleteStoryReview(ctx, pendingCompleteStory.reviewFile, storyLabel);
+      if (result === "suspend") {
+        suspendCompleteStoryReview(deps.pendingRequests, cwd, pendingCompleteStory);
       }
       return true;
     }
@@ -1308,11 +1402,17 @@ export function createCompleteStoryController(deps: CompleteStoryControllerDepen
     if (!pendingCompleteStory.reviewFile) return false;
     if (pendingCompleteStory.reviewCloseoutReady) return false;
 
+    const preparation = prepareReviewForCloseout(deps.pendingRequests, ctx, cwd, pendingCompleteStory);
+    if (!preparation.ok) return true;
+
     finalizeReviewFileAfterRemediation(pendingCompleteStory.reviewFile);
     const reviewFrontmatter = parseReviewFrontmatter(pendingCompleteStory.reviewFile);
     if (reviewFrontmatter?.status === "complete") return false;
 
-    await promptInProgressCompleteStoryReview(ctx, pendingCompleteStory.reviewFile, path.basename(pendingCompleteStory.storyFile, ".md"));
+    const result = await promptInProgressCompleteStoryReview(ctx, pendingCompleteStory.reviewFile, path.basename(pendingCompleteStory.storyFile, ".md"));
+    if (result === "suspend") {
+      suspendCompleteStoryReview(deps.pendingRequests, cwd, pendingCompleteStory);
+    }
     return true;
   }
 
