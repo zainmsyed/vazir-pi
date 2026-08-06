@@ -358,6 +358,29 @@ export function formatIdeaListItem(idea: IdeaFrontmatter): string {
   return `${ideaFileName(idea.number)} — ${idea.title} (${idea.status})`;
 }
 
+export function parseIdeaReference(input: string): { number: number; label: string } | null {
+  const trimmed = input.trim();
+  const match = trimmed.match(/^idea-(\d+)$/i);
+  if (!match) return null;
+  const number = Number.parseInt(match[1], 10);
+  return { number, label: `idea-${String(number).padStart(3, "0")}` };
+}
+
+export function promoteIdea(cwd: string, ideaNumber: number, storyLabel: string): { ok: boolean; filePath: string; previousStatus: IdeaStatus } {
+  const filePath = ideaFilePath(cwd, ideaNumber);
+  const content = readIfExists(filePath);
+  if (!content) {
+    return { ok: false, filePath, previousStatus: "open" };
+  }
+
+  const previousStatus = parseIdeaFrontmatter(filePath)?.status ?? "open";
+  const updated = content
+    .replace(/^\*\*Status:\*\*\s*.+$/m, "**Status:** promoted")
+    .replace(/^\*\*Promoted to:\*\*\s*.+$/m, `**Promoted to:** ${storyLabel}`);
+  fs.writeFileSync(filePath, updated);
+  return { ok: true, filePath, previousStatus };
+}
+
 export function reviewsDir(cwd: string) {
   return path.join(cwd, ".context", "reviews");
 }

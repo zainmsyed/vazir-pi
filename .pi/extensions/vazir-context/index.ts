@@ -64,6 +64,11 @@ import {
   captureIdea,
   listIdeas,
   formatIdeaListItem,
+  parseIdeaReference,
+  promoteIdea,
+  parseIdeaFrontmatter,
+  ideaFileName,
+  ideaFilePath,
   buildRememberInstruction,
   buildReviewInstruction,
   clearLegacyPendingLearnings,
@@ -329,15 +334,26 @@ const pendingCompleteStoryRequests = new Map<string, PendingCompleteStoryRequest
 const pendingManualReviewRequests = new Map<string, PendingManualReviewRequest>();
 const approvedStoryCloseouts = new Map<string, Set<string>>();
 const missingFallowNoticeShown = new Set<string>();
-const pendingPlanRepairRequests = new Map<string, { storyCountAtStart: number }>();
+const pendingPlanRepairRequests = new Map<string, { existingStoryFilesAtStart: string[]; seededIdeaNumber?: number }>();
 type ManualReviewScope = "story" | "whole-codebase";
 type ReviewCloseoutTarget = "story" | "review";
 const INTERNAL_AGENT_MESSAGE_TYPE = "vazir-internal-request";
 
 export default function (pi: ExtensionAPI) {
-  pi.on("input", async (event: any) => {
-    if (event.text?.trim() && !event.text.startsWith("/")) {
-      lastUserPrompt = event.text.trim();
+  const lastViewedIdeaByCwd = new Map<string, string>();
+
+  pi.on("input", async (event: any, ctx: any) => {
+    const text = event.text?.trim() ?? "";
+    if (/^plan this[.!]?$/i.test(text)) {
+      const ideaLabel = lastViewedIdeaByCwd.get(ctx.cwd);
+      if (ideaLabel) {
+        event.text = `/plan ${ideaLabel}`;
+        lastViewedIdeaByCwd.delete(ctx.cwd);
+        return { action: "continue" as const };
+      }
+    }
+    if (text && !text.startsWith("/")) {
+      lastUserPrompt = text;
     }
     return { action: "continue" as const };
   });
@@ -1231,6 +1247,7 @@ export default function (pi: ExtensionAPI) {
     approvedStoryCloseouts.delete(ctx.cwd);
     missingFallowNoticeShown.delete(ctx.cwd);
     pendingPlanRepairRequests.delete(ctx.cwd);
+    lastViewedIdeaByCwd.delete(ctx.cwd);
   });
 
   // ── turn_end: review closeout prompt dispatch while agent is still alive ─
@@ -1249,10 +1266,11 @@ export default function (pi: ExtensionAPI) {
     const planRepair = pendingPlanRepairRequests.get(cwd);
     if (planRepair) {
       const storyDir = storiesDir(cwd);
-      const currentStoryCount = fs.existsSync(storyDir)
-        ? fs.readdirSync(storyDir).filter((name: string) => /^story-\d+\.md$/.test(name)).length
-        : 0;
-      const storiesChanged = currentStoryCount !== planRepair.storyCountAtStart;
+      const currentStoryFiles = fs.existsSync(storyDir)
+        ? fs.readdirSync(storyDir).filter((name: string) => /^story-\d+\.md$/.test(name)).sort()
+        : [];
+      const storiesChanged = currentStoryFiles.length !== planRepair.existingStoryFilesAtStart.length ||
+        currentStoryFiles.some((file, index) => file !== planRepair.existingStoryFilesAtStart[index]);
 
       if (!storiesChanged) {
         // Still clarifying, skip until stories are written.
@@ -1260,6 +1278,23 @@ export default function (pi: ExtensionAPI) {
         const pitfalls = checkStoryPitfalls(cwd);
         if (!pitfalls) {
           pendingPlanRepairRequests.delete(cwd);
+
+          if (planRepair.seededIdeaNumber != null) {
+            const createdStoryFiles = currentStoryFiles.filter(file => !planRepair.existingStoryFilesAtStart.includes(file));
+            const targetStoryFile = createdStoryFiles
+              .map(file => listStories(cwd).find(story => path.basename(story.file) === file))
+              .filter((story): story is NonNullable<typeof story> => story != null)
+              .sort((a, b) => a.number - b.number)[0];
+            if (targetStoryFile) {
+              const storyLabel = path.basename(targetStoryFile.file, ".md");
+              const promotion = promoteIdea(cwd, planRepair.seededIdeaNumber, storyLabel);
+              if (promotion.ok) {
+                ctx.ui.notify(`Promoted ${path.basename(promotion.filePath)} to ${storyLabel}`, "info");
+              } else {
+                ctx.ui.notify(`Could not promote ${path.basename(promotion.filePath)} — file missing.`, "warning");
+              }
+            }
+          }
         } else {
           const message = [
             "Some generated story files have formatting issues. Please fix them now:",
@@ -1272,7 +1307,9 @@ export default function (pi: ExtensionAPI) {
             "Fix only the listed issues. Do not rewrite entire files unless necessary.",
           ].join("\n");
           await pi.sendUserMessage(message, { deliverAs: "steer", triggerTurn: true });
-          pendingPlanRepairRequests.delete(cwd);
+          if (planRepair.seededIdeaNumber == null) {
+            pendingPlanRepairRequests.delete(cwd);
+          }
           return;
         }
       }
@@ -1867,6 +1904,24 @@ export default function (pi: ExtensionAPI) {
     description: "Start a planning conversation — generates plan.md and story files",
     handler: async (args: string, ctx: any) => {
       const cwd = ctx.cwd;
+      const ideaRef = parseIdeaReference(args);
+      let seededIdeaNumber: number | undefined;
+      let seededIdeaContent: string | undefined;
+      if (ideaRef) {
+        const ideaFile = ideaFilePath(cwd, ideaRef.number);
+        const idea = parseIdeaFrontmatter(ideaFile);
+        if (!idea) {
+          ctx.ui.notify(`Idea ${ideaRef.label} was not found. Run /idea to view existing ideas.`, "warning");
+          return;
+        }
+        if (idea.status !== "open") {
+          ctx.ui.notify(`Idea ${ideaRef.label} is ${idea.status}${idea.promotedTo !== "—" ? ` (${idea.promotedTo})` : ""}. Only open ideas can be planned.`, "warning");
+          return;
+        }
+        seededIdeaNumber = idea.number;
+        seededIdeaContent = readIfExists(ideaFile);
+      }
+
       ensureDir(storiesDir(cwd));
       ensureIntakeStructure(cwd);
 
@@ -1963,10 +2018,10 @@ export default function (pi: ExtensionAPI) {
       const planningSourcesList = planningSources.length > 0 ? planningSources.join(", ") : "none";
 
       const storyDir = storiesDir(cwd);
-      const storyCountAtStart = fs.existsSync(storyDir)
-        ? fs.readdirSync(storyDir).filter((name: string) => /^story-\d+\.md$/.test(name)).length
-        : 0;
-      pendingPlanRepairRequests.set(cwd, { storyCountAtStart });
+      const existingStoryFilesAtStart = fs.existsSync(storyDir)
+        ? fs.readdirSync(storyDir).filter((name: string) => /^story-\d+\.md$/.test(name)).sort()
+        : [];
+      pendingPlanRepairRequests.set(cwd, { existingStoryFilesAtStart, seededIdeaNumber });
 
       // Instruct the agent to run the planning conversation
       const instruction = [
@@ -1974,10 +2029,20 @@ export default function (pi: ExtensionAPI) {
         existingStoryFiles.length > 0
           ? `Existing story files already exist in .context/stories/: ${existingStoryFiles.join(", ")}. Treat them as preserved history, not scaffolds.`
           : "No story files are pre-seeded in .context/stories/. Create the final story set after clarifying questions.",
+        seededIdeaContent
+          ? [
+              "",
+              `Seeded idea: ${ideaFileName(ideaRef!.number)}`,
+              "Treat this idea as planning input (like intake material). It is not verification-ready, so continue asking clarifying questions.",
+              "```markdown",
+              seededIdeaContent,
+              "```",
+            ].join("\n")
+          : "",
         "",
         "Your job:",
-        `1. Read .context/stories/intake-brief.md first.${planningSources.length > 0 ? ` Sources: ${planningSourcesList}.` : ""}`,
-        planningSources.length > 0 ? "   Read intake sources before asking anything. Skim large files selectively." : "",
+        `1. Read .context/stories/intake-brief.md first.${planningSources.length > 0 ? ` Sources: ${planningSourcesList}.` : ""}${seededIdeaContent ? ` Also review the seeded idea ${ideaFileName(ideaRef!.number)} above.` : ""}`,
+        planningSources.length > 0 || seededIdeaContent ? "   Read all planning sources before asking anything. Skim large files selectively." : "",
         "2. Ask exactly ONE clarifying question at a time. Wait for the answer before asking the next. Do NOT ask multiple questions in one turn. Only ask about genuinely missing or conflicting information. Do not list, number, or categorize questions. If still unclear after review, ask: Who are the users? What's the most important thing to get right in v1? What are we explicitly NOT building in v1? What stack are we using / what already exists?",
         "3. Once you have enough information, STOP asking clarifying questions. Say 'I have what I need — writing the plan and stories now.' Then immediately write all new story files using the write tool, update .context/stories/plan.md, and update .context/stories/intake-brief.md. Do not wait for the user to confirm before writing files.",
         `4. Update .context/stories/intake-brief.md with the final distilled answers. Current brief: ${planningBrief}`,
@@ -2121,6 +2186,7 @@ export default function (pi: ExtensionAPI) {
           return;
         }
 
+        lastViewedIdeaByCwd.set(cwd, `idea-${String(selectedIdea.number).padStart(3, "0")}`);
         await showMarkdownViewer(ctx, path.basename(selectedIdea.file), content);
       }
     },

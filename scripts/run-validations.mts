@@ -26,6 +26,7 @@ const validations = [
   "validate-vazir-fix-routing.mts",
   "validate-vazir-idea-capture.mts",
   "validate-vazir-idea-browse.mts",
+  "validate-vazir-plan-idea.mts",
   "validate-vazir-fossil-footer.mts",
   "validate-vazir-fossil-timeouts.mts",
   "validate-vazir-implement-command.mts",
