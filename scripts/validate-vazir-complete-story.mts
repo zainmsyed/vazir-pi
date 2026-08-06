@@ -521,7 +521,6 @@ async function runReviewGatedScenario() {
       "Start code review before closing",
       "Open review document",
       "Keep story open and fix high-priority recommended items",
-      "Keep story open and stay in review",
       "Close story and commit all",
     ],
     selectCalls,
@@ -670,6 +669,14 @@ async function runReviewInProgressPromptScenario() {
   assert(reviewFiles.length === 1, "review-in-progress scenario should create a review file before closing");
 
   const reviewPath = path.join(reviewDir, reviewFiles[0]);
+  await harness.emit("turn_end", {}, ctx);
+  await harness.emit("agent_end", {}, ctx);
+
+  assert(
+    !selectCalls.some(call => call.prompt.includes("still marked in progress")),
+    "review-in-progress scenario should suppress the prompt while the review file is actively changing",
+  );
+
   await harness.emit("turn_end", {}, ctx);
   await harness.emit("agent_end", {}, ctx);
 

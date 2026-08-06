@@ -1319,6 +1319,16 @@ export function createCompleteStoryController(deps: CompleteStoryControllerDepen
     startLearnedRuleCloseout(deps.pendingRequests, deps, ctx, storyPath, closeChoice);
   }
 
+  const inProgressReviewHandledContexts = new WeakSet<any>();
+
+  function markInProgressReviewHandledForContext(ctx: any): void {
+    inProgressReviewHandledContexts.add(ctx);
+  }
+
+  function inProgressReviewAlreadyHandledForContext(ctx: any): boolean {
+    return inProgressReviewHandledContexts.has(ctx);
+  }
+
   async function handleTurnEnd(ctx: any): Promise<boolean> {
     const cwd = ctx.cwd;
     if (ctx.hasPendingMessages?.()) return false;
@@ -1346,11 +1356,17 @@ export function createCompleteStoryController(deps: CompleteStoryControllerDepen
     }
 
     if (closeoutPhase.phase === "review-in-progress" && pendingCompleteStory.reviewFile) {
+      markInProgressReviewHandledForContext(ctx);
+      const previousHash = pendingCompleteStory.reviewFileHash;
       const preparation = prepareReviewForCloseout(deps.pendingRequests, ctx, cwd, pendingCompleteStory);
       if (!preparation.ok) return true;
 
       if (finalizeReviewFileAfterRemediation(pendingCompleteStory.reviewFile)) {
         return await handleTurnEnd(ctx);
+      }
+
+      if (pendingCompleteStory.reviewFileHash !== previousHash) {
+        return true;
       }
 
       const storyLabel = path.basename(pendingCompleteStory.storyFile, ".md");
@@ -1399,15 +1415,21 @@ export function createCompleteStoryController(deps: CompleteStoryControllerDepen
       return true;
     }
 
+    if (inProgressReviewAlreadyHandledForContext(ctx)) return false;
     if (!pendingCompleteStory.reviewFile) return false;
     if (pendingCompleteStory.reviewCloseoutReady) return false;
 
+    const previousHash = pendingCompleteStory.reviewFileHash;
     const preparation = prepareReviewForCloseout(deps.pendingRequests, ctx, cwd, pendingCompleteStory);
     if (!preparation.ok) return true;
 
     finalizeReviewFileAfterRemediation(pendingCompleteStory.reviewFile);
     const reviewFrontmatter = parseReviewFrontmatter(pendingCompleteStory.reviewFile);
     if (reviewFrontmatter?.status === "complete") return false;
+
+    if (pendingCompleteStory.reviewFileHash !== previousHash) {
+      return true;
+    }
 
     const result = await promptInProgressCompleteStoryReview(ctx, pendingCompleteStory.reviewFile, path.basename(pendingCompleteStory.storyFile, ".md"));
     if (result === "suspend") {

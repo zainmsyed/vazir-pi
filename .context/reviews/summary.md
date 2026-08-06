@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-08-06T19:38:07Z
+**Last updated:** 2026-08-06T19:41:06Z
 
 ## Findings
 - `/plan` instructions must enumerate every formatting invariant that downstream story-file validators enforce. | count: 1 | status: tracked | sources: review-20260724-001406.md | stories: story-059

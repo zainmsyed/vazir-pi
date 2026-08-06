@@ -40,11 +40,11 @@ Then simulate a stalled review by leaving the file unchanged across a turn bound
 ---
 
 ## Checklist
-- [ ] Add an observable guard that distinguishes an active review turn from a stalled review (e.g., no file hash change for at least one turn boundary)
-- [ ] Update `handleTurnEnd` to skip the in-progress prompt while the review file is actively changing
-- [ ] Update `handleAgentEnd` to the same suppression behavior, avoiding duplicate prompts
-- [ ] Keep the stalled-review fallback prompt intact with working Escape/suspend semantics
-- [ ] Add regression coverage for active-review suppression, stalled-review fallback, and resume-after-change
+- [x] Add an observable guard that distinguishes an active review turn from a stalled review (file hash changed since the previous turn boundary)
+- [x] Update `handleTurnEnd` to skip the in-progress prompt while the review file is actively changing
+- [x] Update `handleAgentEnd` to the same suppression behavior, avoiding duplicate prompts
+- [x] Keep the stalled-review fallback prompt intact with working Escape/suspend semantics
+- [x] Add regression coverage for active-review suppression, stalled-review fallback, and resume-after-change
 - [ ] Run targeted validation plus an interactive smoke check of `/complete-story` → review → close
 
 ---
@@ -54,3 +54,10 @@ Then simulate a stalled review by leaving the file unchanged across a turn bound
 ---
 
 ## Completion Summary
+- Added per-context `WeakSet` tracking so `turn_end` and `agent_end` do not both process the same in-progress review turn, preventing duplicate prompts.
+- Updated `handleTurnEnd` to capture the review file hash before `prepareReviewForCloseout` and suppress the in-progress prompt when the hash changed during the turn; unchanged hashes still show the stalled-review fallback.
+- Updated `handleAgentEnd` with the same hash-delta suppression and the shared context guard.
+- Preserved the existing Escape/suspend path: choosing "Keep story open and stay in review" still sets `reviewSuspended` and persists it; suspension only clears when the review file actually changes.
+- Added `scripts/validate-vazir-active-review-suppression.mts` covering active suppression, stalled fallback, suspended no-reprompt, resume after file change, and re-stall prompt.
+- Updated `scripts/validate-vazir-complete-story.mts` so existing review-gated and in-progress scenarios match the new behavior (no extra agent_end prompt, stalled fallback verified on a second turn boundary).
+- Registered the new validation in `scripts/run-validations.mts`.
