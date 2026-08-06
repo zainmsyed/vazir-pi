@@ -3,7 +3,8 @@
 **Status:** in-progress  
 **Type:** bug  
 **Created:** 2026-08-06  
-**Last accessed:** 2026-08-06
+**Last accessed:** 2026-08-06  
+**Completed:** —
 
 ---
 
