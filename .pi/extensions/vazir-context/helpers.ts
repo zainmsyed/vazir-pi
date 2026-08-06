@@ -258,6 +258,129 @@ export function intakeDir(cwd: string) {
   return path.join(cwd, ".context", "intake");
 }
 
+export function ideasDir(cwd: string): string {
+  return path.join(cwd, ".context", "ideas");
+}
+
+export function ideaFileName(num: number): string {
+  return `idea-${String(num).padStart(3, "0")}.md`;
+}
+
+export type IdeaStatus = "open" | "promoted" | "discarded";
+
+export interface IdeaFrontmatter {
+  file: string;
+  number: number;
+  title: string;
+  status: IdeaStatus;
+  captured: string;
+  promotedTo: string;
+}
+
+export function ideaFilePath(cwd: string, num: number): string {
+  return path.join(ideasDir(cwd), ideaFileName(num));
+}
+
+export function nextIdeaNumber(cwd: string): number {
+  const dir = ideasDir(cwd);
+  if (!fs.existsSync(dir)) return 1;
+
+  const numbers = fs.readdirSync(dir)
+    .map(name => name.match(/^idea-(\d+)\.md$/i)?.[1])
+    .filter((value): value is string => Boolean(value))
+    .map(value => Number.parseInt(value, 10))
+    .filter(Number.isSafeInteger);
+
+  return numbers.length === 0 ? 1 : Math.max(...numbers) + 1;
+}
+
+function parseIdeaStatus(value: string | undefined): IdeaStatus {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "promoted" || normalized === "discarded" ? normalized : "open";
+}
+
+export function parseIdeaFrontmatter(filePath: string): IdeaFrontmatter | null {
+  const content = readIfExists(filePath);
+  if (!content) return null;
+
+  const fileName = path.basename(filePath);
+  const numberMatch = fileName.match(/^idea-(\d+)\.md$/i);
+  const number = numberMatch ? Number.parseInt(numberMatch[1], 10) : 0;
+  const title = content.match(/^#\s+Idea\s+\d+\s*:\s*(.+)$/mi)?.[1]?.trim() ?? "Untitled idea";
+  const status = parseIdeaStatus(content.match(/^\*\*Status:\*\*\s*(.+)$/mi)?.[1]);
+  const captured = content.match(/^\*\*Captured:\*\*\s*(.+)$/mi)?.[1]?.trim() ?? "—";
+  const promotedTo = content.match(/^\*\*Promoted to:\*\*\s*(.+)$/mi)?.[1]?.trim() ?? "—";
+
+  return { file: filePath, number, title, status, captured, promotedTo };
+}
+
+export function ideaFileTemplate(num: number, title: string, description: string, captured = todayDate()): string {
+  return [
+    `# Idea ${String(num).padStart(3, "0")}: ${title}`,
+    "",
+    "**Status:** open",
+    `**Captured:** ${captured}`,
+    "**Promoted to:** —",
+    "",
+    description.trim(),
+    "",
+  ].join("\n");
+}
+
+export function buildIdeaTitle(description: string): string {
+  const firstLine = description.split(/\r?\n/).map(line => line.trim()).find(Boolean) ?? "Untitled idea";
+  const withoutPrefix = firstLine.replace(/^idea\s*:\s*/i, "").trim();
+  const compact = withoutPrefix.replace(/\s+/g, " ");
+  return compact.length > 100 ? `${compact.slice(0, 97).trimEnd()}...` : compact;
+}
+
+export function captureIdea(cwd: string, description: string): { number: number; title: string; filePath: string } {
+  ensureDir(ideasDir(cwd));
+  const number = nextIdeaNumber(cwd);
+  const title = buildIdeaTitle(description);
+  const filePath = ideaFilePath(cwd, number);
+  fs.writeFileSync(filePath, ideaFileTemplate(number, title, description), { flag: "wx" });
+  return { number, title, filePath };
+}
+
+export function listIdeas(cwd: string): IdeaFrontmatter[] {
+  const dir = ideasDir(cwd);
+  if (!fs.existsSync(dir)) return [];
+
+  return fs.readdirSync(dir)
+    .filter((name: string) => /^idea-\d+\.md$/i.test(name))
+    .map((name: string) => parseIdeaFrontmatter(path.join(dir, name)))
+    .filter((idea): idea is IdeaFrontmatter => idea !== null)
+    .sort((a, b) => a.number - b.number);
+}
+
+export function formatIdeaListItem(idea: IdeaFrontmatter): string {
+  return `${ideaFileName(idea.number)} — ${idea.title} (${idea.status})`;
+}
+
+export function parseIdeaReference(input: string): { number: number; label: string } | null {
+  const trimmed = input.trim();
+  const match = trimmed.match(/^idea-(\d+)$/i);
+  if (!match) return null;
+  const number = Number.parseInt(match[1], 10);
+  return { number, label: `idea-${String(number).padStart(3, "0")}` };
+}
+
+export function promoteIdea(cwd: string, ideaNumber: number, storyLabel: string): { ok: boolean; filePath: string; previousStatus: IdeaStatus } {
+  const filePath = ideaFilePath(cwd, ideaNumber);
+  const content = readIfExists(filePath);
+  if (!content) {
+    return { ok: false, filePath, previousStatus: "open" };
+  }
+
+  const previousStatus = parseIdeaFrontmatter(filePath)?.status ?? "open";
+  const updated = content
+    .replace(/^\*\*Status:\*\*\s*.+$/m, "**Status:** promoted")
+    .replace(/^\*\*Promoted to:\*\*\s*.+$/m, `**Promoted to:** ${storyLabel}`);
+  fs.writeFileSync(filePath, updated);
+  return { ok: true, filePath, previousStatus };
+}
+
 export function reviewsDir(cwd: string) {
   return path.join(cwd, ".context", "reviews");
 }
