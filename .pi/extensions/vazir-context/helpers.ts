@@ -1733,24 +1733,131 @@ export function reviewFileHash(filePath: string): string {
   }
 }
 
-function normalizeReviewFrontmatterLine(content: string, key: string, defaultValue: string): string {
-  const pattern = new RegExp(`^(\\*\\*${key}:\\*\\*)\\s*.*$`, "m");
-  if (pattern.test(content)) {
-    return content.replace(pattern, `$1 ${defaultValue}`);
+const REVIEW_FRONTMATTER_ORDER = [
+  "Status",
+  "Created",
+  "Completed",
+  "Scope",
+  "Story",
+  "Static analysis",
+  "Focus",
+  "Trigger",
+];
+
+const REVIEW_SECTION_ORDER = [
+  "Goal",
+  "Checklist",
+  "Findings",
+  "Fallow Findings",
+  "Recommended Fixes",
+  "Other Fixes",
+  "Completion Summary",
+];
+
+function parseReviewFrontmatterAsMap(content: string): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const key of REVIEW_FRONTMATTER_ORDER) {
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = content.match(new RegExp(`^\\*\\*${escapedKey}:\\*\\*\\s*(.+)$`, "m"));
+    if (match) result.set(key, match[1].trim());
   }
-  const frontmatterEnd = content.search(/\n\n/);
-  const insertPosition = frontmatterEnd >= 0 ? frontmatterEnd : 0;
-  const before = content.slice(0, insertPosition);
-  const after = content.slice(insertPosition);
-  return `${before}${before.endsWith("\n") ? "" : "\n"}**${key}:** ${defaultValue}${after}`;
+  return result;
 }
 
-function ensureReviewSection(content: string, heading: string, placeholder: string): string {
-  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`(^|\\n)## ${escapedHeading}\\n`, "m");
-  if (pattern.test(content)) return content;
-  const separator = content.endsWith("\n") ? "" : "\n";
-  return `${content}${separator}\n## ${heading}\n${placeholder}\n`;
+function buildReviewFrontmatterBlock(values: Map<string, string>): string {
+  const lines: string[] = [];
+  for (const key of REVIEW_FRONTMATTER_ORDER) {
+    const value = values.get(key);
+    if (value !== undefined) {
+      lines.push(`**${key}:** ${value}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function rebuildReviewFrontmatter(content: string, defaults: Map<string, string>): string {
+  const existing = parseReviewFrontmatterAsMap(content);
+  const merged = new Map<string, string>();
+  for (const key of REVIEW_FRONTMATTER_ORDER) {
+    if (existing.has(key) && existing.get(key) !== "") {
+      merged.set(key, existing.get(key)!);
+    } else if (defaults.has(key)) {
+      merged.set(key, defaults.get(key)!);
+    }
+  }
+
+  const remainingLines = content.split("\n");
+  let title: string | null = null;
+  if (remainingLines.length > 0 && remainingLines[0].startsWith("# ")) {
+    title = remainingLines.shift() ?? null;
+  }
+
+  // Skip blank lines and the old contiguous frontmatter block at the top.
+  while (remainingLines.length > 0 && remainingLines[0].trim() === "") {
+    remainingLines.shift();
+  }
+  while (remainingLines.length > 0 && /^\*\*.+:\*\*\s+.+$/.test(remainingLines[0])) {
+    remainingLines.shift();
+  }
+  while (remainingLines.length > 0 && remainingLines[0].trim() === "") {
+    remainingLines.shift();
+  }
+  if (remainingLines.length > 0 && remainingLines[0].trim() === "---") {
+    remainingLines.shift();
+  }
+  while (remainingLines.length > 0 && remainingLines[0].trim() === "") {
+    remainingLines.shift();
+  }
+
+  const newFrontmatter = buildReviewFrontmatterBlock(merged);
+  const parts = [title, newFrontmatter, ...remainingLines].filter((part): part is string => part !== null);
+  return parts.join("\n");
+}
+
+function parseReviewSectionContents(content: string): Map<string, string> {
+  const sections = new Map<string, string>();
+  const lines = content.split("\n");
+  let currentHeading: string | null = null;
+  const currentLines: string[] = [];
+
+  for (const line of lines) {
+    const headingMatch = line.match(/^## (.+)$/);
+    if (headingMatch) {
+      if (currentHeading) {
+        sections.set(currentHeading, currentLines.join("\n").trimEnd());
+      }
+      currentHeading = headingMatch[1].trim();
+      currentLines.length = 0;
+      continue;
+    }
+    if (currentHeading) {
+      currentLines.push(line);
+    }
+  }
+
+  if (currentHeading) {
+    sections.set(currentHeading, currentLines.join("\n").trimEnd());
+  }
+
+  return sections;
+}
+
+function ensureReviewSectionsInOrder(content: string, placeholders: Map<string, string>): string {
+  const sectionContents = parseReviewSectionContents(content);
+
+  // Find the first section heading so we can keep any preamble (title/frontmatter) intact.
+  const firstSectionMatch = content.match(/\n## /);
+  const preamble = firstSectionMatch
+    ? content.slice(0, firstSectionMatch.index)
+    : content;
+
+  const sectionBlocks: string[] = [];
+  for (const heading of REVIEW_SECTION_ORDER) {
+    const body = sectionContents.get(heading) ?? (placeholders.get(heading) ?? "");
+    sectionBlocks.push(`## ${heading}\n${body}`);
+  }
+
+  return `${preamble.trimEnd()}\n\n${sectionBlocks.join("\n\n")}\n`;
 }
 
 export function repairReviewDocument(filePath: string): { ok: boolean; repaired: boolean; issues: ReviewDocumentIssue[] } {
@@ -1777,40 +1884,36 @@ export function repairReviewDocument(filePath: string): { ok: boolean; repaired:
     }
   }
 
-  if (!/^\*\*Created:\*\*\s*.+$/m.test(updated)) {
-    updated = normalizeReviewFrontmatterLine(updated, "Created", today);
-  }
-  if (!/^\*\*Completed:\*\*\s*.+$/m.test(updated)) {
-    updated = normalizeReviewFrontmatterLine(updated, "Completed", "—");
-  }
-  if (!/^\*\*Scope:\*\*\s*.+$/m.test(updated)) {
-    updated = normalizeReviewFrontmatterLine(updated, "Scope", "story");
-  } else {
-    const scopeMatch = updated.match(/^\*\*Scope:\*\*\s*(.+)$/m);
-    if (scopeMatch) {
-      const scope = scopeMatch[1].trim().toLowerCase();
-      if (!VALID_REVIEW_SCOPE_VALUES.has(scope)) {
-        updated = updated.replace(/^\*\*Scope:\*\*\s*.+$/m, "**Scope:** story");
-      }
+  const scopeMatch = updated.match(/^\*\*Scope:\*\*\s*(.+)$/m);
+  if (scopeMatch) {
+    const scope = scopeMatch[1].trim().toLowerCase();
+    if (!VALID_REVIEW_SCOPE_VALUES.has(scope)) {
+      updated = updated.replace(/^\*\*Scope:\*\*\s*.+$/m, "**Scope:** story");
     }
   }
-  if (!/^\*\*Story:\*\*\s*.+$/m.test(updated)) {
-    updated = normalizeReviewFrontmatterLine(updated, "Story", "—");
-  }
-  if (!/^\*\*Focus:\*\*\s*.+$/m.test(updated)) {
-    updated = normalizeReviewFrontmatterLine(updated, "Focus", "—");
-  }
-  if (!/^\*\*Trigger:\*\*\s*.+$/m.test(updated)) {
-    updated = normalizeReviewFrontmatterLine(updated, "Trigger", "manual");
-  }
 
-  updated = ensureReviewSection(updated, "Goal", "Review the requested scope for issues.");
-  updated = ensureReviewSection(updated, "Checklist", "- [ ] Inspect the relevant diff and touched files");
-  updated = ensureReviewSection(updated, "Findings", "### Finding 1\n- Severity: medium\n- Category: bug\n- Summary: \n- Evidence: \n- Recommendation: \n- Rule candidate: —\n");
-  updated = ensureReviewSection(updated, "Fallow Findings", "- No Fallow findings.");
-  updated = ensureReviewSection(updated, "Recommended Fixes", "[Add one checklist item per finding using `- [ ] severity — action`.]");
-  updated = ensureReviewSection(updated, "Other Fixes", "[Add any additional follow-up tasks here.]");
-  updated = ensureReviewSection(updated, "Completion Summary", "[Summarize the review outcome.]");
+  const frontmatterDefaults = new Map<string, string>([
+    ["Status", "in-progress"],
+    ["Created", today],
+    ["Completed", "—"],
+    ["Scope", "story"],
+    ["Story", "—"],
+    ["Static analysis", "not run (fallow unavailable)"],
+    ["Focus", "—"],
+    ["Trigger", "—"],
+  ]);
+  updated = rebuildReviewFrontmatter(updated, frontmatterDefaults);
+
+  const sectionDefaults = new Map<string, string>([
+    ["Goal", "Review the requested scope for issues."],
+    ["Checklist", "- [ ] Inspect the relevant diff and touched files"],
+    ["Findings", "### Finding 1\n- Severity: medium\n- Category: bug\n- Summary: \n- Evidence: \n- Recommendation: \n- Rule candidate: —\n"],
+    ["Fallow Findings", "- No Fallow findings."],
+    ["Recommended Fixes", "[Add one checklist item per finding using `- [ ] severity — action`.]"],
+    ["Other Fixes", "[Add any additional follow-up tasks here.]"],
+    ["Completion Summary", "[Summarize the review outcome.]"],
+  ]);
+  updated = ensureReviewSectionsInOrder(updated, sectionDefaults);
 
   const repaired = updated !== content;
   if (repaired) {
@@ -1819,6 +1922,68 @@ export function repairReviewDocument(filePath: string): { ok: boolean; repaired:
 
   const afterValidation = validateReviewDocument(filePath);
   return { ok: afterValidation.valid, repaired, issues: afterValidation.issues };
+}
+
+export interface ReviewCloseoutPreparationResult {
+  ok: boolean;
+  repaired: boolean;
+  currentHash: string;
+  suspended: boolean;
+  repairAttempts: number;
+}
+
+export function hasReviewFileChangedForResume(filePath: string, previousHash?: string): boolean {
+  if (!fs.existsSync(filePath)) return false;
+  if (previousHash === undefined) return true;
+  return reviewFileHash(filePath) !== previousHash;
+}
+
+export function prepareReviewFileForCloseout(options: {
+  filePath: string;
+  previousHash?: string;
+  suspended: boolean;
+  repairAttempts: number;
+  maxRepairAttempts: number;
+  onRepairExhausted: (attempts: number) => void;
+}): ReviewCloseoutPreparationResult {
+  const { filePath, previousHash, suspended, repairAttempts, maxRepairAttempts, onRepairExhausted } = options;
+
+  if (!fs.existsSync(filePath)) {
+    onRepairExhausted(Math.max(1, repairAttempts));
+    return { ok: false, repaired: false, currentHash: "", suspended: true, repairAttempts };
+  }
+
+  const currentHash = reviewFileHash(filePath);
+  const changed = previousHash === undefined || currentHash !== previousHash;
+
+  if (suspended && !changed) {
+    return { ok: false, repaired: false, currentHash, suspended: true, repairAttempts };
+  }
+
+  let nextSuspended = false;
+  let nextRepairAttempts = repairAttempts;
+
+  if (suspended && changed) {
+    nextSuspended = false;
+    nextRepairAttempts = 0;
+  }
+
+  const validation = validateReviewDocument(filePath);
+  if (validation.valid) {
+    return { ok: true, repaired: false, currentHash, suspended: nextSuspended, repairAttempts: nextRepairAttempts };
+  }
+
+  if (nextRepairAttempts < maxRepairAttempts) {
+    const repair = repairReviewDocument(filePath);
+    nextRepairAttempts += 1;
+    if (repair.ok) {
+      return { ok: true, repaired: true, currentHash: reviewFileHash(filePath), suspended: nextSuspended, repairAttempts: nextRepairAttempts };
+    }
+  }
+
+  nextSuspended = true;
+  onRepairExhausted(nextRepairAttempts);
+  return { ok: false, repaired: false, currentHash, suspended: nextSuspended, repairAttempts: nextRepairAttempts };
 }
 
 export function reviewContributesToSummary(filePath: string): boolean {

@@ -75,7 +75,7 @@ import {
   isUiStory,
   prepareLearnedRulesForConsolidation,
   parseReviewFrontmatter,
-  repairReviewDocument,
+  prepareReviewFileForCloseout,
   reviewFallowFindingsFromFile,
   reviewFileHash,
   reviewFindingsFromFile,
@@ -279,9 +279,12 @@ function setPendingManualReviewRequest(
   return request;
 }
 
-function hasManualReviewFileChanged(reviewFilePath: string, previousHash?: string): boolean {
-  if (!fs.existsSync(reviewFilePath)) return previousHash !== undefined;
-  return reviewFileHash(reviewFilePath) !== previousHash;
+function notifyManualReviewRepairFailure(ctx: any, reviewFilePath: string, attempts: number): void {
+  const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
+  ctx.ui.notify(
+    `Review ${reviewLabel} could not be automatically repaired after ${attempts} attempt${attempts === 1 ? "" : "s"}. Fix the document structure manually, then re-run /review.`,
+    "warning",
+  );
 }
 
 function prepareManualReviewForCloseout(
@@ -293,46 +296,21 @@ function prepareManualReviewForCloseout(
   const reviewFilePath = request.reviewFile;
   if (!reviewFilePath) return { ok: true, repaired: false };
 
-  const changed = hasManualReviewFileChanged(reviewFilePath, request.reviewFileHash);
-  const currentHash = fs.existsSync(reviewFilePath) ? reviewFileHash(reviewFilePath) : "";
+  const preparation = prepareReviewFileForCloseout({
+    filePath: reviewFilePath,
+    previousHash: request.reviewFileHash,
+    suspended: request.suspended ?? false,
+    repairAttempts: request.repairAttempts ?? 0,
+    maxRepairAttempts: MAX_MANUAL_REVIEW_REPAIR_ATTEMPTS,
+    onRepairExhausted: attempts => notifyManualReviewRepairFailure(ctx, reviewFilePath, attempts),
+  });
 
-  if (request.suspended && !changed) {
-    return { ok: false, repaired: false };
-  }
-
-  if (request.suspended && changed) {
-    request.suspended = false;
-    request.repairAttempts = 0;
-  }
-
-  const validation = validateReviewDocument(reviewFilePath);
-  if (validation.valid) {
-    request.reviewFileHash = currentHash;
-    setPendingManualReviewRequest(pendingRequests, cwd, request);
-    return { ok: true, repaired: false };
-  }
-
-  const attempts = request.repairAttempts ?? 0;
-  if (attempts < MAX_MANUAL_REVIEW_REPAIR_ATTEMPTS) {
-    const repair = repairReviewDocument(reviewFilePath);
-    request.repairAttempts = attempts + 1;
-    request.reviewFileHash = currentHash;
-    setPendingManualReviewRequest(pendingRequests, cwd, request);
-
-    if (repair.ok) {
-      return { ok: true, repaired: true };
-    }
-  }
-
-  request.suspended = true;
-  request.reviewFileHash = currentHash;
+  request.reviewFileHash = preparation.currentHash;
+  request.suspended = preparation.suspended;
+  request.repairAttempts = preparation.repairAttempts;
   setPendingManualReviewRequest(pendingRequests, cwd, request);
-  const reviewLabel = path.relative(cwd, reviewFilePath).replace(/\\/g, "/");
-  ctx.ui.notify(
-    `Review ${reviewLabel} could not be automatically repaired after ${request.repairAttempts ?? 1} attempt${(request.repairAttempts ?? 1) === 1 ? "" : "s"}. Fix the document structure manually, then re-run /review.`,
-    "warning",
-  );
-  return { ok: false, repaired: false };
+
+  return { ok: preparation.ok, repaired: preparation.repaired };
 }
 
 function suspendManualReview(

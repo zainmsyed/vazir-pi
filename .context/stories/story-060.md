@@ -1,10 +1,10 @@
 # Story 060: Repair malformed review documents and make review closeout cancellable
 
-**Status:** in-progress  
+**Status:** complete  
 **Type:** bug  
 **Created:** 2026-08-05  
-**Last accessed:** 2026-08-05  
-**Completed:** —
+**Last accessed:** 2026-08-06  
+**Completed:** 2026-08-06
 
 ---
 

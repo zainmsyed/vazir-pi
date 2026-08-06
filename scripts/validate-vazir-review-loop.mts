@@ -135,9 +135,12 @@ function makePi() {
   const harness = createPiHarness([register]);
   const review = harness.getCommand("review");
   assert(Boolean(review), "review command was not registered");
+  const completeStory = harness.getCommand("complete-story");
+  assert(Boolean(completeStory), "complete-story command was not registered");
 
   return {
     review: review!,
+    completeStory: completeStory!,
     sentMessages: harness.sentMessages,
     async emit(name: string, event: any, ctx: any) {
       await harness.emit(name, event, ctx);
@@ -598,7 +601,7 @@ async function runMalformedReviewScenarios(): Promise<void> {
   assert(repaired.includes("**Completed:** —"), "repair should add Completed frontmatter");
   assert(repaired.includes("**Story:** —"), "repair should add Story frontmatter");
   assert(repaired.includes("**Focus:**"), "repair should add Focus frontmatter");
-  assert(repaired.includes("**Trigger:** manual"), "repair should add Trigger frontmatter");
+  assert(/\*\*Trigger:\*\*/.test(repaired), "repair should add Trigger frontmatter");
   assert(repaired.includes("## Goal"), "repair should add Goal section");
   assert(repaired.includes("## Checklist"), "repair should add Checklist section");
   assert(repaired.includes("## Fallow Findings"), "repair should add Fallow Findings section");
@@ -788,6 +791,107 @@ async function runMalformedReviewScenarios(): Promise<void> {
 
   await restartHarness.emit("turn_end", {}, restartCtx);
   assert(restartSelectCalls.length === 0, "fresh Pi session should not prompt a suspended manual review");
+
+  // 7. /complete-story handleCommand resumption repairs a malformed persisted review
+  const cmdCwd = createProject("vazir-review-cmd-");
+  const cmdStoryPath = path.join(cmdCwd, ".context", "stories", "story-001.md");
+  fs.writeFileSync(
+    cmdStoryPath,
+    [
+      "# Story 001: Example",
+      "",
+      "**Status:** in-progress  ",
+      "**Created:** 2026-04-01  ",
+      "**Last accessed:** 2026-04-05  ",
+      "**Completed:** —",
+      "",
+      "---",
+      "",
+      "## Goal",
+      "Example goal.",
+      "",
+      "## Verification",
+      "Example verification.",
+      "",
+      "## Scope — files this story may touch",
+      "- src/example.ts",
+      "",
+      "## Out of scope — do not touch",
+      "- src/other.ts",
+      "",
+      "## Dependencies",
+      "- ",
+      "",
+      "---",
+      "",
+      "## Checklist",
+      "- [x] Example task",
+      "",
+      "---",
+      "",
+      "## Issues",
+      "",
+      "---",
+      "",
+      "## Completion Summary",
+      "Done.",
+      "",
+    ].join("\n"),
+  );
+  const cmdReviewDir = path.join(cmdCwd, ".context", "reviews");
+  const cmdReviewPath = path.join(cmdReviewDir, "review-cmd.md");
+  fs.mkdirSync(cmdReviewDir, { recursive: true });
+  fs.writeFileSync(
+    cmdReviewPath,
+    [
+      "# Command Review",
+      "",
+      "**Status:** complete  ",
+      "**Scope:** story  ",
+      "**Story:** story-001  ",
+      "",
+      "---",
+      "",
+      "## Findings",
+      "### Finding 1",
+      "- Severity: medium",
+      "- Category: bug",
+      "- Summary: cmd test finding",
+      "- Evidence: test",
+      "- Recommendation: test",
+      "- Rule candidate: —",
+      "",
+      "## Recommended Fixes",
+      "- [ ] medium — cmd test fix",
+      "",
+    ].join("\n"),
+  );
+
+  const cmdStatePath = path.join(cmdReviewDir, "story-001-complete-story-closeout.json");
+  fs.writeFileSync(
+    cmdStatePath,
+    JSON.stringify({
+      storyFile: cmdStoryPath,
+      reviewFile: cmdReviewPath,
+      reviewCloseoutReady: true,
+    }, null, 2),
+  );
+
+  const cmdNotifications: Notification[] = [];
+  const cmdSelectCalls: SelectCall[] = [];
+  const cmdHarness = makePi();
+  const cmdCtx = makeCtx(cmdCwd, cmdNotifications, {
+    hasUI: true,
+    selectResponses: ["close"],
+    selectCalls: cmdSelectCalls,
+  });
+
+  await cmdHarness.completeStory.handler("", cmdCtx);
+  assert(helperModule.validateReviewDocument(cmdReviewPath).valid, "/complete-story handleCommand should repair the malformed review before prompting");
+  assert(cmdSelectCalls.length > 0, "/complete-story handleCommand should prompt for closeout after repair");
+  const cmdRepaired = fs.readFileSync(cmdReviewPath, "utf-8");
+  assert(cmdRepaired.includes("cmd test finding"), "handleCommand repair should preserve existing findings");
+  assert(cmdRepaired.includes("cmd test fix"), "handleCommand repair should preserve existing fixes");
 }
 
 await runMalformedReviewScenarios();

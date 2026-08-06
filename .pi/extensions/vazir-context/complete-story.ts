@@ -29,7 +29,7 @@ import {
   promoteRulesToSystemMd,
   readLearnedRuleCloseoutDraft,
   readStorySection,
-  repairReviewDocument,
+  prepareReviewFileForCloseout,
   reviewFileHash,
   reviewsDir,
   reviewFallowFindingsFromFile,
@@ -44,7 +44,6 @@ import {
   type ReviewFindingSummary,
   type ReviewRecommendedFix,
   type StoryCompletionReadiness,
-  validateReviewDocument,
 } from "./helpers.ts";
 
 export type CompleteStoryCloseIntent = "close" | "close-commit";
@@ -464,14 +463,7 @@ export function isHighPrioritySeverity(severity: string): boolean {
   return normalized === "critical" || normalized === "high";
 }
 
-function hasReviewFileChanged(reviewFilePath: string, previousHash?: string): boolean {
-  if (!reviewFilePath) return false;
-  if (!fs.existsSync(reviewFilePath)) return previousHash !== undefined;
-  const currentHash = reviewFileHash(reviewFilePath);
-  return currentHash !== previousHash;
-}
-
-function notifyReviewRepairFailure(ctx: any, reviewFilePath: string, attempts: number): void {
+function notifyCompleteStoryReviewRepairFailure(ctx: any, reviewFilePath: string, attempts: number): void {
   const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
   ctx.ui.notify(
     `Review ${reviewLabel} could not be automatically repaired after ${attempts} attempt${attempts === 1 ? "" : "s"}. Fix the document structure manually, then re-run /complete-story or /review.`,
@@ -488,42 +480,21 @@ function prepareReviewForCloseout(
   const reviewFilePath = pendingRequest.reviewFile;
   if (!reviewFilePath) return { ok: true, repaired: false };
 
-  const changed = hasReviewFileChanged(reviewFilePath, pendingRequest.reviewFileHash);
-  const currentHash = fs.existsSync(reviewFilePath) ? reviewFileHash(reviewFilePath) : "";
+  const preparation = prepareReviewFileForCloseout({
+    filePath: reviewFilePath,
+    previousHash: pendingRequest.reviewFileHash,
+    suspended: pendingRequest.reviewSuspended ?? false,
+    repairAttempts: pendingRequest.reviewRepairAttempts ?? 0,
+    maxRepairAttempts: MAX_REVIEW_REPAIR_ATTEMPTS,
+    onRepairExhausted: attempts => notifyCompleteStoryReviewRepairFailure(ctx, reviewFilePath, attempts),
+  });
 
-  if (pendingRequest.reviewSuspended && !changed) {
-    return { ok: false, repaired: false };
-  }
-
-  if (pendingRequest.reviewSuspended && changed) {
-    pendingRequest.reviewSuspended = false;
-    pendingRequest.reviewRepairAttempts = 0;
-  }
-
-  const validation = validateReviewDocument(reviewFilePath);
-  if (validation.valid) {
-    pendingRequest.reviewFileHash = currentHash;
-    setPendingCompleteStoryRequest(pendingRequests, cwd, pendingRequest);
-    return { ok: true, repaired: false };
-  }
-
-  const attempts = pendingRequest.reviewRepairAttempts ?? 0;
-  if (attempts < MAX_REVIEW_REPAIR_ATTEMPTS) {
-    const repair = repairReviewDocument(reviewFilePath);
-    pendingRequest.reviewRepairAttempts = attempts + 1;
-    pendingRequest.reviewFileHash = currentHash;
-    setPendingCompleteStoryRequest(pendingRequests, cwd, pendingRequest);
-
-    if (repair.ok) {
-      return { ok: true, repaired: true };
-    }
-  }
-
-  pendingRequest.reviewSuspended = true;
-  pendingRequest.reviewFileHash = currentHash;
+  pendingRequest.reviewFileHash = preparation.currentHash;
+  pendingRequest.reviewSuspended = preparation.suspended;
+  pendingRequest.reviewRepairAttempts = preparation.repairAttempts;
   setPendingCompleteStoryRequest(pendingRequests, cwd, pendingRequest);
-  notifyReviewRepairFailure(ctx, reviewFilePath, pendingRequest.reviewRepairAttempts ?? 1);
-  return { ok: false, repaired: false };
+
+  return { ok: preparation.ok, repaired: preparation.repaired };
 }
 
 function suspendCompleteStoryReview(
