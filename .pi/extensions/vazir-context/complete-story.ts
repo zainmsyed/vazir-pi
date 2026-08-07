@@ -1125,41 +1125,6 @@ async function finishLearnedRuleCloseout(
   return true;
 }
 
-async function promptInProgressCompleteStoryReview(
-  ctx: any,
-  reviewFilePath: string,
-  storyLabel: string,
-): Promise<"suspend" | null> {
-  const reviewLabel = path.relative(ctx.cwd, reviewFilePath).replace(/\\/g, "/");
-
-  if (!ctx.hasUI) {
-    ctx.ui.notify(
-      `Review ${reviewLabel} for ${storyLabel} is still in progress. Re-run /complete-story in an interactive session to open the review or keep the story open while the review finishes.`,
-      "info",
-    );
-    return "suspend";
-  }
-
-  while (true) {
-    const choice = await ctx.ui.select(
-      [
-        `${storyLabel} is waiting on ${reviewLabel}.`,
-        "",
-        "The review document is still marked in progress, so Vazir cannot show fix/close choices yet.",
-        "Open the review document, or keep the story open and stay in review until it is marked complete.",
-      ].join("\n"),
-      ["Open review document", "Keep story open and stay in review"],
-    );
-
-    if (choice == null) return "suspend";
-    if (choice === "Open review document") {
-      await viewReviewDocument(ctx, reviewFilePath, reviewLabel);
-      continue;
-    }
-    return "suspend";
-  }
-}
-
 async function processCompleteStoryReviewCloseout(
   pendingRequests: Map<string, PendingCompleteStoryRequest>,
   deps: CompleteStoryControllerDependencies,
@@ -1212,8 +1177,6 @@ async function processCompleteStoryReviewCloseout(
     );
     return true;
   }
-
-  if (decision === "not-yet") return true;
 
   const closeChoice = await resolveContextPersistenceChoice(ctx, storyPath, decision);
   if (closeChoice == null) return true;
@@ -1274,6 +1237,10 @@ export function createCompleteStoryController(deps: CompleteStoryControllerDepen
       });
 
       if (resumedPhase.phase === "review-closeout") {
+        if (persistedPending.reviewSuspended) {
+          persistedPending.reviewSuspended = false;
+          setPendingCompleteStoryRequest(deps.pendingRequests, cwd, persistedPending);
+        }
         const preparation = prepareReviewForCloseout(deps.pendingRequests, ctx, cwd, persistedPending);
         if (!preparation.ok) return;
         await processCompleteStoryReviewCloseout(deps.pendingRequests, deps, ctx, cwd, storyPath, persistedPending.reviewFile);
@@ -1281,16 +1248,20 @@ export function createCompleteStoryController(deps: CompleteStoryControllerDepen
       }
 
       if (resumedPhase.phase === "review-in-progress") {
+        const previousHash = persistedPending.reviewFileHash;
         const preparation = prepareReviewForCloseout(deps.pendingRequests, ctx, cwd, persistedPending);
-        if (!preparation.ok) return;
-        if (finalizeReviewFileAfterRemediation(persistedPending.reviewFile)) {
+        if (preparation.ok && finalizeReviewFileAfterRemediation(persistedPending.reviewFile)) {
           await handleCommand(ctx);
           return;
         }
-        const result = await promptInProgressCompleteStoryReview(ctx, persistedPending.reviewFile, storyLabel);
-        if (result === "suspend") {
-          suspendCompleteStoryReview(deps.pendingRequests, cwd, persistedPending);
+        if (!preparation.ok && preparation.repaired) {
+          return;
         }
+        const changed = persistedPending.reviewFileHash !== previousHash;
+        ctx.ui.notify(
+          `${storyLabel} review is still in progress${changed ? " and is actively being updated" : ""}. Vazir will prompt when the review is marked complete.`,
+          "info",
+        );
         return;
       }
     }
@@ -1353,12 +1324,7 @@ export function createCompleteStoryController(deps: CompleteStoryControllerDepen
         return await handleTurnEnd(ctx);
       }
 
-      const storyLabel = path.basename(pendingCompleteStory.storyFile, ".md");
-      const result = await promptInProgressCompleteStoryReview(ctx, pendingCompleteStory.reviewFile, storyLabel);
-      if (result === "suspend") {
-        suspendCompleteStoryReview(deps.pendingRequests, cwd, pendingCompleteStory);
-      }
-      return true;
+      return false;
     }
 
     if (closeoutPhase.phase === "readiness-review") return true;
@@ -1399,21 +1365,7 @@ export function createCompleteStoryController(deps: CompleteStoryControllerDepen
       return true;
     }
 
-    if (!pendingCompleteStory.reviewFile) return false;
-    if (pendingCompleteStory.reviewCloseoutReady) return false;
-
-    const preparation = prepareReviewForCloseout(deps.pendingRequests, ctx, cwd, pendingCompleteStory);
-    if (!preparation.ok) return true;
-
-    finalizeReviewFileAfterRemediation(pendingCompleteStory.reviewFile);
-    const reviewFrontmatter = parseReviewFrontmatter(pendingCompleteStory.reviewFile);
-    if (reviewFrontmatter?.status === "complete") return false;
-
-    const result = await promptInProgressCompleteStoryReview(ctx, pendingCompleteStory.reviewFile, path.basename(pendingCompleteStory.storyFile, ".md"));
-    if (result === "suspend") {
-      suspendCompleteStoryReview(deps.pendingRequests, cwd, pendingCompleteStory);
-    }
-    return true;
+    return false;
   }
 
   return {

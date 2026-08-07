@@ -12,6 +12,7 @@ const repoRoot = path.dirname(scriptDir);
 const validations = [
   "validate-learned-rule-draft-edge-cases.mts",
   "validate-vazir-checkpoint-labels.mts",
+  "validate-vazir-active-review-suppression.mts",
   "validate-vazir-complete-story.mts",
   "validate-vazir-confidence-and-subsections.mts",
   "validate-vazir-consolidate-handler-wiring.mts",

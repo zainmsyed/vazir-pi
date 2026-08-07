@@ -1,0 +1,17 @@
+{
+  "note": "Two reusable rules distilled from the story-064 closeout: one about explicit-command suspension resume and one about keeping UI copy aligned with removed prompt behavior.",
+  "candidates": [
+    {
+      "text": "When a multi-turn workflow uses a `suspended` flag to suppress automatic re-prompting, clear that flag on explicit command resume so a completed workflow can still be closed out without waiting for a file delta.",
+      "confidence": "high",
+      "sources": ["story issue", "completion summary"],
+      "rationale": "story-064's `/complete-story` command would silently do nothing when the review was already complete but the persisted state was `reviewSuspended: true`. The fix explicitly clears suspension in the command handler for completed reviews, matching the user's intent to resume closeout on demand."
+    },
+    {
+      "text": "When removing a user-facing prompt or fallback, scan related notification text and update any wording that still promises the removed behavior, so users are not told the system will do something it no longer does.",
+      "confidence": "medium",
+      "sources": ["review finding"],
+      "rationale": "The in-progress review notification still promised to prompt 'when the review stalls' after the stalled-review prompt was removed entirely. This is a generic copy-drift risk whenever prompts are deleted but their surrounding messages are not audited."
+    }
+  ]
+}
