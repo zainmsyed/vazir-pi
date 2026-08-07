@@ -1,10 +1,10 @@
 # Story 065: Extend project.json settings schema for role-keyed port maps
 
-**Status:** not-started  
+**Status:** complete  
 **Type:** feature  
 **Created:** 2026-08-07  
 **Last accessed:** 2026-08-07  
-**Completed:** —
+**Completed:** 2026-08-07
 
 ---
 
@@ -33,11 +33,11 @@ Run a targeted validation script that: starts with a project.json lacking port m
 ---
 
 ## Checklist
-- [ ] Add TypeScript types for `ports`, `previous_ports`, and `ports_override` keyed maps in project settings
-- [ ] Make `readProjectSettings` normalize missing or malformed port maps to empty objects
-- [ ] Make `writeProjectSettings` merge port-map updates without overwriting unrelated settings
-- [ ] Add `portSettings(cwd)` accessor helpers if they simplify the port module
-- [ ] Add regression coverage for schema round-trip and backwards compatibility
+- [x] Add TypeScript types for `ports`, `previous_ports`, and `ports_override` keyed maps in project settings
+- [x] Make `readProjectSettings` normalize missing or malformed port maps to empty objects
+- [x] Make `writeProjectSettings` merge port-map updates without overwriting unrelated settings
+- [x] Add `portSettings(cwd)` accessor helpers if they simplify the port module
+- [x] Add regression coverage for schema round-trip and backwards compatibility
 
 ---
 
@@ -46,3 +46,7 @@ Run a targeted validation script that: starts with a project.json lacking port m
 ---
 
 ## Completion Summary
+
+Added typed `ProjectSettings`, `PortSettings`, and role-keyed numeric map types in `.pi/lib/vazir-helpers.ts`. Project settings reads now always expose normalized empty maps for missing or malformed port fields, while writes merge partial updates per map and preserve unrelated settings such as `vcs_mirror`. Added the `portSettings(cwd)` accessor and targeted validation covering backwards compatibility, malformed input, merge behavior, unrelated-field preservation, and JSON round-trip.
+
+Verification: `node --experimental-strip-types scripts/validate-vazir-ports.mts` passes. The aggregate validation runner registration is intentionally deferred to story-068.

@@ -105,7 +105,7 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-062 | `/idea` browse selector, lightweight list, and viewer reuse | complete | story-061 |
 | story-063 | `/plan idea-NNN` seeding and promotion status flip | complete | story-061, story-062 |
 | story-064 | Suppress premature in-progress review prompt during active complete-story reviews | complete | story-052, story-060 |
-| story-065 | Extend project.json settings schema for role-keyed port maps | not-started | - |
+| story-065 | Extend project.json settings schema for role-keyed port maps | in-progress | - |
 | story-066 | Core deterministic port assignment helper | not-started | story-065 |
 | story-067 | Port override handling for file and environment overrides | not-started | story-065, story-066 |
 | story-068 | Aggregate validation registration for port assignment | not-started | story-065, story-066, story-067 |
@@ -135,3 +135,4 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-08-06** — Replanned from Addendum G (idea tracker). Preserved all existing story history and appended story-061 through story-063 for the `.context/ideas/` file foundation plus `/idea [description]` direct capture, bare-`/idea` selector with capture/view options and viewer reuse, and `/plan idea-NNN` planning seeding with promotion to `promoted` only after story file(s) exist. Marked story-061 complete and story-062 in-progress after implementing the browse selector.
 - **2026-08-06** — Replanned from the live observation that `/complete-story` → "Start code review before closing" interrupts the user with the in-progress review prompt after every agent turn while the review is actively being written. Marked story-062 and story-063 complete to match their story files and appended story-064 to suppress the prompt during active review turns while preserving the stalled-review fallback.
 - **2026-08-07** — Replanned from the finalized `Vazir_Port_Assignment_PRD.md`. Promoted the PRD status to Final and added an explicit v1 deliverable note. Preserved all existing story history and appended story-065 through story-068 for project settings schema extension, the core deterministic port assignment helper, file/environment override handling, and aggregate validation registration. No service consumer is included in v1; the helper is validated through isolated tests using fake occupied ports, dead PID files, and invalid overrides.
+- **2026-08-07** — Started story-065 and extended project settings with normalized, merge-safe role-keyed port maps plus targeted backwards-compatibility validation.
