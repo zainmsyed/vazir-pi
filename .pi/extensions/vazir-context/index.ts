@@ -2231,6 +2231,21 @@ export default function (pi: ExtensionAPI) {
       const persistedManual = readPersistedManualReviewCloseoutState(cwd);
       if (persistedManual) {
         pendingManualReviewRequests.set(cwd, persistedManual);
+        const persistedStatus = parseReviewFrontmatter(persistedManual.reviewFile)?.status ?? null;
+        if (persistedStatus === "complete" && persistedManual.suspended && ctx.hasUI) {
+          const resumeChoice = await ctx.ui.select(
+            "A completed manual review is waiting to close. What would you like to do?",
+            ["Resume closeout", "Start a new review"],
+          );
+          if (resumeChoice == null) return;
+          if (resumeChoice === "Resume closeout") {
+            setPendingManualReviewRequest(pendingManualReviewRequests, cwd, {
+              ...persistedManual,
+              suspended: false,
+            });
+            return;
+          }
+        }
       }
 
       const focus = parsed.focus || defaultReviewFocus(cwd, { scope, storyLabel });

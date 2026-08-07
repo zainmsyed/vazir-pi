@@ -104,7 +104,7 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-061 | Idea file foundation and `/idea [description]` direct capture | complete | - |
 | story-062 | `/idea` browse selector, lightweight list, and viewer reuse | complete | story-061 |
 | story-063 | `/plan idea-NNN` seeding and promotion status flip | complete | story-061, story-062 |
-| story-064 | Suppress premature in-progress review prompt during active complete-story reviews | in-progress | story-052, story-060 |
+| story-064 | Suppress premature in-progress review prompt during active complete-story reviews | complete | story-052, story-060 |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.

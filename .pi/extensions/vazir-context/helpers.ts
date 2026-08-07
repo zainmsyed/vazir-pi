@@ -2,6 +2,7 @@
 /// <reference path="../../../types/node-runtime-ambient.d.ts" />
 
 import * as childProcess from "child_process";
+import * as crypto from "node:crypto";
 import * as fs from "fs";
 import * as path from "path";
 export {
@@ -1843,14 +1844,7 @@ export function validateReviewDocument(filePath: string): ReviewDocumentValidati
 
 export function reviewFileHash(filePath: string): string {
   try {
-    const content = fs.readFileSync(filePath, "utf-8");
-    let hash = 0;
-    for (let i = 0; i < content.length; i++) {
-      const char = content.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash |= 0;
-    }
-    return hash.toString(16);
+    return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
   } catch {
     return "";
   }

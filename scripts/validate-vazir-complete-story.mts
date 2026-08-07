@@ -650,8 +650,6 @@ async function runReviewInProgressPromptScenario() {
     hasUI: true,
     selectResponses: [
       "Start code review before closing",
-      "Open review document",
-      "Keep story open and stay in review",
     ],
     selectCalls,
     customCalls,
@@ -668,25 +666,25 @@ async function runReviewInProgressPromptScenario() {
   const reviewFiles = fs.readdirSync(reviewDir).filter((name: string) => /^review-.*\.md$/.test(name)).sort();
   assert(reviewFiles.length === 1, "review-in-progress scenario should create a review file before closing");
 
-  const reviewPath = path.join(reviewDir, reviewFiles[0]);
   await harness.emit("turn_end", {}, ctx);
   await harness.emit("agent_end", {}, ctx);
 
   assert(
     !selectCalls.some(call => call.prompt.includes("still marked in progress")),
-    "review-in-progress scenario should suppress the prompt while the review file is actively changing",
+    "review-in-progress scenario should suppress the prompt while the review is in progress",
   );
 
   await harness.emit("turn_end", {}, ctx);
   await harness.emit("agent_end", {}, ctx);
 
+  assert(
+    !selectCalls.some(call => call.prompt.includes("still marked in progress")),
+    "review-in-progress scenario should suppress the prompt even when the review file is unchanged",
+  );
   assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "review-in-progress scenario should keep the story open while the review is still in progress");
   assert(harness.sentInternalMessages.length === 1, "review-in-progress scenario should not queue extra internal turns before the review completes");
-  const inProgressReviewViewers = customCalls.filter(call => (call.options as any)?.overlay === true && call.body.includes(path.basename(reviewPath)));
-  assert(inProgressReviewViewers.length === 1, "review-in-progress scenario should allow opening the in-progress review document");
-  assert(inProgressReviewViewers[0].subtitle.includes(path.basename(reviewPath)), "in-progress review viewer should show the review file title in the overlay header");
-  assert(selectCalls.some(call => call.options.includes("Keep story open and stay in review")), "review-in-progress scenario should offer an explicit keep-open-and-stay option");
-  assert(selectCalls.some(call => call.prompt.includes("still marked in progress")), "review-in-progress scenario should explain why fix/close choices are not available yet");
+  const inProgressReviewViewers = customCalls.filter(call => (call.options as any)?.overlay === true);
+  assert(inProgressReviewViewers.length === 0, "review-in-progress scenario should not open a viewer for the in-progress review");
 
   return { cwd, notifications, selectCalls, customCalls, reviewFiles };
 }

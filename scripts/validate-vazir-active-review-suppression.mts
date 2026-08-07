@@ -8,9 +8,17 @@ const fs = require("node:fs") as typeof import("node:fs");
 const stubModuleDirs = installCommonPiStubs();
 
 const closeoutModule = await loadFileModule<{
-  createCompleteStoryController: (deps: any) => { handleTurnEnd: (ctx: any) => Promise<boolean>; handleAgentEnd: (ctx: any) => Promise<boolean> };
+  createCompleteStoryController: (deps: any) => {
+    handleCommand: (ctx: any) => Promise<void>;
+    handleTurnEnd: (ctx: any) => Promise<boolean>;
+    handleAgentEnd: (ctx: any) => Promise<boolean>;
+  };
   enterCompleteStoryReview: (pending: Map<string, any>, cwd: string, storyFile: string, reviewFile: string) => any;
 }>(path.join(repoRoot, ".pi", "extensions", "vazir-context", "complete-story.ts"));
+
+const helperModule = await loadFileModule<{
+  reviewFileHash: (filePath: string) => string;
+}>(path.join(repoRoot, ".pi", "extensions", "vazir-context", "helpers.ts"));
 
 type Notification = { message: string; level: string };
 type SelectCall = { prompt: string; options: string[] };
@@ -63,10 +71,65 @@ function createProject(prefix: string): string {
       "---",
       "",
       "## Completion Summary",
+      "Done.",
       "",
     ].join("\n"),
   );
   return cwd;
+}
+
+function writeCompleteReview(reviewPath: string): void {
+  fs.writeFileSync(
+    reviewPath,
+    [
+      "# Review 2026-04-01",
+      "",
+      "**Status:** complete  ",
+      "**Created:** 2026-04-01T00:00:00Z  ",
+      "**Completed:** 2026-04-01  ",
+      "**Scope:** story  ",
+      "**Story:** story-001  ",
+      "**Focus:** Example review  ",
+      "**Trigger:** complete-story",
+      "",
+      "---",
+      "",
+      "## Goal",
+      "Review story-001 before closeout.",
+      "",
+      "---",
+      "",
+      "## Checklist",
+      "- [x] Inspect the relevant diff and touched files",
+      "- [x] Write the completion summary and mark the review complete",
+      "",
+      "---",
+      "",
+      "## Findings",
+      "No findings.",
+      "",
+      "---",
+      "",
+      "## Fallow Findings",
+      "- No Fallow findings.",
+      "",
+      "---",
+      "",
+      "## Recommended Fixes",
+      "- [x] No follow-up fixes required.",
+      "",
+      "---",
+      "",
+      "## Other Fixes",
+      "- None.",
+      "",
+      "---",
+      "",
+      "## Completion Summary",
+      "Review complete.",
+      "",
+    ].join("\n"),
+  );
 }
 
 function writeInProgressReview(reviewPath: string): void {
@@ -143,9 +206,10 @@ async function runScenario(): Promise<void> {
   closeoutModule.enterCompleteStoryReview(pending, cwd, storyPath, reviewPath);
 
   const notifications: Notification[] = [];
-  const selectResponses = ["Keep story open and stay in review", "Keep story open and stay in review"];
   const selectCalls: SelectCall[] = [];
-  const ctx = makeCtx(cwd, notifications, selectResponses, selectCalls);
+  const turnEndCtx = makeCtx(cwd, notifications, [], selectCalls);
+  const agentEndSelectCalls: SelectCall[] = [];
+  const agentEndCtx = makeCtx(cwd, notifications, [], agentEndSelectCalls);
 
   const controller = closeoutModule.createCompleteStoryController({
     pendingRequests: pending,
@@ -156,39 +220,104 @@ async function runScenario(): Promise<void> {
   });
 
   // 1. First turn boundary: review file exists and is observed for the first time.
-  //    The agent is considered active, so no prompt should appear.
-  await controller.handleTurnEnd(ctx);
-  await controller.handleAgentEnd(ctx);
-  assert(selectCalls.length === 0, "first turn boundary should suppress the in-progress review prompt");
+  await controller.handleTurnEnd(turnEndCtx);
+  await controller.handleAgentEnd(agentEndCtx);
+  assert(selectCalls.length === 0, "first turn boundary should not show the in-progress review prompt");
+  assert(agentEndSelectCalls.length === 0, "agent_end should not show the in-progress review prompt");
 
-  // 2. Second turn boundary: review file is unchanged, so the stalled fallback prompt appears.
-  await controller.handleTurnEnd(ctx);
-  await controller.handleAgentEnd(ctx);
-  assert(selectCalls.length === 1, "stalled review should prompt once");
-  assert(selectCalls[0].prompt.includes("still marked in progress"), "stalled review prompt should explain why fix/close choices are unavailable");
-  assert(selectCalls[0].options.includes("Keep story open and stay in review"), "stalled review prompt should offer keep-open-and-stay option");
+  // 2. Second turn boundary: review file is unchanged. The user should not be interrupted.
+  await controller.handleTurnEnd(turnEndCtx);
+  await controller.handleAgentEnd(agentEndCtx);
+  assert(selectCalls.length === 0, "unchanged in-progress review should not show the in-progress prompt");
+  assert(agentEndSelectCalls.length === 0, "agent_end should stay prompt-free for in-progress reviews");
 
-  // 3. Third turn boundary: suspended and still unchanged, so re-prompting stays suppressed.
-  selectCalls.length = 0;
-  await controller.handleTurnEnd(ctx);
-  await controller.handleAgentEnd(ctx);
-  assert(selectCalls.length === 0, "suspended review should not re-prompt while the file is unchanged");
-
-  // 4. Agent makes progress: edit the review file, then emit a turn boundary.
-  //    Suspension should clear and the prompt should be suppressed again.
+  // 3. Third turn boundary: review file is edited (active progress). No prompt.
   fs.appendFileSync(reviewPath, "\n<!-- agent progress -->\n");
-  await controller.handleTurnEnd(ctx);
-  await controller.handleAgentEnd(ctx);
-  assert(selectCalls.length === 0, "review should stay suppressed after the file changes while active");
+  await controller.handleTurnEnd(turnEndCtx);
+  await controller.handleAgentEnd(agentEndCtx);
+  assert(selectCalls.length === 0, "active review progress should not show the in-progress prompt");
+  assert(agentEndSelectCalls.length === 0, "agent_end should stay prompt-free after active progress");
+}
 
-  // 5. Fifth turn boundary: file unchanged again, so the stalled fallback prompt reappears.
-  await controller.handleTurnEnd(ctx);
-  await controller.handleAgentEnd(ctx);
-  assert(selectCalls.length === 1, "review should prompt again after stalling following an active change");
+async function runCommandResumeScenario(): Promise<void> {
+  const cwd = createProject("vazir-active-review-command-resume-");
+  const storyPath = path.join(cwd, ".context", "stories", "story-001.md");
+  const reviewPath = path.join(cwd, ".context", "reviews", "review-001.md");
+  writeInProgressReview(reviewPath);
+
+  const pending = new Map<string, any>();
+  closeoutModule.enterCompleteStoryReview(pending, cwd, storyPath, reviewPath);
+
+  const notifications: Notification[] = [];
+  const selectCalls: SelectCall[] = [];
+  const ctx = makeCtx(cwd, notifications, [], selectCalls);
+  const controller = closeoutModule.createCompleteStoryController({
+    pendingRequests: pending,
+    sendInternalAgentMessage() {},
+    async startReviewFlow() {
+      throw new Error("command-resume scenario should not start a new review");
+    },
+  });
+
+  await controller.handleCommand(ctx);
+  assert(selectCalls.length === 0, "explicit /complete-story resume should not show the in-progress prompt");
+  assert(
+    notifications.some(note => note.message.includes("review is still in progress")),
+    "command resume should notify the user that the review is still in progress",
+  );
+}
+
+async function runCompletedSuspendedReviewResumeScenario(): Promise<void> {
+  const cwd = createProject("vazir-active-review-completed-suspended-");
+  const storyPath = path.join(cwd, ".context", "stories", "story-001.md");
+  const reviewPath = path.join(cwd, ".context", "reviews", "review-001.md");
+  writeCompleteReview(reviewPath);
+
+  const closeoutStatePath = path.join(cwd, ".context", "reviews", "story-001-complete-story-closeout.json");
+  const currentHash = helperModule.reviewFileHash(reviewPath);
+
+  for (const testHash of ["deadbeef", currentHash]) {
+    fs.writeFileSync(
+      closeoutStatePath,
+      JSON.stringify(
+        {
+          storyFile: storyPath,
+          reviewFile: reviewPath,
+          reviewCloseoutReady: false,
+          reviewRepairAttempts: 0,
+          reviewSuspended: true,
+          reviewFileHash: testHash,
+        },
+        null,
+        2,
+      ),
+    );
+
+    const pending = new Map<string, any>();
+    const notifications: Notification[] = [];
+    const selectCalls: SelectCall[] = [];
+    const ctx = makeCtx(cwd, notifications, [], selectCalls);
+    const controller = closeoutModule.createCompleteStoryController({
+      pendingRequests: pending,
+      sendInternalAgentMessage() {},
+      async startReviewFlow() {
+        throw new Error("completed-suspended scenario should not start a new review");
+      },
+    });
+
+    await controller.handleCommand(ctx);
+    assert(selectCalls.length === 1, `explicit /complete-story should resume a completed but suspended review (hash=${testHash})`);
+    assert(
+      selectCalls[0].options.includes("Close story now"),
+      `resumed closeout should offer the close-story option (hash=${testHash})`,
+    );
+  }
 }
 
 console.log("Active review suppression validation");
 await runScenario();
+await runCommandResumeScenario();
+await runCompletedSuspendedReviewResumeScenario();
 console.log("Active review suppression validation passed");
 
 cleanupStubModules(stubModuleDirs);
