@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-08-07T23:54:17Z
+**Last updated:** 2026-08-08T00:10:05Z
 
 ## Findings
 - After extracting helpers to a new module, delete the original copies to prevent drift and confusion. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
@@ -9,6 +9,7 @@
 - Every new targeted validation script must be registered in the aggregate runner so it is exercised alongside existing regressions. | count: 1 | status: tracked | sources: review-20260806-160724.md | stories: story-061
 - Extracted closeout flows must preserve all terminal branches of the original state machine, including commit-and-close paths. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Keep command descriptions synchronized with handler behavior; mismatched descriptions become misleading UI copy and fail code review. | count: 1 | status: tracked | sources: review-20260806-160724.md | stories: story-061
+- Regression tests for retry logic should force the initial attempt to fail and independently verify the recovery attempt, rather than only testing the already-recovered final state. | count: 1 | status: tracked | sources: review-20260808-000002.md | stories: story-066
 - Remove no-op registration hooks once the real behavior has migrated to the owning extension. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Structural repair should restore the canonical document order, not only satisfy the validator. | count: 1 | status: tracked | sources: review-20260805-190404.md | stories: story-060
 - Suspension resume should require an existing file with a verifiable content change, not mere absence. | count: 1 | status: tracked | sources: review-20260805-190404.md | stories: story-060
@@ -21,6 +22,7 @@
 - When extracting a large block of helpers from a module, run a reference check for every removed function name against the remaining code in that module before committing the extraction. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
 - When extracting helpers into a new module, update every validation/import site that exercises those helpers and rerun the moved module's validation scripts before closing the story. | count: 1 | status: tracked | sources: review-20260518-220211.md | stories: story-020
 - When extracting lifecycle handlers into a new extension, remove the original registration to avoid duplicate event processing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
+- When generating bounded cyclic candidates, normalize modulo results so negative starting offsets cannot escape the committed range. | count: 1 | status: tracked | sources: review-20260808-000002.md | stories: story-066
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When repairing structured frontmatter, keep the repaired block contiguous and in the canonical template order. | count: 1 | status: tracked | sources: review-20260805-190404.md | stories: story-060
 - When the same capture/write sequence appears in two command branches, extract a single helper so fixes (e.g., notification wording, no-overwrite behavior) apply everywhere. | count: 1 | status: tracked | sources: review-20260806-163046.md | stories: story-062

@@ -1,10 +1,10 @@
 # Story 066: Core deterministic port assignment helper
 
-**Status:** not-started  
+**Status:** complete  
 **Type:** feature  
 **Created:** 2026-08-07  
-**Last accessed:** 2026-08-07  
-**Completed:** —
+**Last accessed:** 2026-08-08  
+**Completed:** 2026-08-08
 
 ---
 
@@ -33,13 +33,13 @@ Run a targeted validation script that exercises: first-run allocation starting a
 ---
 
 ## Checklist
-- [ ] Implement bind-as-test on 127.0.0.1 for a single candidate port
-- [ ] Implement first-run range scan (3100–3199) taking the first successful bind
-- [ ] Implement subsequent-run direct bind to the persisted port for the key
-- [ ] Implement dead-PID retry and live-PID duplicate-instance detection with port verification
-- [ ] Persist selected port to `ports` and mirror previous value to `previous_ports` only when it changes
-- [ ] Write `.context/.vazir-server-{key}.pid` on successful bind and leave it in place on shutdown
-- [ ] Add regression coverage for all branches using throwaway TCP listeners and fake PID files
+- [x] Implement bind-as-test on 127.0.0.1 for a single candidate port
+- [x] Implement first-run range scan (3100–3199) taking the first successful bind
+- [x] Implement subsequent-run direct bind to the persisted port for the key
+- [x] Implement dead-PID retry and live-PID duplicate-instance detection with port verification
+- [x] Persist selected port to `ports` and mirror previous value to `previous_ports` only when it changes
+- [x] Write `.context/.vazir-server-{key}.pid` on successful bind and leave it in place on shutdown
+- [x] Add regression coverage for all branches using throwaway TCP listeners and fake PID files
 
 ---
 
@@ -48,3 +48,7 @@ Run a targeted validation script that exercises: first-run allocation starting a
 ---
 
 ## Completion Summary
+
+Implemented `.pi/lib/vazir-ports.ts` with loopback bind-as-test leases, deterministic 3100–3199 allocation, persisted-port reuse, dead-PID recovery, `/proc`-verified live duplicate detection, PID-file persistence, previous-port tracking, range exhaustion errors, and service-key metadata. The PID file intentionally remains after lease shutdown. Expanded `scripts/validate-vazir-ports.mts` to cover schema compatibility plus first allocation, reuse, dead-PID reclaim, reassignment, duplicate metadata, and full range exhaustion.
+
+Verification: `node --experimental-strip-types scripts/validate-vazir-ports.mts` passes. No service consumer or override handling was added, consistent with story scope.
