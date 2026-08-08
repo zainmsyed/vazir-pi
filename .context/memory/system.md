@@ -85,8 +85,8 @@
 - When a suspended workflow resumes on a file delta, treat file absence as unchanged and require an existing file with a verifiable content change before clearing suspension. <!-- source: story-060 --> <!-- confidence: low — no signal in last 5 stories -->
 - Keep command descriptions synchronized with handler behavior; mismatched descriptions become misleading UI copy and fail code review. <!-- source: story-061 --> <!-- confidence: low — no signal in last 5 stories -->
 - Every new targeted validation script must be registered in the aggregate runner so it is exercised alongside existing regressions. <!-- source: story-061 --> <!-- confidence: low — no signal in last 5 stories -->
-- When a shared UI helper has both a rich overlay path and a plain fallback path, regression tests should exercise both paths because each contains its own label-to-value mapping logic. <!-- source: story-062 --> <!-- confidence: high -->
-- When the same user-facing capture/write sequence appears in two command branches, extract it into a single helper so fixes to retry, cancellation, and no-overwrite behavior apply consistently. <!-- source: story-062 --> <!-- confidence: high -->
+- When a shared UI helper has both a rich overlay path and a plain fallback path, regression tests should exercise both paths because each contains its own label-to-value mapping logic. <!-- source: story-062 --> <!-- confidence: low — no signal in last 5 stories -->
+- When the same user-facing capture/write sequence appears in two command branches, extract it into a single helper so fixes to retry, cancellation, and no-overwrite behavior apply consistently. <!-- source: story-062 --> <!-- confidence: low — no signal in last 5 stories -->
 - Validate command references before performing workflow side effects so rejected requests leave the workspace unchanged. <!-- source: story-063 --> <!-- confidence: high -->
 - Conversational shorthand for a file-backed workflow must have an explicit handoff carrying the referenced file identity; do not rely on implicit UI state or model inference alone. <!-- source: story-063 --> <!-- confidence: high -->
 - When a multi-turn workflow uses a `suspended` flag to suppress automatic re-prompting, clear that flag on explicit command resume so a completed workflow can still be closed out without waiting for a file delta. <!-- source: story-064 --> <!-- confidence: high -->
@@ -94,6 +94,7 @@
 - When a settings reader has both parse-error and root-shape fallback branches, regression tests should exercise each malformed input class and verify the normalized defaults. <!-- source: story-065 --> <!-- confidence: high -->
 - When generating bounded cyclic candidates, normalize modulo results or clamp out-of-range starts so fallback selection cannot escape the committed range. <!-- source: story-066 --> <!-- confidence: high -->
 - Regression tests for retry logic should force the initial attempt to fail and independently verify the recovery attempt. <!-- source: story-066 --> <!-- confidence: high -->
+- When validating numeric configuration ranges, test both accepted boundaries and representative invalid values just outside each boundary. <!-- source: story-067 --> <!-- confidence: high -->
 ### From successes
 - When a closeout prompt aggregates work from multiple checklist sections, reuse the same aggregation helper in the action path so the selected work actually executes. <!-- source: story-020 --> <!-- confidence: low — no signal in last 5 stories -->
 - When redesigning a noisy restore workflow, layer curated user-facing choices on top of one exact restore helper so every entry point keeps the same semantics. <!-- source: story-029, story-030 --> <!-- confidence: low — no signal in last 5 stories -->

@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-08-08T00:10:05Z
+**Last updated:** 2026-08-08T00:34:42Z
 
 ## Findings
 - After extracting helpers to a new module, delete the original copies to prevent drift and confusion. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
@@ -27,3 +27,4 @@
 - When repairing structured frontmatter, keep the repaired block contiguous and in the canonical template order. | count: 1 | status: tracked | sources: review-20260805-190404.md | stories: story-060
 - When the same capture/write sequence appears in two command branches, extract a single helper so fixes (e.g., notification wording, no-overwrite behavior) apply everywhere. | count: 1 | status: tracked | sources: review-20260806-163046.md | stories: story-062
 - When two lifecycle helpers differ only by target state container, extract a single parameterized implementation. | count: 1 | status: tracked | sources: review-20260805-190404.md | stories: story-060
+- When validating numeric configuration ranges, test both accepted boundaries and representative invalid values just outside each boundary. | count: 1 | status: tracked | sources: review-20260808-002805.md | stories: story-067

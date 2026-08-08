@@ -1,10 +1,10 @@
 # Story 067: Port override handling for file and environment overrides
 
-**Status:** not-started  
+**Status:** complete  
 **Type:** feature  
 **Created:** 2026-08-07  
-**Last accessed:** 2026-08-07  
-**Completed:** —
+**Last accessed:** 2026-08-08  
+**Completed:** 2026-08-08
 
 ---
 
@@ -34,12 +34,12 @@ Run a targeted validation script that exercises: a valid file override causes th
 ---
 
 ## Checklist
-- [ ] Read `ports_override` from project.json per key
-- [ ] Read `VAZIR_PORT_{KEY}` from `process.env` per key, with env taking precedence over file
-- [ ] Validate that an override is a numeric port in the 1–65535 range
-- [ ] Emit a single warning and fall back to auto-assignment on invalid override
-- [ ] Attempt the override port first; if occupied, fall back to the standard bind/retry flow
-- [ ] Add regression coverage for override precedence and invalid-override fallback
+- [x] Read `ports_override` from project.json per key
+- [x] Read `VAZIR_PORT_{KEY}` from `process.env` per key, with env taking precedence over file
+- [x] Validate that an override is a numeric port in the 1–65535 range
+- [x] Emit a single warning and fall back to auto-assignment on invalid override
+- [x] Attempt the override port first; if occupied, fall back to the standard bind/retry flow
+- [x] Add regression coverage for override precedence and invalid-override fallback
 
 ---
 
@@ -48,3 +48,7 @@ Run a targeted validation script that exercises: a valid file override causes th
 ---
 
 ## Completion Summary
+
+Added per-service override resolution to `.pi/lib/vazir-ports.ts`. File overrides are read from raw project settings so malformed values can be warned about, while `VAZIR_PORT_{KEY}` takes precedence over the file value. Numeric ports in the 1–65535 range are attempted first; invalid values emit exactly one warning and use the existing automatic assignment flow. Occupied valid overrides fall back through the standard persisted-port/range behavior with an informational notice. Extended `scripts/validate-vazir-ports.mts` to cover file overrides, environment precedence, invalid file and environment values, single-warning behavior, and occupied override fallback.
+
+Verification: `node --experimental-strip-types scripts/validate-vazir-ports.mts` passes. No commands, UI, service consumers, or range/PID redesign were added.

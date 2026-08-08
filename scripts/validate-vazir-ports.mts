@@ -144,6 +144,82 @@ try {
   assert(duplicate.baseUrl === `http://localhost:${ports.PORT_RANGE_START}` && duplicate.server === null, "duplicate metadata should include the base URL without a new lease");
   if (duplicateLease) await duplicateLease.close();
 
+  const fileOverrideProject = project();
+  writeSettings(fileOverrideProject, { ports_override: { server: 3005 } });
+  const fileOverride = await ports.assignPort(fileOverrideProject, "server");
+  assert(fileOverride.port === 3005 && fileOverride.notice === null, "a valid file override should be attempted first");
+  await fileOverride.close();
+
+  const lowerBoundaryProject = project();
+  writeSettings(lowerBoundaryProject, { ports_override: { server: 1 } });
+  const lowerBoundary = await ports.assignPort(lowerBoundaryProject, "server", {
+    bindPort: async port => ({ port, server: null, close: async () => undefined }),
+  });
+  assert(lowerBoundary.port === 1, "port 1 should be accepted as the lower override boundary");
+  await lowerBoundary.close();
+
+  const upperBoundaryProject = project();
+  writeSettings(upperBoundaryProject, { ports_override: { server: 65535 } });
+  const upperBoundary = await ports.assignPort(upperBoundaryProject, "server", {
+    bindPort: async port => ({ port, server: null, close: async () => undefined }),
+  });
+  assert(upperBoundary.port === 65535, "port 65535 should be accepted as the upper override boundary");
+  await upperBoundary.close();
+
+  for (const invalidValue of [0, 65536, -1, 3100.5]) {
+    const invalidNumericProject = project();
+    writeSettings(invalidNumericProject, { ports_override: { server: invalidValue } });
+    const warnings: string[] = [];
+    const originalNumericWarn = (console as any).warn;
+    (console as any).warn = (message: string) => warnings.push(message);
+    const invalidNumeric = await ports.assignPort(invalidNumericProject, "server");
+    (console as any).warn = originalNumericWarn;
+    assert(invalidNumeric.port === ports.PORT_RANGE_START && warnings.length === 1, `invalid numeric override ${invalidValue} should warn once and use auto-assignment`);
+    await invalidNumeric.close();
+  }
+
+  const envOverrideProject = project();
+  writeSettings(envOverrideProject, { ports_override: { server: 3005 } });
+  const previousEnvOverride = (process as any).env.VAZIR_PORT_SERVER;
+  (process as any).env.VAZIR_PORT_SERVER = "3006";
+  const envOverride = await ports.assignPort(envOverrideProject, "server");
+  if (previousEnvOverride === undefined) delete (process as any).env.VAZIR_PORT_SERVER;
+  else (process as any).env.VAZIR_PORT_SERVER = previousEnvOverride;
+  assert(envOverride.port === 3006, "the environment override should take precedence over the file override");
+  await envOverride.close();
+
+  const invalidFileProject = project();
+  writeSettings(invalidFileProject, { ports_override: { server: "not-a-port" } });
+  const originalWarn = (console as any).warn;
+  const fileWarnings: string[] = [];
+  (console as any).warn = (message: string) => fileWarnings.push(message);
+  const invalidFile = await ports.assignPort(invalidFileProject, "server");
+  (console as any).warn = originalWarn;
+  assert(invalidFile.port === ports.PORT_RANGE_START && fileWarnings.length === 1, "an invalid file override should warn once and use auto-assignment");
+  await invalidFile.close();
+
+  const invalidEnvProject = project();
+  writeSettings(invalidEnvProject, { ports_override: { server: 3005 } });
+  const previousInvalidEnv = (process as any).env.VAZIR_PORT_SERVER;
+  (process as any).env.VAZIR_PORT_SERVER = "70000";
+  const envWarnings: string[] = [];
+  (console as any).warn = (message: string) => envWarnings.push(message);
+  const invalidEnv = await ports.assignPort(invalidEnvProject, "server");
+  (console as any).warn = originalWarn;
+  if (previousInvalidEnv === undefined) delete (process as any).env.VAZIR_PORT_SERVER;
+  else (process as any).env.VAZIR_PORT_SERVER = previousInvalidEnv;
+  assert(invalidEnv.port === ports.PORT_RANGE_START && envWarnings.length === 1, "an invalid environment override should warn once and use auto-assignment");
+  await invalidEnv.close();
+
+  const occupiedOverrideProject = project();
+  const occupiedOverride = await ports.tryBindPort(3005);
+  assert(occupiedOverride !== null, "test should occupy the override port");
+  writeSettings(occupiedOverrideProject, { ports_override: { server: 3005 } });
+  const occupiedOverrideAssignment = await ports.assignPort(occupiedOverrideProject, "server");
+  assert(occupiedOverrideAssignment.port === ports.PORT_RANGE_START && occupiedOverrideAssignment.notice?.includes("override port 3005") === true, "an occupied override should use standard range fallback");
+  await occupiedOverrideAssignment.close();
+  if (occupiedOverride) await occupiedOverride.close();
+
   const exhaustionProject = project();
   const exhaustionLeases: Array<{ close: () => Promise<void> }> = [];
   for (let port = ports.PORT_RANGE_START; port <= ports.PORT_RANGE_END; port += 1) {

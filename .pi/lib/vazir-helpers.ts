@@ -382,15 +382,27 @@ function normalizeProjectSettings(raw: unknown): ProjectSettings {
   };
 }
 
-export function readProjectSettings(cwd: string): ProjectSettings {
+export function readRawProjectSettings(cwd: string): Record<string, unknown> {
   const filePath = projectSettingsPath(cwd);
-  if (!fs.existsSync(filePath)) return normalizeProjectSettings({});
+  if (!fs.existsSync(filePath)) return {};
 
   try {
-    return normalizeProjectSettings(JSON.parse(fs.readFileSync(filePath, "utf-8")));
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
   } catch {
-    return normalizeProjectSettings({});
+    return {};
   }
+}
+
+export function readProjectSettings(cwd: string): ProjectSettings {
+  return normalizeProjectSettings(readRawProjectSettings(cwd));
+}
+
+export function readPortOverride(cwd: string, serviceKey: string): unknown {
+  const raw = readRawProjectSettings(cwd);
+  const overrides = raw.ports_override;
+  if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) return undefined;
+  return (overrides as Record<string, unknown>)[serviceKey];
 }
 
 export function portSettings(cwd: string): PortSettings {

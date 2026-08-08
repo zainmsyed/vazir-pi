@@ -107,7 +107,7 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-064 | Suppress premature in-progress review prompt during active complete-story reviews | complete | story-052, story-060 |
 | story-065 | Extend project.json settings schema for role-keyed port maps | in-progress | - |
 | story-066 | Core deterministic port assignment helper | in-progress | story-065 |
-| story-067 | Port override handling for file and environment overrides | not-started | story-065, story-066 |
+| story-067 | Port override handling for file and environment overrides | in-progress | story-065, story-066 |
 | story-068 | Aggregate validation registration for port assignment | not-started | story-065, story-066, story-067 |
 
 ## Replanning log
@@ -137,3 +137,4 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-08-07** — Replanned from the finalized `Vazir_Port_Assignment_PRD.md`. Promoted the PRD status to Final and added an explicit v1 deliverable note. Preserved all existing story history and appended story-065 through story-068 for project settings schema extension, the core deterministic port assignment helper, file/environment override handling, and aggregate validation registration. No service consumer is included in v1; the helper is validated through isolated tests using fake occupied ports, dead PID files, and invalid overrides.
 - **2026-08-07** — Started story-065 and extended project settings with normalized, merge-safe role-keyed port maps plus targeted backwards-compatibility validation.
 - **2026-08-07** — Started story-066 and implemented the deterministic loopback port-assignment helper with PID lifecycle handling, duplicate detection, persistence, and branch-level TCP regression coverage.
+- **2026-08-08** — Started story-067 and added file/environment port override precedence, validation warnings, occupied-override fallback, and regression coverage.
