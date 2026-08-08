@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-08-08T00:34:42Z
+**Last updated:** 2026-08-08T00:44:24Z
 
 ## Findings
 - After extracting helpers to a new module, delete the original copies to prevent drift and confusion. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
@@ -9,6 +9,7 @@
 - Every new targeted validation script must be registered in the aggregate runner so it is exercised alongside existing regressions. | count: 1 | status: tracked | sources: review-20260806-160724.md | stories: story-061
 - Extracted closeout flows must preserve all terminal branches of the original state machine, including commit-and-close paths. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Keep command descriptions synchronized with handler behavior; mismatched descriptions become misleading UI copy and fail code review. | count: 1 | status: tracked | sources: review-20260806-160724.md | stories: story-061
+- Optional external-tool validations should report explicit skips and be required separately in a tool-enabled validation environment. | count: 1 | status: tracked | sources: review-20260808-004221.md | stories: story-068
 - Regression tests for retry logic should force the initial attempt to fail and independently verify the recovery attempt, rather than only testing the already-recovered final state. | count: 1 | status: tracked | sources: review-20260808-000002.md | stories: story-066
 - Remove no-op registration hooks once the real behavior has migrated to the owning extension. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Structural repair should restore the canonical document order, not only satisfy the validator. | count: 1 | status: tracked | sources: review-20260805-190404.md | stories: story-060

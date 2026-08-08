@@ -108,7 +108,7 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-065 | Extend project.json settings schema for role-keyed port maps | in-progress | - |
 | story-066 | Core deterministic port assignment helper | in-progress | story-065 |
 | story-067 | Port override handling for file and environment overrides | in-progress | story-065, story-066 |
-| story-068 | Aggregate validation registration for port assignment | not-started | story-065, story-066, story-067 |
+| story-068 | Aggregate validation registration for port assignment | in-progress | story-065, story-066, story-067 |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
@@ -138,3 +138,4 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-08-07** — Started story-065 and extended project settings with normalized, merge-safe role-keyed port maps plus targeted backwards-compatibility validation.
 - **2026-08-07** — Started story-066 and implemented the deterministic loopback port-assignment helper with PID lifecycle handling, duplicate detection, persistence, and branch-level TCP regression coverage.
 - **2026-08-08** — Started story-067 and added file/environment port override precedence, validation warnings, occupied-override fallback, and regression coverage.
+- **2026-08-08** — Started story-068 and registered the deterministic port validation in the aggregate runner with documented test-only assumptions.

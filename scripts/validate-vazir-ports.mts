@@ -1,5 +1,8 @@
 import os from "node:os";
 import path from "node:path";
+
+// Test-only assumptions: projects and TCP listeners are throwaway; fake PID 999999999
+// represents a dead process; bindPort injection forces the stale-PID retry branch.
 import { assert, loadFileModule, repoRoot } from "./lib/validation-harness.mts";
 
 const fs = await import("node:fs");
