@@ -1,28 +1,24 @@
 # Intake Brief
 
-**Last updated:** 2026-08-06
+**Last updated:** 2026-08-07
 
 ## Planning brief
-Implement Addendum G: an idea tracker for Vazir — `.context/ideas/` (one numbered `idea-NNN.md` file per idea, mirroring the `stories/` convention), the `/idea` capture-or-browse command, and `/plan idea-NNN` seeding with an open/promoted/discarded lifecycle.
+Implement the Vazir deterministic port assignment helper described in `Vazir_Port_Assignment_PRD.md`. v1 ships the reusable module and its regression tests only; no service consumer is built. The helper binds to 127.0.0.1, persists ports per service key in `.context/settings/project.json`, writes per-key PID files, handles dead/live PID detection, scans 3100–3199 on conflict, and supports file plus environment overrides. The PRD status has been promoted to Final with an explicit v1 deliverable note.
 
 ## Source files
-- .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_G.md (10790 bytes)
+- .context/intake/prd/Vazir_Port_Assignment_PRD.md (14669 bytes)
 
 ## Distilled notes
-### .context/intake/prd/Vazir_POC_Spec_v4_1_Addendum_G.md
-- **Problem:** Half-formed ideas surfaced mid-story have no home — they become premature stories or get lost. `/idea` is a fast, deterministic parking spot that preserves scope discipline; it is a release valve, not a general brainstorming tool.
-- **Who/what:** Vazir users mid-story, mid-fix, or mid-replan who want to note an impulse without breaking scope. The most important thing for v1: capture is cheap and non-interrupting, and nothing is ever auto-promoted.
-- **`.context/ideas/` contract:** One `idea-NNN.md` per idea, sequentially numbered like stories. Never injected into the agent's context window, never scanned wholesale; read by `/plan` only when a specific idea is referenced. Distinct from `.context/intake/` (external raw material).
-- **Template:** `# Idea NNN: [Title]`, `**Status:** open | promoted | discarded`, `**Captured:** YYYY-MM-DD`, `**Promoted to:** —`, short freeform body. No `explored` or other intermediate status. Discarded ideas are kept on disk, never deleted.
-- **`/idea [description]`:** Direct capture, status `open`, no confirmation prompt, no interruption of current work.
-- **`/idea` (bare):** Shows a numbered selector with "Capture a new idea" and "View existing ideas"; the capture option prompts for idea text (empty input retries, explicit cancellation exits with no file created); the view option shows a lightweight title-plus-status list and opens the selected idea in the shared `/story` viewer. The browse/list selector is implemented in story-062.
-- **`/plan idea-NNN`:** Only supported reference syntax. Seeds the planning conversation with the idea's content like intake material; clarifying questions still asked — the idea is not verification-ready. Status flips to `promoted` with `Promoted to: story-NNN` only after the story file(s) actually exist; abandoned planning leaves the idea `open`. `/plan` with no reference is unchanged. "plan this" after viewing is agent-resolved shorthand for the same command, not a second mechanism. Implemented in story-063.
-- **Explicitly NOT in scope:** auto-promotion under any condition, context injection of ideas, deleting discarded ideas, agent license to act on ideas outside `/plan`, relevance matching/surfacing heuristics, new viewer/picker/menu components, `/fix` auto-routing, `/memory-review` passes over ideas, changes to any existing v4.1/A/B behavior.
-
-## Derived stories
-- story-061 — Idea file foundation and `/idea [description]` direct capture
-- story-062 — `/idea` browse selector, lightweight list, and viewer reuse (depends on story-061)
-- story-063 — `/plan idea-NNN` seeding and promotion status flip (depends on story-061, story-062)
+### .context/intake/prd/Vazir_Port_Assignment_PRD.md
+- **Scope:** Zero-token port selection and persistence for local services Vazir may manage, keyed by service role (`server`, future `frontend`/`fossil`/etc.).
+- **Range:** 3100–3199, not user-configurable in v1.
+- **Persistence:** `ports`, `previous_ports`, and `ports_override` maps in `.context/settings/project.json`; PID files at `.context/.vazir-server-{key}.pid`.
+- **Bind principle:** bind is the test; no separate scan step. Retry binds close TOCTOU gaps.
+- **Subsequent-run behavior:** try persisted port; if occupied, verify PID is alive and actually holding the port. Dead PIDs → retry same port. Live PIDs → return duplicate-instance metadata. Foreign holder → scan range, update `ports`, emit single-line notice.
+- **Range exhaustion:** hard error naming the key and range; no ephemeral fallback.
+- **Overrides:** `ports_override` in project.json or `VAZIR_PORT_{KEY}` env var; env wins. Invalid overrides warn once and fall back to auto.
+- **Agent involvement:** none in the happy path; agent only reads persisted values when asked.
+- **v1 deliverable:** the helper module plus tests; no `/serve` command, session hook, or other consumer. The role-keyed design makes future consumers additive.
 
 ## Planning rules
 - Treat listed source files as user-authored planning inputs unless they are explicitly marked as generated artifacts.

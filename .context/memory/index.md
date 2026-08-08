@@ -25,3 +25,4 @@ types/pi-runtime-ambient.d.ts — Minimal ambient Pi SDK and pi-tui module typin
 install.sh — One-line installer script for macOS/Linux that bootstraps pi-coding-agent and installs the Vazir extension.
 .pi/lib/vazir-fossil-theme.ts — Shared Fossil-themed status/chrome styling helpers and palette constants used by Vazir TUI output.
 .pi/skills/herdr/SKILL.md — Herdr auxiliary skill instructions for running validations and exploratory checks in a separate agent pane.
+.pi/lib/vazir-ports.ts — (undescribed)

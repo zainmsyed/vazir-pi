@@ -31,6 +31,21 @@ export interface StoryValidationResult {
 export type ActiveVcsMode = "git" | "fossil" | "none";
 export type VcsMirrorMode = "none" | "git-mirror-of-fossil";
 
+export type PortSettingsMap = Record<string, number>;
+
+export interface ProjectSettings {
+  [key: string]: unknown;
+  ports: PortSettingsMap;
+  previous_ports: PortSettingsMap;
+  ports_override: PortSettingsMap;
+}
+
+export interface PortSettings {
+  ports: PortSettingsMap;
+  previous_ports: PortSettingsMap;
+  ports_override: PortSettingsMap;
+}
+
 export interface VcsMirrorSettings {
   mode: VcsMirrorMode;
   path: string;
@@ -347,16 +362,56 @@ export function projectSettingsPath(cwd: string): string {
   return path.join(cwd, ".context", "settings", "project.json");
 }
 
-export function readProjectSettings(cwd: string): Record<string, unknown> {
+function normalizePortSettingsMap(raw: unknown): PortSettingsMap {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>)
+      .filter(([, value]) => typeof value === "number" && Number.isFinite(value) && Number.isInteger(value))
+      .map(([key, value]) => [key, value as number]),
+  );
+}
+
+function normalizeProjectSettings(raw: unknown): ProjectSettings {
+  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  return {
+    ...record,
+    ports: normalizePortSettingsMap(record.ports),
+    previous_ports: normalizePortSettingsMap(record.previous_ports),
+    ports_override: normalizePortSettingsMap(record.ports_override),
+  };
+}
+
+export function readRawProjectSettings(cwd: string): Record<string, unknown> {
   const filePath = projectSettingsPath(cwd);
   if (!fs.existsSync(filePath)) return {};
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8")) as Record<string, unknown>;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
   } catch {
     return {};
   }
+}
+
+export function readProjectSettings(cwd: string): ProjectSettings {
+  return normalizeProjectSettings(readRawProjectSettings(cwd));
+}
+
+export function readPortOverride(cwd: string, serviceKey: string): unknown {
+  const raw = readRawProjectSettings(cwd);
+  const overrides = raw.ports_override;
+  if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) return undefined;
+  return (overrides as Record<string, unknown>)[serviceKey];
+}
+
+export function portSettings(cwd: string): PortSettings {
+  const settings = readProjectSettings(cwd);
+  return {
+    ports: settings.ports,
+    previous_ports: settings.previous_ports,
+    ports_override: settings.ports_override,
+  };
 }
 
 export function normalizeVcsMirrorSettings(raw: unknown): VcsMirrorSettings {
@@ -538,10 +593,19 @@ export function runAutoMirrorExportAtCloseout(cwd: string): { ran: boolean; ok: 
   }
 }
 
-export function writeProjectSettings(cwd: string, updates: Record<string, unknown>): Record<string, unknown> {
+export function writeProjectSettings(cwd: string, updates: Record<string, unknown>): ProjectSettings {
   const filePath = projectSettingsPath(cwd);
   const current = readProjectSettings(cwd);
-  const next = { ...current, ...updates };
+  const next: ProjectSettings = { ...current, ...updates };
+
+  for (const key of ["ports", "previous_ports", "ports_override"] as const) {
+    if (key in updates) {
+      next[key] = {
+        ...current[key],
+        ...normalizePortSettingsMap(updates[key]),
+      };
+    }
+  }
 
   if ("vcs_mirror" in updates) {
     next.vcs_mirror = {
