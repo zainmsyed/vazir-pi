@@ -11,6 +11,7 @@ import {
   detectFossil,
   detectJJ,
   findActiveStory,
+  inspectUntrackedContextFiles,
   listStoryValidationIssues,
   nonTerminalStories,
   nowISO,
@@ -387,6 +388,37 @@ export function refreshVcsState(cwd: string): void {
   refreshWidgets();
 }
 
+// Tracks .context files we have already warned about so the notification fires
+// once per untracked file per session instead of at every refresh boundary.
+const warnedUntrackedContextFiles = new Set<string>();
+let lastUntrackedContextInspectionError = "";
+
+export function warnOnUntrackedContextFiles(cwd: string, ui?: { notify?: (message: string, level: string) => void }): void {
+  const inspection = inspectUntrackedContextFiles(cwd);
+  if (inspection.error) {
+    if (inspection.error !== lastUntrackedContextInspectionError) {
+      lastUntrackedContextInspectionError = inspection.error;
+      ui?.notify?.(`Unable to verify untracked .context files: ${inspection.error}`, "warning");
+    }
+    return;
+  }
+  lastUntrackedContextInspectionError = "";
+  const files = inspection.files;
+  for (const known of [...warnedUntrackedContextFiles]) {
+    if (!files.includes(known)) warnedUntrackedContextFiles.delete(known);
+  }
+  const novel = files.filter(file => !warnedUntrackedContextFiles.has(file));
+  if (novel.length === 0) return;
+  for (const file of novel) warnedUntrackedContextFiles.add(file);
+  const preview = novel.slice(0, 3).join(", ");
+  const remainder = novel.length > 3 ? ` (+${novel.length - 3} more)` : "";
+  const addCommand = vcsKind === "fossil" ? "fossil add" : "git add";
+  ui?.notify?.(
+    `Untracked .context files detected: ${preview}${remainder}. Stage them with \`${addCommand}\` so the project brain is never left out of version control.`,
+    "warning",
+  );
+}
+
 function deferInitialVcsRefresh(cwd: string): void {
   setTimeout(() => {
     try {
@@ -450,6 +482,7 @@ export default function (pi: ExtensionAPI) {
       refreshDetectedVcs(cwd);
       syncAndPublishVcs(cwd);
       deferInitialVcsRefresh(cwd);
+      warnOnUntrackedContextFiles(cwd, ctx.ui);
 
       const sessionManager = {
         getBranch: ctx.sessionManager?.getBranch ?? (() => []),
@@ -531,6 +564,8 @@ export default function (pi: ExtensionAPI) {
     hasFossilRepo = false;
     useJJ = false;
     vcsKind = "none";
+    warnedUntrackedContextFiles.clear();
+    lastUntrackedContextInspectionError = "";
     tearDownChromeSession(ctx.ui);
   });
 
@@ -624,6 +659,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("agent_end", async (_event: unknown, ctx: { cwd: string; hasUI?: boolean; ui?: any }) => {
     syncAndPublishVcs(ctx.cwd);
     refreshWidgets();
+    warnOnUntrackedContextFiles(ctx.cwd, ctx.ui);
     if (ctx.hasUI) ensureSessionChromeMounted(ctx.ui, ctx.cwd);
 
     if (!useJJ || !lastUserPrompt.trim()) return;

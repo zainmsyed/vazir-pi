@@ -554,8 +554,8 @@ export default function (pi: ExtensionAPI) {
   function collectFossilAuditFiles(cwd: string): string[] | null {
     try {
       const files = new Set<string>();
-      for (const command of ["changes", "extras"] as const) {
-        const output = childProcess.execFileSync("fossil", [command], {
+      for (const args of [["changes"], ["extras", "--dotfiles"]] as const) {
+        const output = childProcess.execFileSync("fossil", [...args], {
           cwd,
           encoding: "utf-8",
           stdio: "pipe",
