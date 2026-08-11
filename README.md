@@ -103,6 +103,7 @@ Validates the story checklist and issues, checks completion readiness, and optio
 ## Common Next Steps
 
 - **`/fix <description>`** — Log an issue to the active story and attempt a fix.
+- **`/idea [description]`** — Capture or browse ideas without interrupting the active story.
 - **`/review [scope]`** — Run a structured code review scoped to the active story or the whole codebase.
 - **`/remember [rule]`** — Promote a reusable lesson into persistent memory (`.context/memory/system.md`).
 - **`/memory-review`** — Archive cold stories and reviews, flag stale rules, and review delete candidates.
@@ -118,6 +119,7 @@ Validates the story checklist and issues, checks completion readiness, and optio
 | `/story [file]` | Pick a plan or story file and open it in a scrollable view |
 | `/implement` | Implement the active in-progress story |
 | `/fix <description>` | Log an issue to the active story, then attempt a fix |
+| `/idea [description]` | Capture or browse ideas without interrupting the active story |
 | `/complete-story` | Check readiness, optionally review, and close a story |
 | `/review [scope]` | Write a review file and sync recurring rule candidates |
 | `/remember [rule]` | Promote a reusable lesson into persistent memory |
@@ -142,6 +144,7 @@ Press **Ctrl+?** in pi for an interactive, searchable command list with full usa
   memory/          — Learned rules and context maps
   settings/        — Project settings
   intake/          — product requirements documents (PRDs), briefs, and planning inputs
+  ideas/           — captured ideas for later planning
 ```
 
 If you do not see `.context/`, enable **Show hidden files** in your editor or file explorer.

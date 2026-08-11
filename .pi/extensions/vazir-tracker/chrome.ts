@@ -62,6 +62,7 @@ const ANSI_OSC_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
   { command: "/vazir-init", description: "bootstrap .context and seed the project brain" },
   { command: "/plan", description: "review intake, ask delta questions, and generate stories" },
+  { command: "/idea", description: "capture or browse ideas without interrupting the active story" },
   { command: "/story", description: "pick a plan or story file and open it in a scrollable view" },
   { command: "/implement", description: "implement the active in-progress story" },
   { command: "/fix", description: "log an issue to the active story, then attempt a fix" },
@@ -96,6 +97,14 @@ const VAZIR_COMMAND_DOCS: CommandDoc[] = [
     args: ["topic — optional planning focus or scope hint"],
     examples: ["/plan", "/plan onboarding flow"],
     longDesc: "Starts a structured planning conversation. Reads intake briefs and planning sources from .context/intake/, asks clarifying questions one at a time, and generates story files in .context/stories/ plus a plan.md. If a plan already exists, offers to view, append, or regenerate.",
+  },
+  {
+    command: "/idea",
+    shortDesc: "capture or browse ideas without interrupting the active story",
+    usage: "/idea [description]",
+    args: ["description — optional idea text; without it, choose capture or browse"],
+    examples: ["/idea", "/idea Explore a desktop UI for Amanah"],
+    longDesc: "Captures a new idea in .context/ideas/idea-NNN.md without interrupting the active story. With no description, presents options to capture a new idea or browse existing ideas. Browsed ideas can be opened in a markdown viewer and later referenced by /plan idea-NNN.",
   },
   {
     command: "/story",
@@ -283,6 +292,7 @@ const VAZIR_QUICKSTART_MARKDOWN = [
   "2. `/plan` reads your intake, asks delta questions, and writes `plan.md` plus story files.",
   "3. `/implement` works the active in-progress story and reports what changed.",
   "4. `/complete-story` checks readiness, optionally runs review, and closes the story when it is truly done.",
+  "5. `/idea [description]` captures a thought in `.context/ideas/`; bare `/idea` lets you capture or browse ideas.",
   "",
   "## .context folder guide",
   "",
@@ -291,6 +301,7 @@ const VAZIR_QUICKSTART_MARKDOWN = [
   "- `memory/` — durable learned rules and reusable team guidance.",
   "- `settings/` — project-level Vazir preferences such as VCS mode.",
   "- `intake/` — product requirements documents (PRDs), notes, design constraints, and other planning inputs.",
+  "- `ideas/` — captured ideas kept separate from stories until explicitly promoted through `/plan idea-NNN`.",
   "- `archive/` — completed or cold context kept for reference but not injected by default.",
   "",
   "## Why .context/intake matters",
