@@ -1,6 +1,6 @@
 /// <reference path="../../types/pi-runtime-ambient.d.ts" />
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as fs from "fs";
 import * as path from "path";
 

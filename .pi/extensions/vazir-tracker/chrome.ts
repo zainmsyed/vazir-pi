@@ -1,6 +1,6 @@
 /// <reference path="../../../types/node-runtime-ambient.d.ts" />
 
-import * as piTui from "@mariozechner/pi-tui";
+import * as piTui from "@earendil-works/pi-tui";
 import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as path from "path";

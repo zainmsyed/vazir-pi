@@ -1,7 +1,7 @@
 /// <reference path="../../../types/pi-runtime-ambient.d.ts" />
 /// <reference path="../../../types/node-runtime-ambient.d.ts" />
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as childProcess from "child_process";
 import * as fs from "fs";
 import * as os from "os";

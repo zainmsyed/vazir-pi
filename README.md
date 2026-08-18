@@ -4,7 +4,7 @@ Vazir is a set of extensions, skills, and workspace conventions that add persist
 
 ## Prerequisites
 
-Vazir is a set of extensions for **pi-coding-agent**, which is distributed as an npm package. You need Node.js (which includes npm) installed first.
+Vazir is a set of extensions for **pi-coding-agent**, which is distributed as an npm package. You need Node.js **22.19 or newer** (including npm) installed first.
 
 ### Install Node.js
 
@@ -64,11 +64,18 @@ pi install git:github.com/zainmsyed/vazir-pi
 
 > **Tip:** If you have Git Bash or WSL on Windows, the macOS/Linux curl one-liner works there too.
 
-Then, in any project where you want to use Vazir, initialize the local brain:
+Then, in any project where you want to use Vazir, start pi and initialize the local brain **inside pi**:
 
 ```bash
+cd /path/to/your/project
+pi
+```
+
+```text
 /vazir-init
 ```
+
+If the skill loads but `/vazir-init` is missing, close pi, rerun the installer, and start a new pi session. Check `pi list` includes `git:github.com/zainmsyed/vazir-pi`. If the installer warns that your shell resolves `pi` to a different executable, put the reported npm global `bin` directory first in `PATH`.
 
 ## Quickstart Workflow
 

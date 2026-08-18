@@ -1,8 +1,8 @@
 /// <reference path="../../../types/pi-runtime-ambient.d.ts" />
 /// <reference path="../../../types/node-runtime-ambient.d.ts" />
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import * as piTui from "@mariozechner/pi-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import * as piTui from "@earendil-works/pi-tui";
 import * as fs from "fs";
 import * as path from "path";
 import {

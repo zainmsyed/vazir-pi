@@ -52,6 +52,7 @@ const validations = [
   "validate-vazir-jj-milestones.mts",
   "validate-vazir-learning-loop.mts",
   "validate-vazir-memory-review.mts",
+  "validate-vazir-package-install.mts",
   "validate-vazir-plan-repair.mts",
   "validate-vazir-plan-seeding.mts",
   "validate-vazir-remember.mts",
