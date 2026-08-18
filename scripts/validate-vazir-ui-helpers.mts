@@ -18,7 +18,7 @@ if (!fs.existsSync(piTuiDir)) {
   fs.mkdirSync(piTuiDir, { recursive: true });
   fs.writeFileSync(
     path.join(piTuiDir, "package.json"),
-    JSON.stringify({ name: "@mariozechner/pi-tui", type: "commonjs" }, null, 2),
+    JSON.stringify({ name: "@earendil-works/pi-tui", type: "commonjs" }, null, 2),
   );
   const stubCode = [
     "exports.__esModule = true;",
@@ -41,7 +41,7 @@ if (!fs.existsSync(piCodingAgentDir)) {
   fs.mkdirSync(piCodingAgentDir, { recursive: true });
   fs.writeFileSync(
     path.join(piCodingAgentDir, "package.json"),
-    JSON.stringify({ name: "@mariozechner/pi-coding-agent", type: "commonjs" }, null, 2),
+    JSON.stringify({ name: "@earendil-works/pi-coding-agent", type: "commonjs" }, null, 2),
   );
   const stubCode = [
     "exports.__esModule = true;",

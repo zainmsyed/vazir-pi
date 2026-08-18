@@ -448,15 +448,22 @@ function gitHasPendingChanges(cwd: string): boolean {
 function fossilHasPendingChanges(cwd: string): boolean {
   try {
     const changed = childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
-    const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
+    const extras = childProcess.execSync("fossil extras --dotfiles", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
     return changed !== "" || extras !== "";
   } catch {
-    return false;
+    // Treat an unavailable VCS as unsafe to declare clean; the caller will surface the commit failure.
+    return true;
   }
 }
 
 export function contextPersistenceStatus(cwd: string): ContextPersistenceStatus {
   const pending = listPendingContextChanges(cwd);
+  if (pending.inspectionError) {
+    return {
+      hasPendingChanges: true,
+      summary: `Unable to verify .context persistence in active ${pending.activeMode} mode: ${pending.inspectionError}`,
+    };
+  }
   if (pending.files.length === 0) {
     return {
       hasPendingChanges: false,

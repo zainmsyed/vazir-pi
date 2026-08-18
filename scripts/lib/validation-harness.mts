@@ -24,7 +24,7 @@ function ensureStubModule(moduleName: string, content: string): string | null {
 
 export function installCommonPiStubs(): string[] {
   return [
-    ensureStubModule("@mariozechner/pi-tui", [
+    ensureStubModule("@earendil-works/pi-tui", [
       "exports.__esModule = true;",
       "exports.Key = { up: 'up', down: 'down', pageUp: 'pageUp', pageDown: 'pageDown', escape: 'escape', enter: 'enter', ctrl: value => value, ctrlShift: value => value, shiftCtrl: value => value };",
       "exports.matchesKey = (data, key) => data === key;",
@@ -42,7 +42,7 @@ export function installCommonPiStubs(): string[] {
       "exports.truncateToWidth = (str, width, ellipsis = '…', pad = false) => { const safeWidth = Math.max(0, width || 0); if (safeWidth === 0) return ''; const text = String(str ?? ''); const ellipsisWidth = visibleWidth(ellipsis); if (visibleWidth(text) <= safeWidth) return pad ? text + ' '.repeat(Math.max(0, safeWidth - visibleWidth(text))) : text; const target = Math.max(0, safeWidth - ellipsisWidth); let out = ''; let visible = 0; for (let i = 0; i < text.length && visible < target;) { if (text[i] === '\\x1b') { const match = matchEscape(text.slice(i)); if (match) { out += match[0]; i += match[0].length; continue; } } const codePoint = text.codePointAt(i); if (codePoint == null) break; const glyph = String.fromCodePoint(codePoint); out += glyph; i += glyph.length; visible += 1; } const truncated = out + ellipsis; return pad ? truncated + ' '.repeat(Math.max(0, safeWidth - visibleWidth(truncated))) : truncated; };",
       "",
     ].join("\n")),
-    ensureStubModule("@mariozechner/pi-coding-agent", [
+    ensureStubModule("@earendil-works/pi-coding-agent", [
       "exports.__esModule = true;",
       "exports.DynamicBorder = class { constructor(fn) { this.fn = fn; } render(w) { return ['─'.repeat(Math.max(2, w - 2))]; } };",
       "exports.getMarkdownTheme = () => ({});",

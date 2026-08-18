@@ -61,9 +61,6 @@ function createFossilProject(prefix: string): string {
   childProcess.execSync(`fossil open ${JSON.stringify(repoPath)}`, { cwd, stdio: "pipe" });
 
   fs.writeFileSync(path.join(cwd, "README.md"), "hello\n");
-  childProcess.execSync("fossil add README.md", { cwd, stdio: "pipe" });
-  childProcess.execSync("fossil commit -m initial --user-override vazir-test", { cwd, stdio: "pipe" });
-
   fs.mkdirSync(path.join(cwd, ".context", "stories"), { recursive: true });
   fs.mkdirSync(path.join(cwd, ".context", "memory"), { recursive: true });
   fs.mkdirSync(path.join(cwd, ".context", "settings"), { recursive: true });
@@ -108,6 +105,9 @@ function createFossilProject(prefix: string): string {
     "## Completion Summary",
     "",
   ].join("\n"));
+
+  childProcess.execSync("fossil add README.md .context", { cwd, stdio: "pipe" });
+  childProcess.execSync("fossil commit -m initial --user-override vazir-test", { cwd, stdio: "pipe" });
 
   childProcess.execSync("fossil setting autosync off", { cwd, stdio: "pipe" });
   fs.appendFileSync(path.join(cwd, "README.md"), "more\n");

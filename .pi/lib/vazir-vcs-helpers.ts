@@ -659,7 +659,7 @@ function syncFromFossil(cwd: string): void {
   }
 
   try {
-    const extras = childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
+    const extras = childProcess.execSync("fossil extras --dotfiles", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
     for (const line of extras.split("\n")) {
       const file = line.trim();
       if (!file) continue;

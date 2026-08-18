@@ -1,9 +1,10 @@
 # Review Summary
 
-**Last updated:** 2026-08-10T21:39:37Z
+**Last updated:** 2026-08-18T16:20:34Z
 
 ## Findings
 - After extracting helpers to a new module, delete the original copies to prevent drift and confusion. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
+- Do not silently swallow exceptions from structural persistence operations; surface a warning when tracking or recovery state cannot be verified. | count: 1 | status: tracked | sources: review-20260810-222500.md
 - Extracted closeout flows must preserve all terminal branches of the original state machine, including commit-and-close paths. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Optional external-tool validations should report explicit skips and be required separately in a tool-enabled validation environment. | count: 1 | status: tracked | sources: review-20260808-004221.md | stories: story-068
 - Regression tests for retry logic should force the initial attempt to fail and independently verify the recovery attempt, rather than only testing the already-recovered final state. | count: 1 | status: tracked | sources: review-20260808-000002.md | stories: story-066

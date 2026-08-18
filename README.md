@@ -4,7 +4,7 @@ Vazir is a set of extensions, skills, and workspace conventions that add persist
 
 ## Prerequisites
 
-Vazir is a set of extensions for **pi-coding-agent**, which is distributed as an npm package. You need Node.js (which includes npm) installed first.
+Vazir is a set of extensions for **pi-coding-agent**, which is distributed as an npm package. You need Node.js **22.19 or newer** (including npm) installed first.
 
 ### Install Node.js
 
@@ -64,11 +64,18 @@ pi install git:github.com/zainmsyed/vazir-pi
 
 > **Tip:** If you have Git Bash or WSL on Windows, the macOS/Linux curl one-liner works there too.
 
-Then, in any project where you want to use Vazir, initialize the local brain:
+Then, in any project where you want to use Vazir, start pi and initialize the local brain **inside pi**:
 
 ```bash
+cd /path/to/your/project
+pi
+```
+
+```text
 /vazir-init
 ```
+
+If the skill loads but `/vazir-init` is missing, close pi, rerun the installer, and start a new pi session. Check `pi list` includes `git:github.com/zainmsyed/vazir-pi`. If the installer warns that your shell resolves `pi` to a different executable, put the reported npm global `bin` directory first in `PATH`.
 
 ## Quickstart Workflow
 
@@ -103,6 +110,7 @@ Validates the story checklist and issues, checks completion readiness, and optio
 ## Common Next Steps
 
 - **`/fix <description>`** — Log an issue to the active story and attempt a fix.
+- **`/idea [description]`** — Capture or browse ideas without interrupting the active story.
 - **`/review [scope]`** — Run a structured code review scoped to the active story or the whole codebase.
 - **`/remember [rule]`** — Promote a reusable lesson into persistent memory (`.context/memory/system.md`).
 - **`/memory-review`** — Archive cold stories and reviews, flag stale rules, and review delete candidates.
@@ -118,6 +126,7 @@ Validates the story checklist and issues, checks completion readiness, and optio
 | `/story [file]` | Pick a plan or story file and open it in a scrollable view |
 | `/implement` | Implement the active in-progress story |
 | `/fix <description>` | Log an issue to the active story, then attempt a fix |
+| `/idea [description]` | Capture or browse ideas without interrupting the active story |
 | `/complete-story` | Check readiness, optionally review, and close a story |
 | `/review [scope]` | Write a review file and sync recurring rule candidates |
 | `/remember [rule]` | Promote a reusable lesson into persistent memory |
@@ -142,6 +151,7 @@ Press **Ctrl+?** in pi for an interactive, searchable command list with full usa
   memory/          — Learned rules and context maps
   settings/        — Project settings
   intake/          — product requirements documents (PRDs), briefs, and planning inputs
+  ideas/           — captured ideas for later planning
 ```
 
 If you do not see `.context/`, enable **Show hidden files** in your editor or file explorer.

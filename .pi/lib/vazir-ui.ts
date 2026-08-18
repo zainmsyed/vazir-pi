@@ -7,7 +7,7 @@
  * Neutral shared module — no imports from consuming extensions.
  */
 
-import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
+import { getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import {
   Container,
   Key,
@@ -18,7 +18,7 @@ import {
   Spacer,
   Text,
   truncateToWidth,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 
 export interface SelectionListOption<T extends string = string> {
   value: T;

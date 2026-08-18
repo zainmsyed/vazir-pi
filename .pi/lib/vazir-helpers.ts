@@ -86,6 +86,12 @@ export interface PendingVcsApproval {
 export interface PendingContextChanges {
   activeMode: ActiveVcsMode;
   files: string[];
+  inspectionError?: string;
+}
+
+export interface UntrackedContextInspection {
+  files: string[];
+  error?: string;
 }
 
 export const PROTECTED_VCS_TARGETS = [".git/", ".jj/", ".fslckout", ".fossil-settings/"];
@@ -652,32 +658,34 @@ function parseFossilStatusPaths(output: string): string[] {
 
 export function listPendingContextChanges(cwd: string): PendingContextChanges {
   const activeMode = readActiveVcsMode(cwd);
+  const isContextPath = (file: string) => file === ".context" || file.startsWith(".context/");
 
   if (activeMode === "fossil" && detectFossil(cwd)) {
     const files = new Set<string>();
+    const errors: string[] = [];
     try {
       for (const file of parseFossilStatusPaths(childProcess.execSync("fossil changes", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }))) {
-        if (file === ".context" || file.startsWith(".context/")) files.add(file);
+        if (isContextPath(file)) files.add(file);
       }
-    } catch {
-      /* ignore */
+    } catch (error) {
+      errors.push(`fossil changes: ${vcsInspectionError(error)}`);
     }
     try {
-      for (const file of parseFossilStatusPaths(childProcess.execSync("fossil extras", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }))) {
-        if (file === ".context" || file.startsWith(".context/")) files.add(file);
+      for (const file of parseFossilStatusPaths(childProcess.execSync("fossil extras --dotfiles", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }))) {
+        if (isContextPath(file)) files.add(file);
       }
-    } catch {
-      /* ignore */
+    } catch (error) {
+      errors.push(`fossil extras: ${vcsInspectionError(error)}`);
     }
-    return { activeMode, files: [...files].sort() };
+    return { activeMode, files: [...files].sort(), ...(errors.length > 0 ? { inspectionError: errors.join("; ") } : {}) };
   }
 
   if (detectGitRepo(cwd) || detectJJ(cwd) || activeMode === "git") {
     try {
       const output = childProcess.execSync("git status --porcelain -- .context", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 });
-      return { activeMode, files: parseGitStatusPaths(output).filter(file => file === ".context" || file.startsWith(".context/")).sort() };
-    } catch {
-      return { activeMode, files: [] };
+      return { activeMode, files: parseGitStatusPaths(output).filter(isContextPath).sort() };
+    } catch (error) {
+      return { activeMode, files: [], inspectionError: `git status: ${vcsInspectionError(error)}` };
     }
   }
 
@@ -685,7 +693,48 @@ export function listPendingContextChanges(cwd: string): PendingContextChanges {
 }
 
 export function hasPendingContextChanges(cwd: string): boolean {
-  return listPendingContextChanges(cwd).files.length > 0;
+  const pending = listPendingContextChanges(cwd);
+  return pending.files.length > 0 || Boolean(pending.inspectionError);
+}
+
+function vcsInspectionError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function inspectUntrackedContextFiles(cwd: string): UntrackedContextInspection {
+  const activeMode = readActiveVcsMode(cwd);
+  const isContextPath = (file: string) => file === ".context" || file.startsWith(".context/");
+
+  if (activeMode === "fossil" && detectFossil(cwd)) {
+    try {
+      return {
+        files: parseFossilStatusPaths(childProcess.execSync("fossil extras --dotfiles", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }))
+          .filter(isContextPath)
+          .sort(),
+      };
+    } catch (error) {
+      return { files: [], error: `fossil extras: ${vcsInspectionError(error)}` };
+    }
+  }
+
+  if (detectGitRepo(cwd) || detectJJ(cwd) || activeMode === "git") {
+    try {
+      const output = childProcess.execSync("git status --porcelain -uall -- .context", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 });
+      const untrackedOnly = output
+        .split("\n")
+        .filter(line => line.startsWith("?? "))
+        .join("\n");
+      return { files: parseGitStatusPaths(untrackedOnly).filter(isContextPath).sort() };
+    } catch (error) {
+      return { files: [], error: `git status: ${vcsInspectionError(error)}` };
+    }
+  }
+
+  return { files: [] };
+}
+
+export function listUntrackedContextFiles(cwd: string): string[] {
+  return inspectUntrackedContextFiles(cwd).files;
 }
 
 export function storiesDir(cwd: string): string {
