@@ -13,6 +13,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Keep Pi as the agent/runtime foundation rather than reimplementing the agent loop.
 - The CLI should explicitly load and verify Vazir extensions, not rely only on package discovery.
 - The CLI must provide full parity with everything the current Vazir extensions can do; there are no intentionally excluded commands, workflows, lifecycle behaviors, persistence paths, VCS flows, checkpoint operations, reviews, or UI/status behaviors.
+- Before public binary distribution, perform a license audit for Pi, Node, and all packaging/runtime components; preserve required notices and publish third-party acknowledgements.
 - The initial installer must check Node.js and npm before installing anything.
 - Required Node.js version: **22.19 or newer**.
 - If Node is missing or too old, stop the installation, print copy/paste platform-appropriate commands, and tell the user to rerun the installer.
@@ -53,7 +54,8 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ### Phase 3 — Distribution
 
-- Publish an npm-based CLI requiring Node 22.19+.
+- Publish standalone macOS and Linux binaries as the primary stable distribution.
+- Keep an npm-based CLI available as an optional developer/contributor install path.
 - Pin a compatible Pi version.
 - Add a stable release channel with manual updates by default.
 - Distribute stable binaries and update metadata through GitHub Releases.
@@ -70,8 +72,7 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. What is the minimum CLI MVP beyond launching Pi and running `/vazir-init`?
-2. What licensing and third-party distribution requirements apply to Pi, Node, and the chosen binary packaging tools?
+- No product-direction decisions remain from the current planning pass. The next step is to turn the full-parity CLI requirement into an implementation backlog and acceptance checklist.
 
 ## Planning notes
 
