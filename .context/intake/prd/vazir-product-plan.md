@@ -45,6 +45,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - The first standalone binary targets macOS and Linux.
 - Required release targets are macOS Apple Silicon (`arm64`) and Linux x64 (`x86_64`).
 - Investigate Node Single Executable Applications (SEA) first for standalone packaging; keep a bundled Node runtime plus application directory as the compatibility fallback. Packaging must remain replaceable behind the runtime adapter.
+- Preserve `/vazir-live-reload-apply` in all modes; provide explicit `--dev` mode for loading editable extension sources and live reload, while production binaries explain that source reloading requires development mode.
 - macOS Intel (`x86_64`) is a best-effort target if the packaging tool and Pi dependencies support it.
 - Windows support for the initial release is through WSL2; native Windows packaging is deferred.
 
@@ -55,6 +56,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Create the `vazir` executable.
 - Start Pi through its SDK or a controlled runtime entrypoint.
 - Load Vazir extensions explicitly.
+- Support `--dev` loading from editable Vazir sources for live reload.
 - Verify command registration and footer support.
 - Report extension-load errors clearly.
 - Include a polished but terminal-safe onboarding presentation: branded header, step indicators, pass/warn/fail states, and copy/paste remediation commands.
@@ -94,11 +96,10 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. How should development-mode live reload work when production extensions are bundled and immutable?
-2. Should the standalone CLI support Pi’s full command-line argument surface and forward compatible flags?
-3. What binary installation locations and platform-specific packaging formats should be used?
-4. How should third-party Pi packages and extension load failures be isolated?
-5. What `.context/` schema versioning, locking, backup, and downgrade behavior is required?
+1. Should the standalone CLI support Pi’s full command-line argument surface and forward compatible flags?
+2. What binary installation locations and platform-specific packaging formats should be used?
+3. How should third-party Pi packages and extension load failures be isolated?
+4. What `.context/` schema versioning, locking, backup, and downgrade behavior is required?
 
 The command parity, security, distribution, migration, privacy, compatibility, and Node-bundling decisions are settled for the current planning pass.
 
