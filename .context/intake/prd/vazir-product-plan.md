@@ -16,6 +16,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Preserve every current command, including the internal `/vazir-live-reload-apply` command; command removal or production filtering is not part of the CLI plan.
 - Before public binary distribution, perform a license audit for Pi, Node, and all packaging/runtime components; preserve required notices and publish third-party acknowledgements.
 - Telemetry is strictly opt-in and disabled by default; Vazir must not transmit project contents, prompts, credentials, `.context/` data, or secrets.
+- `vazir support-bundle` must be a minimal, local-only diagnostic output with no identifying information and no automatic upload; it should include only the smallest set of component versions and sanitized error codes needed for support.
 - The initial installer must check Node.js and npm before installing anything.
 - Required Node.js version: **22.19 or newer**.
 - If Node is missing or too old, stop the installation, print copy/paste platform-appropriate commands, and tell the user to rerun the installer.
@@ -70,6 +71,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Pin a compatible Pi version.
 - Add a stable release channel with manual updates by default.
 - Include an explicit telemetry setting and make opt-in consent clear and reversible.
+- Keep support diagnostics minimal, non-identifying, reviewable by the user, and offline by default.
 - Distribute stable binaries and update metadata through GitHub Releases.
 - Add atomic updates and rollback.
 - Verify binary checksums and signatures before activation.
@@ -86,10 +88,9 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. What should `vazir support-bundle` collect and redact?
-2. Should Herdr remain a bundled product skill or become optional?
-3. What security and permission model should the standalone CLI enforce?
-4. What Vazir/Pi/.context version compatibility policy should be guaranteed?
+1. Should Herdr remain a bundled product skill or become optional?
+2. What security and permission model should the standalone CLI enforce?
+3. What Vazir/Pi/.context version compatibility policy should be guaranteed?
 
 The command parity decision is settled: preserve all current commands and workflows.
 
