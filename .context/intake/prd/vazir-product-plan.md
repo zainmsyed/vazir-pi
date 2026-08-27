@@ -34,6 +34,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Decisions about native GUI panels versus existing Pi/Vazir commands are deferred until the CLI is complete.
 - The first standalone binary targets macOS and Linux.
 - Required release targets are macOS Apple Silicon (`arm64`) and Linux x64 (`x86_64`).
+- Investigate Node Single Executable Applications (SEA) first for standalone packaging; keep a bundled Node runtime plus application directory as the compatibility fallback. Packaging must remain replaceable behind the runtime adapter.
 - macOS Intel (`x86_64`) is a best-effort target if the packaging tool and Pi dependencies support it.
 - Windows support for the initial release is through WSL2; native Windows packaging is deferred.
 
@@ -77,15 +78,14 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. What binary packaging tool and architecture matrix should the first release use?
-2. What signing, checksum, update, and rollback mechanism should stable releases use?
-3. What existing-user migration behavior is required for prior Pi/Vazir installs?
-4. What should the first-run onboarding and `vazir doctor` experience do?
-5. What privacy/telemetry policy should apply?
-6. What should `vazir support-bundle` collect and redact?
-7. Should Herdr remain a bundled product skill or become optional?
-8. What security and permission model should the standalone CLI enforce?
-9. What Vazir/Pi/.context version compatibility policy should be guaranteed?
+1. What signing, checksum, update, and rollback mechanism should stable releases use?
+2. What existing-user migration behavior is required for prior Pi/Vazir installs?
+3. What should the first-run onboarding and `vazir doctor` experience do?
+4. What privacy/telemetry policy should apply?
+5. What should `vazir support-bundle` collect and redact?
+6. Should Herdr remain a bundled product skill or become optional?
+7. What security and permission model should the standalone CLI enforce?
+8. What Vazir/Pi/.context version compatibility policy should be guaranteed?
 
 The command parity decision is settled: preserve all current commands and workflows.
 
