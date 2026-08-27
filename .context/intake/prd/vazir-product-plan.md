@@ -30,6 +30,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Pi should be pinned and tested per Vazir release rather than updated blindly at runtime.
 - Pi updates should flow through a tested stable channel with rollback support; a preview channel can be added later if demand justifies it.
 - The primary user-facing CLI should be distributed as a standalone binary with the tested Node runtime bundled and hidden from the user.
+- Standalone binaries install per-user under `~/.local/bin` by default; installation must add that directory to the user’s shell `PATH` idempotently with consent and verify `command -v vazir` afterward, without requiring `sudo`.
 - An npm package may remain available as a developer/contributor install path, but it is not the primary onboarding path.
 - Stable Vazir binaries, SHA-256 checksums, cryptographic signatures, and release notes should be distributed through GitHub Releases initially.
 - The updater must verify both checksums and signatures before installing an artifact.
@@ -75,6 +76,7 @@ Vazir will become its own product and user-facing application, built on top of t
 ### Phase 3 — Distribution
 
 - Publish standalone macOS Apple Silicon and Linux x64 binaries as the required primary stable distribution, with Node bundled.
+- Install per-user to `~/.local/bin`, provide shell startup-file guidance, and support immediate activation without requiring a system-wide install.
 - Produce a macOS Intel binary when technically supported.
 - Keep an npm-based CLI available as an optional developer/contributor install path.
 - Pin a compatible Pi version.
@@ -97,9 +99,8 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. What binary installation locations and platform-specific packaging formats should be used?
-2. How should third-party Pi packages and extension load failures be isolated?
-3. What `.context/` schema versioning, locking, backup, and downgrade behavior is required?
+1. How should third-party Pi packages and extension load failures be isolated?
+2. What `.context/` schema versioning, locking, backup, and downgrade behavior is required?
 
 The command parity, security, distribution, migration, privacy, compatibility, and Node-bundling decisions are settled for the current planning pass.
 
