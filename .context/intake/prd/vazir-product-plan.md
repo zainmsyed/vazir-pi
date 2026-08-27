@@ -19,7 +19,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Do not silently install Node, run `sudo`, or continue with a partial installation.
 - `vazir doctor` should diagnose Node, Pi/runtime, extension loading, authentication, PATH, project trust, and VCS availability.
 - Pi should be pinned and tested per Vazir release rather than updated blindly at runtime.
-- Pi updates should flow through tested stable/preview channels with rollback support.
+- Pi updates should flow through a tested stable channel with rollback support; a preview channel can be added later if demand justifies it.
 - The primary user-facing CLI should be distributed as a standalone binary with Node bundled or otherwise hidden from the user.
 - An npm package may remain available as a developer/contributor install path, but it is not the primary onboarding path.
 - Vazir should reuse Pi’s existing credentials, settings, model configuration, sessions, and runtime behavior wherever possible rather than creating parallel systems.
@@ -51,8 +51,9 @@ Vazir will become its own product and user-facing application, built on top of t
 
 - Publish an npm-based CLI requiring Node 22.19+.
 - Pin a compatible Pi version.
-- Add stable and preview release channels.
+- Add a stable release channel with manual updates by default.
 - Add atomic updates and rollback.
+- Defer a preview channel until user demand justifies maintaining it.
 - Later produce native installers that bundle Node.
 
 ### Phase 4 — Desktop GUI (deferred)
@@ -64,7 +65,7 @@ Vazir will become its own product and user-facing application, built on top of t
 ## Decisions still needed
 
 1. What is the minimum CLI MVP beyond launching Pi and running `/vazir-init`?
-2. What update channel and release infrastructure should host pinned Pi/Vazir releases?
+2. What release infrastructure should host pinned stable Pi/Vazir releases?
 3. What is the complete uninstall and migration contract?
 4. Which Vazir features must be native GUI panels versus existing Pi commands/overlays?
 5. What licensing and third-party distribution requirements apply to Pi, Node, and the chosen desktop framework?
