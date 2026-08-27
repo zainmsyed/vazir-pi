@@ -12,6 +12,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Build a reliable `vazir` CLI wrapper before building a desktop GUI.
 - Keep Pi as the agent/runtime foundation rather than reimplementing the agent loop.
 - The CLI should explicitly load and verify Vazir extensions, not rely only on package discovery.
+- The CLI must provide full parity with everything the current Vazir extensions can do; there are no intentionally excluded commands, workflows, lifecycle behaviors, persistence paths, VCS flows, checkpoint operations, reviews, or UI/status behaviors.
 - The initial installer must check Node.js and npm before installing anything.
 - Required Node.js version: **22.19 or newer**.
 - If Node is missing or too old, stop the installation, print copy/paste platform-appropriate commands, and tell the user to rerun the installer.
@@ -41,6 +42,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Add `vazir doctor`, `vazir version`, `vazir init`, and `vazir update`.
 - Own dependency checks and runtime discovery.
 - Preserve `.context/` as the project brain.
+- Carry every existing Vazir extension command and workflow into the product without feature exclusions.
 - Add fresh-install, upgrade, uninstall, and cross-platform smoke tests.
 
 ### Phase 3 — Distribution
