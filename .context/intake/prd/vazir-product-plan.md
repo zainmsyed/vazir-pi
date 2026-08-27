@@ -20,15 +20,16 @@ Vazir will become its own product and user-facing application, built on top of t
 - Unsupported Vazir/Pi/`.context/` combinations must produce clear diagnostics instead of partially loading.
 - Telemetry is strictly opt-in and disabled by default; Vazir must not transmit project contents, prompts, credentials, `.context/` data, or secrets.
 - `vazir support-bundle` must be a minimal, local-only diagnostic output with no identifying information and no automatic upload; it should include only the smallest set of component versions and sanitized error codes needed for support.
-- The initial installer must check Node.js and npm before installing anything.
-- Required Node.js version: **22.19 or newer**.
-- If Node is missing or too old, stop the installation, print copy/paste platform-appropriate commands, and tell the user to rerun the installer.
+- Standalone user-facing binaries bundle the tested Node runtime and do not require users to install Node or npm.
+- The optional npm/developer installation must check Node.js and npm before installing anything.
+- Required Node.js version for npm/developer installs: **22.19 or newer**.
+- If Node is missing or too old for an npm/developer install, stop the installation, print copy/paste platform-appropriate commands, and tell the user to rerun the installer.
 - Do not silently install Node, run `sudo`, or continue with a partial installation.
 - `vazir doctor` should diagnose Node, Pi/runtime, extension loading, authentication, PATH, project trust, and VCS availability.
 - First-run onboarding should run the doctor checks, explain findings, ask before initializing `.context/` or VCS metadata, and use lightweight polished Vazir presentation without delaying core functionality.
 - Pi should be pinned and tested per Vazir release rather than updated blindly at runtime.
 - Pi updates should flow through a tested stable channel with rollback support; a preview channel can be added later if demand justifies it.
-- The primary user-facing CLI should be distributed as a standalone binary with Node bundled or otherwise hidden from the user.
+- The primary user-facing CLI should be distributed as a standalone binary with the tested Node runtime bundled and hidden from the user.
 - An npm package may remain available as a developer/contributor install path, but it is not the primary onboarding path.
 - Stable Vazir binaries, SHA-256 checksums, cryptographic signatures, and release notes should be distributed through GitHub Releases initially.
 - The updater must verify both checksums and signatures before installing an artifact.
@@ -70,7 +71,7 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ### Phase 3 — Distribution
 
-- Publish standalone macOS Apple Silicon and Linux x64 binaries as the required primary stable distribution.
+- Publish standalone macOS Apple Silicon and Linux x64 binaries as the required primary stable distribution, with Node bundled.
 - Produce a macOS Intel binary when technically supported.
 - Keep an npm-based CLI available as an optional developer/contributor install path.
 - Pin a compatible Pi version.
@@ -83,7 +84,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Define uninstall as runtime/cache removal while preserving `.context/` and reused Pi state by default.
 - Detect and preserve existing Pi/Vazir installations during first-run migration; offer cleanup only through explicit user choice.
 - Defer a preview channel until user demand justifies maintaining it.
-- Later produce native installers that bundle Node.
+- Keep the npm-based CLI as an optional developer/contributor path requiring Node 22.19+.
 
 ### Phase 4 — Desktop GUI (deferred)
 
@@ -93,9 +94,13 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-- No product-direction decisions remain from the current planning pass. The next step is to turn this plan into an implementation backlog and acceptance checklist.
+1. How should development-mode live reload work when production extensions are bundled and immutable?
+2. Should the standalone CLI support Pi’s full command-line argument surface and forward compatible flags?
+3. What binary installation locations and platform-specific packaging formats should be used?
+4. How should third-party Pi packages and extension load failures be isolated?
+5. What `.context/` schema versioning, locking, backup, and downgrade behavior is required?
 
-The command parity, security, packaging, distribution, migration, privacy, and compatibility decisions are settled for the current planning pass.
+The command parity, security, distribution, migration, privacy, compatibility, and Node-bundling decisions are settled for the current planning pass.
 
 ## Planning notes
 
