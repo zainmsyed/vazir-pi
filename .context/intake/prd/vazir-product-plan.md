@@ -18,6 +18,8 @@ Vazir will become its own product and user-facing application, built on top of t
 - Before public binary distribution, perform a license audit for Pi, Node, and all packaging/runtime components; preserve required notices and publish third-party acknowledgements.
 - Vazir follows semantic versioning, pins one tested Pi version per release, preserves `.context/` compatibility across minor/patch releases, and performs explicit backed-up reversible migrations when structure changes.
 - `.context/settings/project.json` is the source of truth for the portable `.context` schema version, stored as `context_schema_version`.
+- Context migrations run only when the stored schema is older than the supported version: back up `.context`, migrate atomically under a lock, delete the backup only after success, and preserve/report the backup for recovery on failure.
+- Vazir must refuse automatic downgrade when `.context` is newer than the installed binary.
 - Unsupported Vazir/Pi/`.context/` combinations must produce clear diagnostics instead of partially loading.
 - Telemetry is strictly opt-in and disabled by default; Vazir must not transmit project contents, prompts, credentials, `.context/` data, or secrets.
 - `vazir support-bundle` must be a minimal, local-only diagnostic output with no identifying information and no automatic upload; it should include only the smallest set of component versions and sanitized error codes needed for support.
@@ -89,6 +91,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Keep support diagnostics minimal, non-identifying, reviewable by the user, and offline by default.
 - Distribute stable binaries and update metadata through GitHub Releases.
 - Add atomic updates and rollback.
+- Use the same backup-first, atomic-success, recoverable-failure policy for `.context` migrations.
 - Verify binary checksums and signatures before activation.
 - Define uninstall as runtime/cache removal while preserving `.context/` and reused Pi state by default.
 - Detect and preserve existing Pi/Vazir installations during first-run migration; offer cleanup only through explicit user choice.
@@ -103,7 +106,7 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. What migration locking, backup, interruption recovery, and downgrade behavior should `.context/` use?
+- No product-direction decisions remain from the current planning pass. The next step is to turn this plan into an implementation backlog and acceptance checklist.
 
 The command parity, security, distribution, migration, privacy, compatibility, and Node-bundling decisions are settled for the current planning pass.
 
