@@ -17,6 +17,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Preserve every current command, including the internal `/vazir-live-reload-apply` command; command removal or production filtering is not part of the CLI plan.
 - Before public binary distribution, perform a license audit for Pi, Node, and all packaging/runtime components; preserve required notices and publish third-party acknowledgements.
 - Vazir follows semantic versioning, pins one tested Pi version per release, preserves `.context/` compatibility across minor/patch releases, and performs explicit backed-up reversible migrations when structure changes.
+- `.context/settings/project.json` is the source of truth for the portable `.context` schema version, stored as `context_schema_version`.
 - Unsupported Vazir/Pi/`.context/` combinations must produce clear diagnostics instead of partially loading.
 - Telemetry is strictly opt-in and disabled by default; Vazir must not transmit project contents, prompts, credentials, `.context/` data, or secrets.
 - `vazir support-bundle` must be a minimal, local-only diagnostic output with no identifying information and no automatic upload; it should include only the smallest set of component versions and sanitized error codes needed for support.
@@ -102,7 +103,7 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. What `.context/` schema versioning, locking, backup, and downgrade behavior is required?
+1. What migration locking, backup, interruption recovery, and downgrade behavior should `.context/` use?
 
 The command parity, security, distribution, migration, privacy, compatibility, and Node-bundling decisions are settled for the current planning pass.
 
