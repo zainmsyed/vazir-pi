@@ -16,6 +16,8 @@ Vazir will become its own product and user-facing application, built on top of t
 - Preserve all core Vazir extension security protections exactly: project trust, protected VCS metadata, explicit destructive-action approval, no silent `sudo`, no automatic commits/pushes/resets/deletes, and secret-safe diagnostics.
 - Preserve every current command, including the internal `/vazir-live-reload-apply` command; command removal or production filtering is not part of the CLI plan.
 - Before public binary distribution, perform a license audit for Pi, Node, and all packaging/runtime components; preserve required notices and publish third-party acknowledgements.
+- Vazir follows semantic versioning, pins one tested Pi version per release, preserves `.context/` compatibility across minor/patch releases, and performs explicit backed-up reversible migrations when structure changes.
+- Unsupported Vazir/Pi/`.context/` combinations must produce clear diagnostics instead of partially loading.
 - Telemetry is strictly opt-in and disabled by default; Vazir must not transmit project contents, prompts, credentials, `.context/` data, or secrets.
 - `vazir support-bundle` must be a minimal, local-only diagnostic output with no identifying information and no automatic upload; it should include only the smallest set of component versions and sanitized error codes needed for support.
 - The initial installer must check Node.js and npm before installing anything.
@@ -91,9 +93,9 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. What Vazir/Pi/.context version compatibility policy should be guaranteed?
+- No product-direction decisions remain from the current planning pass. The next step is to turn this plan into an implementation backlog and acceptance checklist.
 
-The command parity decision is settled: preserve all current commands and workflows.
+The command parity, security, packaging, distribution, migration, privacy, and compatibility decisions are settled for the current planning pass.
 
 ## Planning notes
 
