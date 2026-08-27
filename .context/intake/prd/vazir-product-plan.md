@@ -21,6 +21,8 @@ Vazir will become its own product and user-facing application, built on top of t
 - Pi updates should flow through tested stable/preview channels with rollback support.
 - The primary user-facing CLI should be distributed as a standalone binary with Node bundled or otherwise hidden from the user.
 - An npm package may remain available as a developer/contributor install path, but it is not the primary onboarding path.
+- Vazir should reuse Pi’s existing credentials, settings, model configuration, sessions, and runtime behavior wherever possible rather than creating parallel systems.
+- Vazir-specific persistent project state remains in `.context/`; only genuinely product-specific global state should be added if required.
 - A desktop GUI is a later layer over the CLI/runtime foundation, not the first implementation.
 
 ## Current proposed phases
@@ -56,15 +58,14 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. Should Vazir reuse Pi’s existing credentials/settings, or migrate them into a Vazir-owned configuration directory?
-3. Which Pi SDK integration should the CLI use: direct `AgentSession`/`InteractiveMode`, or a controlled Pi RPC subprocess?
-4. What is the minimum CLI MVP beyond launching Pi and running `/vazir-init`?
-5. Which platforms are required for the first release: macOS only, macOS/Linux, or all three major desktop platforms?
-6. Should the GUI use Electron, Tauri, or remain deferred until the CLI runtime is proven?
-7. What update channel and release infrastructure should host pinned Pi/Vazir releases?
-8. What is the complete uninstall and migration contract?
-9. Which Vazir features must be native GUI panels versus existing Pi commands/overlays?
-10. What licensing and third-party distribution requirements apply to Pi, Node, and the chosen desktop framework?
+1. Which Pi SDK integration should the CLI use: direct `AgentSession`/`InteractiveMode`, or a controlled Pi RPC subprocess?
+2. What is the minimum CLI MVP beyond launching Pi and running `/vazir-init`?
+3. Which platforms are required for the first release: macOS only, macOS/Linux, or all three major desktop platforms?
+4. Should the GUI use Electron, Tauri, or remain deferred until the CLI runtime is proven?
+5. What update channel and release infrastructure should host pinned Pi/Vazir releases?
+6. What is the complete uninstall and migration contract?
+7. Which Vazir features must be native GUI panels versus existing Pi commands/overlays?
+8. What licensing and third-party distribution requirements apply to Pi, Node, and the chosen desktop framework?
 
 ## Planning notes
 
