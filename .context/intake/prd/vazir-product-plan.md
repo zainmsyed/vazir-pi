@@ -36,6 +36,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Uninstall may remove the Vazir binary and its cached runtime/package data, but must preserve Pi credentials, settings, sessions, and models unless explicitly requested otherwise.
 - Existing Pi/Vazir installations must be detected and migrated non-destructively: reuse existing credentials, settings, models, sessions, and `.context/` without replacing old executables or deleting prior state automatically.
 - A desktop GUI is deferred; the current product scope is the full-featured CLI/runtime only.
+- Herdr is optional and developer-only; it is not bundled in the default production Vazir installation. The core Vazir skill remains bundled.
 - Decisions about native GUI panels versus existing Pi/Vazir commands are deferred until the CLI is complete.
 - The first standalone binary targets macOS and Linux.
 - Required release targets are macOS Apple Silicon (`arm64`) and Linux x64 (`x86_64`).
@@ -60,6 +61,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Own dependency checks and runtime discovery.
 - Preserve `.context/` as the project brain.
 - Carry every existing Vazir extension command and workflow into the product without feature exclusions.
+- Keep auxiliary developer tooling such as Herdr outside the default production bundle while preserving the core Vazir functionality.
 - Acceptance command set: `/vazir-init`, `/plan`, `/story`, `/implement`, `/fix`, `/idea`, `/complete-story`, `/review`, `/remember`, `/memory-review`, `/unlearn`, `/consolidate`, `/design`, `/vcs-settings`, `/vcs-mirror-sync`, `/diff`, `/edits`, `/checkpoint`, `/reset`, and `/vazir-live-reload-apply`.
 - Add fresh-install, upgrade, uninstall, and macOS/Linux smoke tests, including Windows WSL2 usage guidance.
 
@@ -88,9 +90,8 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. Should Herdr remain a bundled product skill or become optional?
-2. What security and permission model should the standalone CLI enforce?
-3. What Vazir/Pi/.context version compatibility policy should be guaranteed?
+1. What security and permission model should the standalone CLI enforce?
+2. What Vazir/Pi/.context version compatibility policy should be guaranteed?
 
 The command parity decision is settled: preserve all current commands and workflows.
 
