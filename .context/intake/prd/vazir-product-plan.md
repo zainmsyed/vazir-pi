@@ -29,6 +29,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Uninstall must preserve repository `.context/` by default because portability of the project brain is a core Vazir goal.
 - Uninstall may remove the Vazir binary and its cached runtime/package data, but must preserve Pi credentials, settings, sessions, and models unless explicitly requested otherwise.
 - A desktop GUI is deferred; the current product scope is the full-featured CLI/runtime only.
+- Decisions about native GUI panels versus existing Pi/Vazir commands are deferred until the CLI is complete.
 - The first standalone binary targets macOS and Linux.
 - Windows support for the initial release is through WSL2; native Windows packaging is deferred.
 
@@ -70,8 +71,7 @@ Vazir will become its own product and user-facing application, built on top of t
 ## Decisions still needed
 
 1. What is the minimum CLI MVP beyond launching Pi and running `/vazir-init`?
-2. Which Vazir features must be native GUI panels versus existing Pi commands/overlays?
-3. What licensing and third-party distribution requirements apply to Pi, Node, and the chosen desktop framework?
+2. What licensing and third-party distribution requirements apply to Pi, Node, and the chosen binary packaging tools?
 
 ## Planning notes
 
