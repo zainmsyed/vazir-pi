@@ -13,6 +13,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Keep Pi as the agent/runtime foundation rather than reimplementing the agent loop.
 - The CLI should explicitly load and verify Vazir extensions, not rely only on package discovery.
 - The CLI must provide full parity with everything the current Vazir extensions can do; there are no intentionally excluded commands, workflows, lifecycle behaviors, persistence paths, VCS flows, checkpoint operations, reviews, or UI/status behaviors.
+- Preserve every current command, including the internal `/vazir-live-reload-apply` command; command removal or production filtering is not part of the CLI plan.
 - Before public binary distribution, perform a license audit for Pi, Node, and all packaging/runtime components; preserve required notices and publish third-party acknowledgements.
 - The initial installer must check Node.js and npm before installing anything.
 - Required Node.js version: **22.19 or newer**.
@@ -50,6 +51,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Own dependency checks and runtime discovery.
 - Preserve `.context/` as the project brain.
 - Carry every existing Vazir extension command and workflow into the product without feature exclusions.
+- Acceptance command set: `/vazir-init`, `/plan`, `/story`, `/implement`, `/fix`, `/idea`, `/complete-story`, `/review`, `/remember`, `/memory-review`, `/unlearn`, `/consolidate`, `/design`, `/vcs-settings`, `/vcs-mirror-sync`, `/diff`, `/edits`, `/checkpoint`, `/reset`, and `/vazir-live-reload-apply`.
 - Add fresh-install, upgrade, uninstall, and macOS/Linux smoke tests, including Windows WSL2 usage guidance.
 
 ### Phase 3 — Distribution
@@ -72,7 +74,17 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-- No product-direction decisions remain from the current planning pass. The next step is to turn the full-parity CLI requirement into an implementation backlog and acceptance checklist.
+1. What binary packaging tool and architecture matrix should the first release use?
+2. What signing, checksum, update, and rollback mechanism should stable releases use?
+3. What existing-user migration behavior is required for prior Pi/Vazir installs?
+4. What should the first-run onboarding and `vazir doctor` experience do?
+5. What privacy/telemetry policy should apply?
+6. What should `vazir support-bundle` collect and redact?
+7. Should Herdr remain a bundled product skill or become optional?
+8. What security and permission model should the standalone CLI enforce?
+9. What Vazir/Pi/.context version compatibility policy should be guaranteed?
+
+The command parity decision is settled: preserve all current commands and workflows.
 
 ## Planning notes
 
