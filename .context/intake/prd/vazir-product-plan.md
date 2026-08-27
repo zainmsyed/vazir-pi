@@ -33,6 +33,8 @@ Vazir will become its own product and user-facing application, built on top of t
 - A desktop GUI is deferred; the current product scope is the full-featured CLI/runtime only.
 - Decisions about native GUI panels versus existing Pi/Vazir commands are deferred until the CLI is complete.
 - The first standalone binary targets macOS and Linux.
+- Required release targets are macOS Apple Silicon (`arm64`) and Linux x64 (`x86_64`).
+- macOS Intel (`x86_64`) is a best-effort target if the packaging tool and Pi dependencies support it.
 - Windows support for the initial release is through WSL2; native Windows packaging is deferred.
 
 ## Current proposed phases
@@ -56,7 +58,8 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ### Phase 3 — Distribution
 
-- Publish standalone macOS and Linux binaries as the primary stable distribution.
+- Publish standalone macOS Apple Silicon and Linux x64 binaries as the required primary stable distribution.
+- Produce a macOS Intel binary when technically supported.
 - Keep an npm-based CLI available as an optional developer/contributor install path.
 - Pin a compatible Pi version.
 - Add a stable release channel with manual updates by default.
