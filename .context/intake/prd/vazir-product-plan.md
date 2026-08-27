@@ -26,6 +26,8 @@ Vazir will become its own product and user-facing application, built on top of t
 - Vazir should reuse Pi’s existing credentials, settings, model configuration, sessions, and runtime behavior wherever possible rather than creating parallel systems.
 - The CLI should integrate with Pi directly through its TypeScript SDK and `InteractiveMode`, rather than primarily launching Pi through RPC.
 - Vazir-specific persistent project state remains in `.context/`; only genuinely product-specific global state should be added if required.
+- Uninstall must preserve repository `.context/` by default because portability of the project brain is a core Vazir goal.
+- Uninstall may remove the Vazir binary and its cached runtime/package data, but must preserve Pi credentials, settings, sessions, and models unless explicitly requested otherwise.
 - A desktop GUI is deferred; the current product scope is the full-featured CLI/runtime only.
 - The first standalone binary targets macOS and Linux.
 - Windows support for the initial release is through WSL2; native Windows packaging is deferred.
@@ -55,6 +57,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Add a stable release channel with manual updates by default.
 - Distribute stable binaries and update metadata through GitHub Releases.
 - Add atomic updates and rollback.
+- Define uninstall as runtime/cache removal while preserving `.context/` and reused Pi state by default.
 - Defer a preview channel until user demand justifies maintaining it.
 - Later produce native installers that bundle Node.
 
@@ -67,9 +70,8 @@ Vazir will become its own product and user-facing application, built on top of t
 ## Decisions still needed
 
 1. What is the minimum CLI MVP beyond launching Pi and running `/vazir-init`?
-2. What is the complete uninstall and migration contract?
-3. Which Vazir features must be native GUI panels versus existing Pi commands/overlays?
-4. What licensing and third-party distribution requirements apply to Pi, Node, and the chosen desktop framework?
+2. Which Vazir features must be native GUI panels versus existing Pi commands/overlays?
+3. What licensing and third-party distribution requirements apply to Pi, Node, and the chosen desktop framework?
 
 ## Planning notes
 
