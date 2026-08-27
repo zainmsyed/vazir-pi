@@ -13,6 +13,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Keep Pi as the agent/runtime foundation rather than reimplementing the agent loop.
 - The CLI should explicitly load and verify Vazir extensions, not rely only on package discovery.
 - The CLI must provide full parity with everything the current Vazir extensions can do; there are no intentionally excluded commands, workflows, lifecycle behaviors, persistence paths, VCS flows, checkpoint operations, reviews, or UI/status behaviors.
+- Preserve all core Vazir extension security protections exactly: project trust, protected VCS metadata, explicit destructive-action approval, no silent `sudo`, no automatic commits/pushes/resets/deletes, and secret-safe diagnostics.
 - Preserve every current command, including the internal `/vazir-live-reload-apply` command; command removal or production filtering is not part of the CLI plan.
 - Before public binary distribution, perform a license audit for Pi, Node, and all packaging/runtime components; preserve required notices and publish third-party acknowledgements.
 - Telemetry is strictly opt-in and disabled by default; Vazir must not transmit project contents, prompts, credentials, `.context/` data, or secrets.
@@ -61,7 +62,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Own dependency checks and runtime discovery.
 - Preserve `.context/` as the project brain.
 - Carry every existing Vazir extension command and workflow into the product without feature exclusions.
-- Keep auxiliary developer tooling such as Herdr outside the default production bundle while preserving the core Vazir functionality.
+- Keep auxiliary developer tooling such as Herdr outside the default production bundle while preserving the core Vazir functionality and security behavior.
 - Acceptance command set: `/vazir-init`, `/plan`, `/story`, `/implement`, `/fix`, `/idea`, `/complete-story`, `/review`, `/remember`, `/memory-review`, `/unlearn`, `/consolidate`, `/design`, `/vcs-settings`, `/vcs-mirror-sync`, `/diff`, `/edits`, `/checkpoint`, `/reset`, and `/vazir-live-reload-apply`.
 - Add fresh-install, upgrade, uninstall, and macOS/Linux smoke tests, including Windows WSL2 usage guidance.
 
@@ -90,8 +91,7 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. What security and permission model should the standalone CLI enforce?
-2. What Vazir/Pi/.context version compatibility policy should be guaranteed?
+1. What Vazir/Pi/.context version compatibility policy should be guaranteed?
 
 The command parity decision is settled: preserve all current commands and workflows.
 
