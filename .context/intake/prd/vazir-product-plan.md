@@ -41,6 +41,8 @@ Vazir will become its own product and user-facing application, built on top of t
 - Uninstall must preserve repository `.context/` by default because portability of the project brain is a core Vazir goal.
 - Uninstall may remove the Vazir binary and its cached runtime/package data, but must preserve Pi credentials, settings, sessions, and models unless explicitly requested otherwise.
 - Existing Pi/Vazir installations must be detected and migrated non-destructively: reuse existing credentials, settings, models, sessions, and `.context/` without replacing old executables or deleting prior state automatically.
+- Preserve the existing Pi package ecosystem so users can continue using compatible third-party extensions, skills, prompts, and themes alongside Vazir.
+- Load core Vazir resources independently from third-party packages; report incompatible package failures without silently disabling, removing, or modifying those packages.
 - A desktop GUI is deferred; the current product scope is the full-featured CLI/runtime only.
 - Herdr is optional and developer-only; it is not bundled in the default production Vazir installation. The core Vazir skill remains bundled.
 - Decisions about native GUI panels versus existing Pi/Vazir commands are deferred until the CLI is complete.
@@ -69,6 +71,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Own dependency checks and runtime discovery.
 - Preserve `.context/` as the project brain.
 - Carry every existing Vazir extension command and workflow into the product without feature exclusions.
+- Preserve and test compatibility with the existing Pi resource ecosystem while isolating failures from core Vazir loading.
 - Keep auxiliary developer tooling such as Herdr outside the default production bundle while preserving the core Vazir functionality and security behavior.
 - Acceptance command set: `/vazir-init`, `/plan`, `/story`, `/implement`, `/fix`, `/idea`, `/complete-story`, `/review`, `/remember`, `/memory-review`, `/unlearn`, `/consolidate`, `/design`, `/vcs-settings`, `/vcs-mirror-sync`, `/diff`, `/edits`, `/checkpoint`, `/reset`, and `/vazir-live-reload-apply`.
 - Add fresh-install, upgrade, uninstall, and macOS/Linux smoke tests, including Windows WSL2 usage guidance.
@@ -99,8 +102,7 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. How should third-party Pi packages and extension load failures be isolated?
-2. What `.context/` schema versioning, locking, backup, and downgrade behavior is required?
+1. What `.context/` schema versioning, locking, backup, and downgrade behavior is required?
 
 The command parity, security, distribution, migration, privacy, compatibility, and Node-bundling decisions are settled for the current planning pass.
 
