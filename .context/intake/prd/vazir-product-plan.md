@@ -24,7 +24,8 @@ Vazir will become its own product and user-facing application, built on top of t
 - Pi updates should flow through a tested stable channel with rollback support; a preview channel can be added later if demand justifies it.
 - The primary user-facing CLI should be distributed as a standalone binary with Node bundled or otherwise hidden from the user.
 - An npm package may remain available as a developer/contributor install path, but it is not the primary onboarding path.
-- Stable Vazir binaries, checksums, signatures, and release notes should be distributed through GitHub Releases initially.
+- Stable Vazir binaries, SHA-256 checksums, cryptographic signatures, and release notes should be distributed through GitHub Releases initially.
+- The updater must verify both checksums and signatures before installing an artifact.
 - Vazir should reuse Pi’s existing credentials, settings, model configuration, sessions, and runtime behavior wherever possible rather than creating parallel systems.
 - The CLI should integrate with Pi directly through its TypeScript SDK and `InteractiveMode`, rather than primarily launching Pi through RPC.
 - Vazir-specific persistent project state remains in `.context/`; only genuinely product-specific global state should be added if required.
@@ -66,6 +67,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Add a stable release channel with manual updates by default.
 - Distribute stable binaries and update metadata through GitHub Releases.
 - Add atomic updates and rollback.
+- Verify binary checksums and signatures before activation.
 - Define uninstall as runtime/cache removal while preserving `.context/` and reused Pi state by default.
 - Defer a preview channel until user demand justifies maintaining it.
 - Later produce native installers that bundle Node.
@@ -78,14 +80,13 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. What signing, checksum, update, and rollback mechanism should stable releases use?
-2. What existing-user migration behavior is required for prior Pi/Vazir installs?
-3. What should the first-run onboarding and `vazir doctor` experience do?
-4. What privacy/telemetry policy should apply?
-5. What should `vazir support-bundle` collect and redact?
-6. Should Herdr remain a bundled product skill or become optional?
-7. What security and permission model should the standalone CLI enforce?
-8. What Vazir/Pi/.context version compatibility policy should be guaranteed?
+1. What existing-user migration behavior is required for prior Pi/Vazir installs?
+2. What should the first-run onboarding and `vazir doctor` experience do?
+3. What privacy/telemetry policy should apply?
+4. What should `vazir support-bundle` collect and redact?
+5. Should Herdr remain a bundled product skill or become optional?
+6. What security and permission model should the standalone CLI enforce?
+7. What Vazir/Pi/.context version compatibility policy should be guaranteed?
 
 The command parity decision is settled: preserve all current commands and workflows.
 
