@@ -20,6 +20,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - If Node is missing or too old, stop the installation, print copy/paste platform-appropriate commands, and tell the user to rerun the installer.
 - Do not silently install Node, run `sudo`, or continue with a partial installation.
 - `vazir doctor` should diagnose Node, Pi/runtime, extension loading, authentication, PATH, project trust, and VCS availability.
+- First-run onboarding should run the doctor checks, explain findings, ask before initializing `.context/` or VCS metadata, and use lightweight polished Vazir presentation without delaying core functionality.
 - Pi should be pinned and tested per Vazir release rather than updated blindly at runtime.
 - Pi updates should flow through a tested stable channel with rollback support; a preview channel can be added later if demand justifies it.
 - The primary user-facing CLI should be distributed as a standalone binary with Node bundled or otherwise hidden from the user.
@@ -49,6 +50,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - Load Vazir extensions explicitly.
 - Verify command registration and footer support.
 - Report extension-load errors clearly.
+- Include a polished but terminal-safe onboarding presentation: branded header, step indicators, pass/warn/fail states, and copy/paste remediation commands.
 
 ### Phase 2 — Reliable CLI
 
@@ -82,12 +84,11 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. What should the first-run onboarding and `vazir doctor` experience do?
-2. What privacy/telemetry policy should apply?
-3. What should `vazir support-bundle` collect and redact?
-4. Should Herdr remain a bundled product skill or become optional?
-5. What security and permission model should the standalone CLI enforce?
-6. What Vazir/Pi/.context version compatibility policy should be guaranteed?
+1. What privacy/telemetry policy should apply?
+2. What should `vazir support-bundle` collect and redact?
+3. Should Herdr remain a bundled product skill or become optional?
+4. What security and permission model should the standalone CLI enforce?
+5. What Vazir/Pi/.context version compatibility policy should be guaranteed?
 
 The command parity decision is settled: preserve all current commands and workflows.
 
