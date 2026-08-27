@@ -1,7 +1,7 @@
 # Vazir Product Plan
 
 **Status:** Draft — living planning document
-**Last updated:** 2026-08-18
+**Last updated:** 2026-08-27
 
 ## Product direction
 
@@ -19,7 +19,8 @@ Vazir will become its own product and user-facing application, built on top of t
 - `vazir doctor` should diagnose Node, Pi/runtime, extension loading, authentication, PATH, project trust, and VCS availability.
 - Pi should be pinned and tested per Vazir release rather than updated blindly at runtime.
 - Pi updates should flow through tested stable/preview channels with rollback support.
-- A bundled-Node/native installer is a later goal for the polished release; the first CLI can use guided Node setup.
+- The primary user-facing CLI should be distributed as a standalone binary with Node bundled or otherwise hidden from the user.
+- An npm package may remain available as a developer/contributor install path, but it is not the primary onboarding path.
 - A desktop GUI is a later layer over the CLI/runtime foundation, not the first implementation.
 
 ## Current proposed phases
@@ -55,8 +56,7 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. Should the first CLI be published as an npm package, a standalone binary, or both?
-2. Should Vazir reuse Pi’s existing credentials/settings, or migrate them into a Vazir-owned configuration directory?
+1. Should Vazir reuse Pi’s existing credentials/settings, or migrate them into a Vazir-owned configuration directory?
 3. Which Pi SDK integration should the CLI use: direct `AgentSession`/`InteractiveMode`, or a controlled Pi RPC subprocess?
 4. What is the minimum CLI MVP beyond launching Pi and running `/vazir-init`?
 5. Which platforms are required for the first release: macOS only, macOS/Linux, or all three major desktop platforms?
