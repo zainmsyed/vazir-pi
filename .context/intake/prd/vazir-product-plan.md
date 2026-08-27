@@ -35,6 +35,7 @@ Vazir will become its own product and user-facing application, built on top of t
 - The updater must verify both checksums and signatures before installing an artifact.
 - Vazir should reuse Pi’s existing credentials, settings, model configuration, sessions, and runtime behavior wherever possible rather than creating parallel systems.
 - The CLI should integrate with Pi directly through its TypeScript SDK and `InteractiveMode`, rather than primarily launching Pi through RPC.
+- Vazir must preserve Pi’s full compatible CLI command and option surface, including model/provider selection, session continuation/resume, named sessions, print mode, and other existing flags.
 - Vazir-specific persistent project state remains in `.context/`; only genuinely product-specific global state should be added if required.
 - Uninstall must preserve repository `.context/` by default because portability of the project brain is a core Vazir goal.
 - Uninstall may remove the Vazir binary and its cached runtime/package data, but must preserve Pi credentials, settings, sessions, and models unless explicitly requested otherwise.
@@ -54,7 +55,7 @@ Vazir will become its own product and user-facing application, built on top of t
 ### Phase 1 — CLI/runtime spike
 
 - Create the `vazir` executable.
-- Start Pi through its SDK or a controlled runtime entrypoint.
+- Start Pi through its SDK or a controlled runtime entrypoint while preserving Pi’s full compatible CLI behavior.
 - Load Vazir extensions explicitly.
 - Support `--dev` loading from editable Vazir sources for live reload.
 - Verify command registration and footer support.
@@ -96,10 +97,9 @@ Vazir will become its own product and user-facing application, built on top of t
 
 ## Decisions still needed
 
-1. Should the standalone CLI support Pi’s full command-line argument surface and forward compatible flags?
-2. What binary installation locations and platform-specific packaging formats should be used?
-3. How should third-party Pi packages and extension load failures be isolated?
-4. What `.context/` schema versioning, locking, backup, and downgrade behavior is required?
+1. What binary installation locations and platform-specific packaging formats should be used?
+2. How should third-party Pi packages and extension load failures be isolated?
+3. What `.context/` schema versioning, locking, backup, and downgrade behavior is required?
 
 The command parity, security, distribution, migration, privacy, compatibility, and Node-bundling decisions are settled for the current planning pass.
 
