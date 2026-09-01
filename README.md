@@ -59,8 +59,12 @@ npm --version
 
 **Step 1 — Install pi:**
 ```bash
-npm install -g @earendil-works/pi-coding-agent
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 ```
+
+`--ignore-scripts` disables dependency lifecycle scripts during install; pi does not require them for normal npm installs. See the official docs at https://pi.dev/docs/latest.
+
+> **Windows:** pi uses Git Bash by default. Install [Git for Windows](https://git-scm.com/download/win) if you do not already have it.
 
 **Step 2 — Install Vazir:**
 ```bash

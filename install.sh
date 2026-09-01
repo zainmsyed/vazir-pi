@@ -28,7 +28,7 @@ fi
 echo "==> Installing the supported pi-coding-agent..."
 # Always reconcile pi. Reusing an unrelated or older `pi` executable can load
 # Vazir skills while failing to load the extensions that register its commands.
-npm install -g "$PI_PACKAGE@latest"
+npm install -g --ignore-scripts "$PI_PACKAGE@latest"
 
 NPM_PREFIX=$(npm prefix -g)
 PI_BIN="$NPM_PREFIX/bin/pi"
