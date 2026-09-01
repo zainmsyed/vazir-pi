@@ -6,63 +6,74 @@ Vazir is a set of extensions, skills, and workspace conventions that add persist
 
 Vazir is a set of extensions for **pi-coding-agent**, which is distributed as an npm package. You need Node.js **22.19 or newer** (including npm) installed first.
 
+**Recommended:** install Node.js **v22.23.1**, which is the verified working version.
+
 ### Install Node.js
 
-**macOS**
+**macOS (Homebrew)**
 ```bash
-# Homebrew
-brew install node
-
-# Or download the LTS installer from https://nodejs.org/
+brew install node@22
+# Then link v22.23.1 if Homebrew installs a newer release.
+# Check with:
+node --version
 ```
 
-**Linux**
+**Linux (NodeSource)**
 ```bash
 # Debian / Ubuntu
-sudo apt update && sudo apt install -y nodejs npm
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
 
-# Fedora
-sudo dnf install -y nodejs npm
+# Fedora / RHEL
+curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash -
+sudo dnf install -y nodejs
 
-# Or download the LTS installer from https://nodejs.org/
+# Then verify:
+node --version
 ```
 
-**Windows**
+**Windows (winget)**
 ```powershell
-# Download the LTS installer from https://nodejs.org/
-# Or use winget
-winget install OpenJS.NodeJS
+winget install OpenJS.NodeJS --version 22.23.1
+node --version
+```
+
+**Any OS (nvm)**
+```bash
+# Install nvm first: https://github.com/nvm-sh/nvm#installing-and-updating
+nvm install 22.23.1
+nvm use 22.23.1
+nvm alias default 22.23.1
+node --version
 ```
 
 Verify installation:
 ```bash
-node --version
+node --version   # should be v22.23.1 (or newer v22.x)
 npm --version
 ```
 
 ## Install Vazir
 
-### macOS / Linux
+### macOS / Linux / Windows
 
-**One-line installer:**
-```bash
-curl -fsSL https://github.com/zainmsyed/vazir-pi/raw/main/install.sh | bash
-```
-
-**Or manually:**
+**Step 1 — Install pi:**
 ```bash
 npm install -g @earendil-works/pi-coding-agent
+```
+
+**Step 2 — Install Vazir:**
+```bash
 pi install git:github.com/zainmsyed/vazir-pi
 ```
 
-### Windows
-
-```powershell
-npm install -g @earendil-works/pi-coding-agent
-pi install git:github.com/zainmsyed/vazir-pi
+Verify Vazir is installed:
+```bash
+pi list
+# Should include: git:github.com/zainmsyed/vazir-pi
 ```
 
-> **Tip:** If you have Git Bash or WSL on Windows, the macOS/Linux curl one-liner works there too.
+> **Tip:** If the skill loads but `/vazir-init` is missing, close pi, rerun `pi install`, and start a new pi session. Check `pi list` includes `git:github.com/zainmsyed/vazir-pi`. If your shell resolves `pi` to a different executable, put the npm global `bin` directory first in `PATH`.
 
 Then, in any project where you want to use Vazir, start pi and initialize the local brain **inside pi**:
 
@@ -74,8 +85,6 @@ pi
 ```text
 /vazir-init
 ```
-
-If the skill loads but `/vazir-init` is missing, close pi, rerun the installer, and start a new pi session. Check `pi list` includes `git:github.com/zainmsyed/vazir-pi`. If the installer warns that your shell resolves `pi` to a different executable, put the reported npm global `bin` directory first in `PATH`.
 
 ## Quickstart Workflow
 

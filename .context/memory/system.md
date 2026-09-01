@@ -10,6 +10,7 @@
 - If Vazir blocks a destructive VCS action, wait for the user to send the exact `VCS_APPROVE <token>` phrase before retrying that same action.
 
 ## Learned Rules
+- Shared test fixtures should live in one place and be imported where needed. <!-- source: story-083, story-084 -->
 ### From failures
 - Remove no-op registration hooks once the real behavior has migrated to the owning extension. <!-- source: story-020, story-022 --> <!-- confidence: low — no signal in last 5 stories -->
 - After extracting helpers to a new module, delete the original copies from the source module to prevent drift and confusion. <!-- source: story-022, story-020 --> <!-- confidence: low — no signal in last 5 stories -->
