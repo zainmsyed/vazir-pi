@@ -13,7 +13,14 @@
     "@earendil-works/pi-tui": "*"
   },
   "pi": {
-    "extensions": [".pi/extensions/*/index.ts", ".pi/extensions/*.ts"],
+    "extensions": [
+      ".pi/extensions/vazir-context/index.ts",
+      ".pi/extensions/vazir-review/index.ts",
+      ".pi/extensions/vazir-story/index.ts",
+      ".pi/extensions/vazir-tracker/index.ts",
+      ".pi/extensions/vazir-vcs/index.ts",
+      ".pi/extensions/vazir-live-reload.ts"
+    ],
     "skills": [".pi/skills"]
   }
 }
