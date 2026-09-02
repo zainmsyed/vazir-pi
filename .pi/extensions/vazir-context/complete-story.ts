@@ -15,7 +15,6 @@ import {
 } from "../../lib/vazir-helpers.ts";
 import {
   assessStoryCompletionReadiness,
-  appendFallowToComplaintsLog,
   buildLearnedRuleCloseoutInstruction,
   commitStoryCloseChanges,
   contextPersistenceStatus,
@@ -32,7 +31,6 @@ import {
   prepareReviewFileForCloseout,
   reviewFileHash,
   reviewsDir,
-  reviewFallowFindingsFromFile,
   reviewFindingsFromFile,
   reviewOtherFixesFromFile,
   reviewRecommendedFixesFromFile,
@@ -713,18 +711,6 @@ export function buildReviewRemediationInstruction(
   ].join("\n");
 }
 
-export function recordCompletedReviewFallowFindings(cwd: string, reviewFilePath: string, fallbackStoryLabel = ""): void {
-  const reviewFrontmatter = parseReviewFrontmatter(reviewFilePath);
-  if (reviewFrontmatter?.status !== "complete") return;
-
-  const storyLabel = reviewFrontmatter.story !== "—" ? reviewFrontmatter.story : fallbackStoryLabel;
-  if (!storyLabel || storyLabel === "—") return;
-
-  const fallowFindings = reviewFallowFindingsFromFile(reviewFilePath);
-  if (fallowFindings.length === 0) return;
-  appendFallowToComplaintsLog(cwd, storyLabel, fallowFindings);
-}
-
 export function completeStoryNow(
   pendingRequests: Map<string, PendingCompleteStoryRequest>,
   ctx: any,
@@ -1149,7 +1135,6 @@ async function processCompleteStoryReviewCloseout(
 
   markCompleteStoryReviewCloseoutReady(pendingRequests, cwd, storyPath, reviewFilePath);
 
-  recordCompletedReviewFallowFindings(cwd, reviewFilePath, storyLabel);
   const findings = reviewFindingsFromFile(reviewFilePath);
   const recommendedFixes = reviewRecommendedFixesFromFile(reviewFilePath);
   const otherFixes = reviewOtherFixesFromFile(reviewFilePath);

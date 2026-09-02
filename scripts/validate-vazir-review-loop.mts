@@ -235,7 +235,8 @@ const createdReview = fs.readFileSync(createdReviewPath, "utf-8");
 assert(createdReview.includes("**Status:** in-progress"), "new review files should start in-progress");
 assert(createdReview.includes("**Scope:** story"), "story-scoped reviews should record their scope");
 assert(createdReview.includes("**Story:** story-003"), "new review files should reference the selected story");
-assert(createdReview.includes("**Static analysis:** not run (fallow unavailable)"), "new review files should record when Fallow is unavailable");
+assert(!createdReview.includes("Static analysis"), "new review files should not include a static-analysis field");
+assert(!createdReview.includes("Fallow"), "new review files should not include Fallow sections");
 assert(createdReview.includes("## Checklist"), "new review files should include a checklist section");
 assert(createdReview.includes("Check for dead code, duplication, and simplification opportunities"), "new review files should include simplification and dead-code checks");
 assert(createdReview.includes("## Recommended Fixes"), "new review files should include a recommended-fixes checklist section");
@@ -245,8 +246,8 @@ assert(
   "review follow-up should instruct the agent to keep the review file updated",
 );
 assert(
-  !harness.sentMessages[0].message.includes("## Static Analysis Findings (Fallow)"),
-  "review follow-up should stay LLM-only when Fallow is unavailable",
+  !harness.sentMessages[0].message.includes("## Static Analysis Findings"),
+  "review follow-up should stay LLM-only",
 );
 
 fs.writeFileSync(
@@ -604,7 +605,6 @@ async function runMalformedReviewScenarios(): Promise<void> {
   assert(/\*\*Trigger:\*\*/.test(repaired), "repair should add Trigger frontmatter");
   assert(repaired.includes("## Goal"), "repair should add Goal section");
   assert(repaired.includes("## Checklist"), "repair should add Checklist section");
-  assert(repaired.includes("## Fallow Findings"), "repair should add Fallow Findings section");
   assert(repaired.includes("## Other Fixes"), "repair should add Other Fixes section");
   assert(repaired.includes("## Completion Summary"), "repair should add Completion Summary section");
   assert(repaired.includes("preserved finding"), "repair should preserve existing findings");
@@ -895,6 +895,81 @@ async function runMalformedReviewScenarios(): Promise<void> {
 }
 
 await runMalformedReviewScenarios();
+
+async function runLegacyFallowReviewScenario(): Promise<void> {
+  // Historical (Fallow-era) review files must still validate and survive repair
+  // without losing their recorded findings, even though new templates no longer
+  // emit the Static analysis frontmatter or the Fallow Findings section.
+  const legacyCwd = createProject("vazir-review-legacy-fallow-");
+  const legacyDir = path.join(legacyCwd, ".context", "reviews");
+  const legacyPath = path.join(legacyDir, "review-legacy-fallow.md");
+  fs.mkdirSync(legacyDir, { recursive: true });
+  fs.writeFileSync(
+    legacyPath,
+    [
+      "# Legacy Review",
+      "",
+      "**Status:** complete  ",
+      "**Created:** 2026-05-01T00:00:00Z  ",
+      "**Completed:** 2026-05-02T00:00:00Z  ",
+      "**Scope:** story  ",
+      "**Story:** story-001  ",
+      "**Static analysis:** pass (fallow)  ",
+      "**Focus:** legacy focus  ",
+      "**Trigger:** manual",
+      "",
+      "---",
+      "",
+      "## Goal",
+      "Legacy goal.",
+      "",
+      "## Checklist",
+      "- [x] Legacy task",
+      "",
+      "## Findings",
+      "### Finding 1",
+      "- Severity: medium",
+      "- Category: bug",
+      "- Summary: legacy recorded finding",
+      "- Evidence: legacy evidence",
+      "- Recommendation: legacy recommendation",
+      "- Rule candidate: —",
+      "",
+      "## Fallow Findings",
+      "- [fallow] unused-export: src/legacy.ts:1 / never imported",
+      "",
+      "## Recommended Fixes",
+      "- [x] medium — legacy fix item",
+      "",
+      "## Other Fixes",
+      "- [x] none",
+      "",
+      "## Completion Summary",
+      "Legacy summary.",
+      "",
+    ].join("\n"),
+  );
+
+  const validation = helperModule.validateReviewDocument(legacyPath);
+  assert(validation.valid, "legacy Fallow-era review should still pass validation");
+
+  const repair = helperModule.repairReviewDocument(legacyPath);
+  assert(repair.ok, "legacy Fallow-era review should survive repair");
+
+  const repaired = fs.readFileSync(legacyPath, "utf-8");
+  assert(repaired.includes("legacy recorded finding"), "repair should preserve legacy findings");
+  assert(repaired.includes("## Fallow Findings"), "repair should preserve the historical Fallow Findings section");
+  assert(
+    repaired.includes("[fallow] unused-export: src/legacy.ts:1 / never imported"),
+    "repair should preserve recorded Fallow finding entries",
+  );
+  assert(repaired.includes("legacy fix item"), "repair should preserve legacy recommended fixes");
+
+  const revalidation = helperModule.validateReviewDocument(legacyPath);
+  assert(revalidation.valid, "repaired legacy review should still pass validation");
+}
+
+await runLegacyFallowReviewScenario();
 
 console.log("Review loop validation");
 console.log(`cwd: ${cwd}`);

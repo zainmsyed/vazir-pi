@@ -5,8 +5,8 @@ import { assert, loadFileModule, repoRoot } from "./lib/validation-harness.mts";
 
 const helpers = await loadFileModule<{
   createReviewDraft: (cwd: string, options: any) => any;
-  reviewFileTemplate: (created: string, scope: string, storyLabel: string, focus: string, trigger: string, staticAnalysis: string, isUiStory?: boolean, designSystemEmpty?: boolean, fallowFindings?: any[]) => string;
-  buildReviewInstruction: (review: any, staticAnalysisPrompt?: string, cwd?: string) => string;
+  reviewFileTemplate: (created: string, scope: string, storyLabel: string, focus: string, trigger: string, isUiStory?: boolean, designSystemEmpty?: boolean) => string;
+  buildReviewInstruction: (review: any, cwd?: string) => string;
 }>(path.join(repoRoot, ".pi", "extensions", "vazir-context", "helpers.ts"), "review-design");
 
 function createProject(prefix: string): string {
@@ -70,10 +70,10 @@ function writeDesignSystem(cwd: string, content: string): void {
 
 // ── reviewFileTemplate ─────────────────────────────────────────────────
 
-const nonUi = helpers.reviewFileTemplate("2026-05-05T12:00:00Z", "story", "story-001", "test", "manual", "pass", false, false, []);
+const nonUi = helpers.reviewFileTemplate("2026-05-05T12:00:00Z", "story", "story-001", "test", "manual", false, false);
 assert(!nonUi.includes("## Design Compliance"), "non-UI review template should not include Design Compliance");
 
-const ui = helpers.reviewFileTemplate("2026-05-05T12:00:00Z", "story", "story-001", "test", "manual", "pass", true, false, []);
+const ui = helpers.reviewFileTemplate("2026-05-05T12:00:00Z", "story", "story-001", "test", "manual", true, false);
 assert(ui.includes("## Design Compliance (UI stories only)"), "UI review template should include Design Compliance");
 assert(ui.includes("Colors reference design-system.md tokens"), "UI review template should include colors check");
 assert(ui.includes("Spacing follows the declared scale"), "UI review template should include spacing check");
@@ -81,7 +81,7 @@ assert(ui.includes("Typography uses declared families"), "UI review template sho
 assert(ui.includes("components.md was checked"), "UI review template should include components check");
 assert(!ui.includes("design compliance checks skipped"), "UI review with populated design system should not have skip note");
 
-const uiEmpty = helpers.reviewFileTemplate("2026-05-05T12:00:00Z", "story", "story-001", "test", "manual", "pass", true, true, []);
+const uiEmpty = helpers.reviewFileTemplate("2026-05-05T12:00:00Z", "story", "story-001", "test", "manual", true, true);
 assert(uiEmpty.includes("## Design Compliance (UI stories only)"), "UI empty review template should include Design Compliance");
 assert(uiEmpty.includes("`.context/design/design-system.md` is empty or incomplete"), "UI empty review template should have skip note");
 
@@ -122,19 +122,19 @@ console.log("reviewFileTemplate tests passed");
   const cwd = createProject("vazir-review-instr-");
 
   // Non-UI story
-  const nonUiInstr = helpers.buildReviewInstruction({ fileName: "review-001.md", scope: "story", storyLabel: "story-001", focus: "test", trigger: "manual" }, "", cwd);
+  const nonUiInstr = helpers.buildReviewInstruction({ fileName: "review-001.md", scope: "story", storyLabel: "story-001", focus: "test", trigger: "manual" }, cwd);
   assert(!nonUiInstr.includes("design-system.md tokens"), "buildReviewInstruction for non-UI should not mention design tokens");
 
   // UI story with empty design system
   writeStory(cwd, 2, "src/Card.tsx");
-  const uiEmptyInstr = helpers.buildReviewInstruction({ fileName: "review-002.md", scope: "story", storyLabel: "story-002", focus: "test", trigger: "manual" }, "", cwd);
+  const uiEmptyInstr = helpers.buildReviewInstruction({ fileName: "review-002.md", scope: "story", storyLabel: "story-002", focus: "test", trigger: "manual" }, cwd);
   assert(uiEmptyInstr.includes("design-system.md tokens"), "buildReviewInstruction for UI should mention design tokens");
   assert(uiEmptyInstr.includes("skip design compliance checks"), "buildReviewInstruction for UI with empty DS should mention skipping");
 
   // UI story with populated design system
   writeStory(cwd, 3, "src/Button.tsx");
   writeDesignSystem(cwd, "# Design System\n\n## Colours\n- Primary: #333\n");
-  const uiInstr = helpers.buildReviewInstruction({ fileName: "review-003.md", scope: "story", storyLabel: "story-003", focus: "test", trigger: "manual" }, "", cwd);
+  const uiInstr = helpers.buildReviewInstruction({ fileName: "review-003.md", scope: "story", storyLabel: "story-003", focus: "test", trigger: "manual" }, cwd);
   assert(uiInstr.includes("design-system.md tokens"), "buildReviewInstruction for UI with DS should mention design tokens");
   assert(!uiInstr.includes("skip design compliance checks"), "buildReviewInstruction for UI with populated DS should not mention skipping");
 

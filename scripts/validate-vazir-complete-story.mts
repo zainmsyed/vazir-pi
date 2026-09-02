@@ -550,10 +550,9 @@ async function runReviewGatedScenario() {
   assert(harness.sentInternalMessages[0].message.display === false, "review-gated complete-story should hide the internal review turn from the TUI");
 
   const reviewPath = path.join(reviewDir, reviewFiles[0]);
-  assert(
-    fs.readFileSync(reviewPath, "utf-8").includes("**Static analysis:** not run (fallow unavailable)"),
-    "review-gated complete-story should record when Fallow was not available",
-  );
+  const generatedReview = fs.readFileSync(reviewPath, "utf-8");
+  assert(!generatedReview.includes("Static analysis"), "LLM-only review should not include a static-analysis field");
+  assert(!generatedReview.includes("Fallow"), "LLM-only review should not include Fallow sections");
   writeCompletedReview(reviewPath);
   await harness.emit("turn_end", {}, ctx);
   await harness.emit("agent_end", {}, ctx);

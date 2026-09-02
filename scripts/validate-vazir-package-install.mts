@@ -5,9 +5,21 @@ import * as path from "node:path";
 import { assert, repoRoot } from "./lib/validation-harness.mts";
 
 const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+// Explicit entrypoint discovery (see "Fix Vazir extension discovery for hidden .pi paths"):
+// every real extension module under .pi/extensions must be listed in the manifest.
+const extensionsRoot = path.join(repoRoot, ".pi", "extensions");
+const expectedExtensions = fs
+  .readdirSync(extensionsRoot, { withFileTypes: true })
+  .flatMap(entry => {
+    if (entry.isDirectory()) return [`.pi/extensions/${entry.name}/index.ts`];
+    if (entry.isFile() && entry.name.endsWith(".ts")) return [`.pi/extensions/${entry.name}`];
+    return [];
+  });
 const extensionEntries: string[] = manifest.pi?.extensions ?? [];
-assert(extensionEntries.includes(".pi/extensions/*/index.ts"), "package manifest does not expose nested extension entrypoints");
-assert(extensionEntries.includes(".pi/extensions/*.ts"), "package manifest does not expose top-level extension entrypoints");
+assert(expectedExtensions.length > 0, "no extension entrypoints found under .pi/extensions");
+for (const entry of expectedExtensions) {
+  assert(extensionEntries.includes(entry), `package manifest does not expose extension entrypoint ${entry}`);
+}
 assert((manifest.pi?.skills ?? []).includes(".pi/skills"), "package manifest does not expose Vazir skills");
 assert(manifest.peerDependencies?.["@earendil-works/pi-coding-agent"] === "*", "supported pi runtime is missing from peerDependencies");
 assert(manifest.peerDependencies?.["@earendil-works/pi-tui"] === "*", "supported pi TUI runtime is missing from peerDependencies");

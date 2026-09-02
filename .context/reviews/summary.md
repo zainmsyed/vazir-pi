@@ -1,12 +1,13 @@
 # Review Summary
 
-**Last updated:** 2026-09-01T23:11:52Z
+**Last updated:** 2026-09-02T16:12:41Z
 
 ## Findings
 - Shared test fixtures should live in one place and be imported where needed. | count: 2 | status: promoted | sources: review-20260901-134651.md, review-20260901-143438.md | stories: story-083, story-084
 - A test matrix must execute and assert each scenario it declares; a label-only scenario list is not coverage. | count: 1 | status: tracked | sources: review-20260901-013022.md | stories: story-081
 - Activation should be commit-last: never delete the current active pointer or release until the replacement is durably ready. | count: 1 | status: tracked | sources: review-20260831-232433.md | stories: story-078
 - After extracting helpers to a new module, delete the original copies to prevent drift and confusion. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
+- After large extension refactors, confirm the running session has reloaded the code before triggering flows that generate files from templates. | count: 1 | status: tracked | sources: review-20260902-151652.md | stories: story-082
 - Atomic pointer updates must be restart-safe and clean their temporary pointer on every failure path. | count: 1 | status: tracked | sources: review-20260901-005921.md | stories: story-080
 - Cleanup must use the same configurable ownership path used by installation and must verify ownership before deletion. | count: 1 | status: tracked | sources: review-20260901-005921.md | stories: story-080
 - Detection is not migration; migration APIs must report concrete additive actions and skipped conflicts. | count: 1 | status: tracked | sources: review-20260901-005921.md | stories: story-080
@@ -39,5 +40,6 @@
 - When extracting lifecycle handlers into a new extension, remove the original registration to avoid duplicate event processing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When generating bounded cyclic candidates, normalize modulo results so negative starting offsets cannot escape the committed range. | count: 1 | status: tracked | sources: review-20260808-000002.md | stories: story-066
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
+- When removing a feature, remove its dedicated validations in the same change; dropping them only from the aggregate runner leaves broken, runnable-looking tests behind. | count: 1 | status: tracked | sources: review-20260902-151652.md | stories: story-082
 - When two release-validation paths perform the same filesystem operation, consolidate the operation in one shared helper and test the combined contract. | count: 1 | status: tracked | sources: review-20260901-130053.md
 - When validating numeric configuration ranges, test both accepted boundaries and representative invalid values just outside each boundary. | count: 1 | status: tracked | sources: review-20260808-002805.md | stories: story-067

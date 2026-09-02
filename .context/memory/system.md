@@ -10,8 +10,8 @@
 - If Vazir blocks a destructive VCS action, wait for the user to send the exact `VCS_APPROVE <token>` phrase before retrying that same action.
 
 ## Learned Rules
-- Shared test fixtures should live in one place and be imported where needed. <!-- source: story-083, story-084 -->
 ### From failures
+- Shared test fixtures should live in one place and be imported where needed. <!-- source: story-083, story-084 --> <!-- confidence: high -->
 - Remove no-op registration hooks once the real behavior has migrated to the owning extension. <!-- source: story-020, story-022 --> <!-- confidence: low — no signal in last 5 stories -->
 - After extracting helpers to a new module, delete the original copies from the source module to prevent drift and confusion. <!-- source: story-022, story-020 --> <!-- confidence: low — no signal in last 5 stories -->
 - The extension that owns a command's implementation should be the one that registers it with `pi.registerCommand`. <!-- source: story-022 --> <!-- confidence: low — no signal in last 5 stories -->
@@ -27,8 +27,8 @@
 - When adding a new instruction-driven signal source, validate at least one real downstream consumer path end-to-end instead of only checking prompt text <!-- source: story-006 --> <!-- confidence: low — no signal in last 5 stories -->
 - Tests that modify shared binaries or runtime dependencies must use isolated temporary copies rather than mutating the shared originals directly <!-- source: story-006 --> <!-- confidence: low — no signal in last 5 stories -->
 - When an instruction or review flow conditionally references a backend service, the fallback message must accurately reflect whether the service executed or was bypassed, and pre-populated findings must only appear when real results exist. <!-- source: story-006, story-023, story-058 --> <!-- confidence: low — no signal in last 5 stories -->
-- When Fallow cannot run or its audit scope cannot be resolved, report the explicit fallback and continue with an honest LLM-only review rather than silently presenting missing analysis. <!-- source: story-006 -->
-- When Fossil→Git mirror export is followed by publishing, use supported Fossil export arguments and perform the Git push separately; do not rely on an unsupported `--autopush` option. <!-- source: story-051 -->
+- When Fallow cannot run or its audit scope cannot be resolved, report the explicit fallback and continue with an honest LLM-only review rather than silently presenting missing analysis. <!-- source: story-006 --> <!-- confidence: low — no signal in last 5 stories -->
+- When Fossil→Git mirror export is followed by publishing, use supported Fossil export arguments and perform the Git push separately; do not rely on an unsupported `--autopush` option. <!-- source: story-051 --> <!-- confidence: low — no signal in last 5 stories -->
 - When a previously shipped feature regresses because shared helpers were later refactored, restore from the last known working commit instead of reimplementing from scratch. <!-- source: story-007 --> <!-- confidence: low — no signal in last 5 stories -->
 - When extracting a combined helper that merges multiple previously separate operations, add a direct unit test that exercises all constituent operations together, not just the end-to-end consumer. <!-- source: story-007 --> <!-- confidence: low — no signal in last 5 stories -->
 - Never run `fossil commit`, `git commit`, `jj commit`, or any VCS commit command unless the user explicitly asks for it with a phrase like "commit all" or "commit these changes". Do not auto-commit as part of routine file edits, story updates, or review writes. <!-- confidence: low — no signal in last 5 stories -->
@@ -95,13 +95,15 @@
 - When a multi-turn workflow uses a `suspended` flag to suppress automatic re-prompting, clear that flag on explicit command resume so a completed workflow can still be closed out without waiting for a file delta. <!-- source: story-064 --> <!-- confidence: low — no signal in last 5 stories -->
 - When removing a user-facing prompt or fallback, scan related notification text and update any wording that still promises the removed behavior, so users are not told the system will do something it no longer does. <!-- source: story-064 --> <!-- confidence: low — no signal in last 5 stories -->
 - When a settings reader has both parse-error and root-shape fallback branches, regression tests should exercise each malformed input class and verify the normalized defaults. <!-- source: story-065 --> <!-- confidence: low — no signal in last 5 stories -->
-- When generating bounded cyclic candidates, normalize modulo results or clamp out-of-range starts so fallback selection cannot escape the committed range. <!-- source: story-066 --> <!-- confidence: high -->
-- Regression tests for retry logic should force the initial attempt to fail and independently verify the recovery attempt. <!-- source: story-066 --> <!-- confidence: high -->
-- When validating numeric configuration ranges, test both accepted boundaries and representative invalid values just outside each boundary. <!-- source: story-067 --> <!-- confidence: high -->
+- When generating bounded cyclic candidates, normalize modulo results or clamp out-of-range starts so fallback selection cannot escape the committed range. <!-- source: story-066 --> <!-- confidence: low — no signal in last 5 stories -->
+- Regression tests for retry logic should force the initial attempt to fail and independently verify the recovery attempt. <!-- source: story-066 --> <!-- confidence: low — no signal in last 5 stories -->
+- When validating numeric configuration ranges, test both accepted boundaries and representative invalid values just outside each boundary. <!-- source: story-067 --> <!-- confidence: low — no signal in last 5 stories -->
 - Optional external-tool validations should report explicit skips and be required separately in a tool-enabled validation environment. <!-- source: story-068 --> <!-- confidence: high -->
+- File watchers and change snapshots for dev-tool/extension reloaders must cover nested directories explicitly: fs.watch is non-recursive on Linux, so watch each subdirectory and walk the tree when snapshotting, or edits inside nested folders silently go undetected and sessions run stale code. <!-- source: story-082 --> <!-- confidence: high -->
+- When repairing or normalizing a structured document against a schema, preserve unrecognized sections and fields rather than rebuilding output from the known-key list only, because historical data outlives schema changes and silent drops destroy it. <!-- source: story-082 --> <!-- confidence: high -->
 ### From successes
-- When implementing bounded resource allocation, make reuse, conflict recovery, reassignment, and exhaustion behavior deterministic, and test each branch with isolated resources. <!-- source: story-066 -->
-- When layered configuration overrides are supported, define precedence explicitly and preserve the standard fallback path when an override is invalid or occupied. <!-- source: story-067 -->
+- When implementing bounded resource allocation, make reuse, conflict recovery, reassignment, and exhaustion behavior deterministic, and test each branch with isolated resources. <!-- source: story-066 --> <!-- confidence: low — no signal in last 5 stories -->
+- When layered configuration overrides are supported, define precedence explicitly and preserve the standard fallback path when an override is invalid or occupied. <!-- source: story-067 --> <!-- confidence: low — no signal in last 5 stories -->
 - When a closeout prompt aggregates work from multiple checklist sections, reuse the same aggregation helper in the action path so the selected work actually executes. <!-- source: story-020 --> <!-- confidence: low — no signal in last 5 stories -->
 - When redesigning a noisy restore workflow, layer curated user-facing choices on top of one exact restore helper so every entry point keeps the same semantics. <!-- source: story-029, story-030 --> <!-- confidence: low — no signal in last 5 stories -->
 - When scoping reveals a tangential but larger change, defer it to a dedicated follow-up story instead of bundling it into the current implementation. <!-- source: story-037 --> <!-- confidence: low — no signal in last 5 stories -->

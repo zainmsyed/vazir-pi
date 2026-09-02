@@ -23,7 +23,6 @@ type SelectCall = { prompt: string; options: string[] };
 type ToolPathOptions = {
   git?: boolean;
   fakeFossil?: boolean;
-  fakeNpmInstallForCwd?: string;
 };
 
 function createProject(prefix: string): string {
@@ -97,27 +96,6 @@ function createToolPath(options: ToolPathOptions): string {
     );
   }
 
-  if (options.fakeNpmInstallForCwd) {
-    const cwd = options.fakeNpmInstallForCwd;
-    const npmPath = path.join(binDir, "npm");
-    const fallowBinDir = path.join(cwd, "node_modules", ".bin");
-    const fallowBinPath = path.join(fallowBinDir, "fallow");
-    const argsLogPath = path.join(cwd, "npm-install-args.txt");
-
-    fs.writeFileSync(
-      npmPath,
-      [
-        "#!/bin/sh",
-        `printf '%s\n' \"$@\" > \"${argsLogPath}\"`,
-        `mkdir -p \"${fallowBinDir}\"`,
-        `touch \"${fallowBinPath}\"`,
-        "exit 0",
-        "",
-      ].join("\n"),
-      { mode: 0o755 },
-    );
-  }
-
   return `${binDir}:/usr/bin:/bin`;
 }
 
@@ -186,7 +164,6 @@ function assertCommonGitignoreBoilerplate(cwd: string): void {
   const gitignore = fs.readFileSync(path.join(cwd, ".gitignore"), "utf-8");
   for (const entry of [
     "node_modules/",
-    ".fallow/",
     ".local/",
     ".env",
     ".env.local",
@@ -210,7 +187,6 @@ function assertFossilIgnoreDefaults(cwd: string): void {
     "node_modules/",
     ".git/",
     ".jj/",
-    ".fallow/",
     ".env",
     ".env.*",
     "*.local",
@@ -248,7 +224,7 @@ async function runNoVcsGitChoiceScenario() {
   process.env.PATH = createToolPath({ git: true });
 
   try {
-    await command.handler("", makeCtx(cwd, ["Git/JJ", "No — skip Fallow"], notifications, selectCalls));
+    await command.handler("", makeCtx(cwd, ["Git/JJ"], notifications, selectCalls));
   } finally {
     process.env.PATH = originalPath;
   }
@@ -261,7 +237,7 @@ async function runNoVcsGitChoiceScenario() {
   assert(settings.active_vcs_mode === "git", "no-VCS git-choice did not write active_vcs_mode=git");
   assert(settings.vcs_preference === "git", "no-VCS git-choice did not write vcs_preference=git");
   assertCommonGitignoreBoilerplate(cwd);
-  assert(selectCalls.some(call => call.prompt.includes("Install Fallow")), "no-VCS git-choice did not prompt for optional Fallow install");
+  assert(selectCalls.every(call => !call.prompt.includes("Install Fallow")), "no-VCS git-choice should no longer prompt for Fallow install");
   assert(sentMessages.every(message => !message.includes("JJ is not installed")), "missing-JJ guidance should stay in notifications, not follow-up messages");
   return { cwd, summary, notifications, selectCalls };
 }
@@ -276,7 +252,7 @@ async function runGitOnlyScenario() {
   process.env.PATH = createToolPath({ git: true });
 
   try {
-    await command.handler("", makeCtx(cwd, ["No — keep Git only for now", "No — skip Fallow"], notifications, selectCalls));
+    await command.handler("", makeCtx(cwd, ["No — keep Git only for now"], notifications, selectCalls));
   } finally {
     process.env.PATH = originalPath;
   }
@@ -302,7 +278,7 @@ async function runFossilOnlyScenario() {
   process.env.PATH = createToolPath({ git: true, fakeFossil: true });
 
   try {
-    await command.handler("", makeCtx(cwd, ["No — skip Fallow"], notifications, selectCalls));
+    await command.handler("", makeCtx(cwd, [], notifications, selectCalls));
   } finally {
     process.env.PATH = originalPath;
   }
@@ -330,7 +306,7 @@ async function runBothPresentScenario() {
   process.env.PATH = createToolPath({ git: true, fakeFossil: true });
 
   try {
-    await command.handler("", makeCtx(cwd, ["Fossil", "No — skip Fallow"], notifications, selectCalls));
+    await command.handler("", makeCtx(cwd, ["Fossil"], notifications, selectCalls));
   } finally {
     process.env.PATH = originalPath;
   }
@@ -343,33 +319,6 @@ async function runBothPresentScenario() {
   assert(settings.active_vcs_mode === "fossil", "both-present flow did not persist the selected Fossil active mode");
   assert(settings.vcs_preference === "fossil", "both-present flow did not persist vcs_preference=fossil");
   return { cwd, summary, notifications, selectCalls };
-}
-
-async function runFallowInstallScenario() {
-  const cwd = createProject("vazir-init-fallow-install-");
-  const { command } = makePi();
-  const notifications: Notification[] = [];
-  const selectCalls: SelectCall[] = [];
-  const originalPath = process.env.PATH;
-  process.env.PATH = createToolPath({ git: true, fakeNpmInstallForCwd: cwd });
-
-  try {
-    await command.handler("", makeCtx(cwd, ["Git/JJ", "Yes — install Fallow"], notifications, selectCalls));
-  } finally {
-    process.env.PATH = originalPath;
-  }
-
-  assert(selectCalls.some(call => call.prompt.includes("Install Fallow")), "fallow install scenario did not show the install prompt");
-  const npmArgs = fs.readFileSync(path.join(cwd, "npm-install-args.txt"), "utf-8");
-  assert(npmArgs.includes("install"), "fallow install scenario did not invoke npm install");
-  assert(npmArgs.includes("-D"), "fallow install scenario did not request a devDependency install");
-  assert(npmArgs.includes("fallow"), "fallow install scenario did not invoke npm with the fallow package");
-  assert(
-    notifications.some(note => note.message.includes("Fallow installed for /review static analysis")),
-    "fallow install scenario did not report a successful install",
-  );
-
-  return { cwd, summary: getSummary(notifications), notifications, selectCalls };
 }
 
 async function runTrackerSettingsDrivenScenario() {
@@ -420,7 +369,6 @@ try {
   const gitOnly = await runGitOnlyScenario();
   const fossilOnly = await runFossilOnlyScenario();
   const bothPresent = await runBothPresentScenario();
-  const fallowInstall = await runFallowInstallScenario();
   const trackerSettingsDriven = await runTrackerSettingsDrivenScenario();
 
   function printScenario(title: string, result: { cwd: string; summary: string; notifications: Notification[]; selectCalls?: SelectCall[] }) {
@@ -445,7 +393,6 @@ try {
   printScenario("Git only", gitOnly);
   printScenario("Fossil only", fossilOnly);
   printScenario("Both present → Fossil active", bothPresent);
-  printScenario("Fallow install", fallowInstall);
 
   console.log("Tracker settings-driven resolution");
   console.log(`cwd: ${trackerSettingsDriven.cwd}`);
