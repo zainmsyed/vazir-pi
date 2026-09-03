@@ -109,6 +109,7 @@ Validates the story checklist and issues, checks completion readiness, and optio
 
 ## Common Next Steps
 
+- **`/help`** — Open the same interactive help experience as Pi's `Ctrl+?` shortcut.
 - **`/fix <description>`** — Log an issue to the active story and attempt a fix.
 - **`/idea [description]`** — Capture or browse ideas without interrupting the active story.
 - **`/review [scope]`** — Run a structured code review scoped to the active story or the whole codebase.
@@ -121,6 +122,7 @@ Validates the story checklist and issues, checks completion readiness, and optio
 
 | Command | Description |
 |---|---|
+| `/help` | Open the same interactive help experience as Pi's `Ctrl+?` shortcut |
 | `/vazir-init` | Bootstrap `.context` and seed the project brain |
 | `/plan [topic]` | Review intake, ask delta questions, and generate stories |
 | `/story [file]` | Pick a plan or story file and open it in a scrollable view |
@@ -140,7 +142,7 @@ Validates the story checklist and issues, checks completion readiness, and optio
 | `/checkpoint` | Pick a checkpoint to restore |
 | `/reset` | Alias for `/checkpoint` |
 
-Press **Ctrl+?** in pi for an interactive, searchable command list with full usage details plus a built-in Vazir quickstart and `.context/` guide.
+Press **Ctrl+?** or enter **`/help`** in pi for the same interactive, searchable command list with full usage details plus a built-in Vazir quickstart and `.context/` guide.
 
 ## Project Layout
 

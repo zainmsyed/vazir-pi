@@ -321,7 +321,7 @@ async function runScenario() {
   assert(footerLines[1]?.includes("↑2.1k ↓8.4k"), "footer did not include session token counts");
   assert(footerLines[1]?.includes("1.1%/200k"), "footer did not include context usage");
   assert(footerLines[1]?.includes("$0.002"), "footer did not include spend");
-  assert(footerLines[1]?.includes("Ctrl+? for help"), "footer did not include the idle help hint");
+  assert(footerLines[1]?.includes("Ctrl+? · /help"), "footer did not include the idle help hint");
 
   harness.setThinkingLevel("off");
   const toggledFooterLines = footerComponent.render(140).map(stripAnsi);
