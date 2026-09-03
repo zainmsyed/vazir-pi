@@ -123,8 +123,6 @@ export const PREVIEWABLE_TEXT_EXTENSIONS = new Set([
 export const GENERAL_APPROVALS = new Set(["yes", "y", "done", "approved", "looks good", "ship it"]);
 
 export type ReviewScope = "story" | "whole-codebase";
-export type FallowAuditIssue = { rule: string; location: string; summary: string };
-
 
 export type InitFileStatus = {
   label: string;
@@ -137,8 +135,6 @@ export interface ReviewDraft {
   scope: ReviewScope;
   storyLabel: string;
   trigger: string;
-  staticAnalysis: string;
-  fallowFindings: FallowAuditIssue[];
   fileName: string;
   filePath: string;
 }
@@ -158,11 +154,6 @@ export interface ReviewFindingSummary {
   severity: string;
   category: string;
   summary: string;
-}
-
-export interface ReviewFallowFinding {
-  key: string;
-  text: string;
 }
 
 export interface ReviewRecommendedFix {
@@ -1791,7 +1782,6 @@ const REQUIRED_REVIEW_SECTIONS = [
   "Goal",
   "Checklist",
   "Findings",
-  "Fallow Findings",
   "Recommended Fixes",
   "Other Fixes",
   "Completion Summary",
@@ -1863,7 +1853,6 @@ const REVIEW_FRONTMATTER_ORDER = [
   "Completed",
   "Scope",
   "Story",
-  "Static analysis",
   "Focus",
   "Trigger",
 ];
@@ -1872,7 +1861,6 @@ const REVIEW_SECTION_ORDER = [
   "Goal",
   "Checklist",
   "Findings",
-  "Fallow Findings",
   "Recommended Fixes",
   "Other Fixes",
   "Completion Summary",
@@ -1975,9 +1963,18 @@ function ensureReviewSectionsInOrder(content: string, placeholders: Map<string, 
     ? content.slice(0, firstSectionMatch.index)
     : content;
 
+  const knownHeadings = new Set<string>(REVIEW_SECTION_ORDER);
   const sectionBlocks: string[] = [];
   for (const heading of REVIEW_SECTION_ORDER) {
     const body = sectionContents.get(heading) ?? (placeholders.get(heading) ?? "");
+    sectionBlocks.push(`## ${heading}\n${body}`);
+  }
+
+  // Preserve non-standard sections that are not part of the current template
+  // order (e.g., legacy "Fallow Findings" in historical reviews) instead of
+  // silently dropping their contents during repair.
+  for (const [heading, body] of sectionContents) {
+    if (knownHeadings.has(heading)) continue;
     sectionBlocks.push(`## ${heading}\n${body}`);
   }
 
@@ -2022,7 +2019,6 @@ export function repairReviewDocument(filePath: string): { ok: boolean; repaired:
     ["Completed", "—"],
     ["Scope", "story"],
     ["Story", "—"],
-    ["Static analysis", "not run (fallow unavailable)"],
     ["Focus", "—"],
     ["Trigger", "—"],
   ]);
@@ -2032,7 +2028,6 @@ export function repairReviewDocument(filePath: string): { ok: boolean; repaired:
     ["Goal", "Review the requested scope for issues."],
     ["Checklist", "- [ ] Inspect the relevant diff and touched files"],
     ["Findings", "### Finding 1\n- Severity: medium\n- Category: bug\n- Summary: \n- Evidence: \n- Recommendation: \n- Rule candidate: —\n"],
-    ["Fallow Findings", "- No Fallow findings."],
     ["Recommended Fixes", "[Add one checklist item per finding using `- [ ] severity — action`.]"],
     ["Other Fixes", "[Add any additional follow-up tasks here.]"],
     ["Completion Summary", "[Summarize the review outcome.]"],
@@ -2190,124 +2185,6 @@ export function sanitizeComplaintsLogText(raw: string): string {
     .replace(/\|/g, "/")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-export function normalizeFallowFindingKey(raw: string): string {
-  return sanitizeComplaintsLogText(raw)
-    .replace(/^\[fallow\]\s*/i, "")
-    .toLowerCase();
-}
-
-export function reviewFallowFindingsFromFile(filePath: string): ReviewFallowFinding[] {
-  const content = readIfExists(filePath);
-  if (!content) return [];
-
-  const lines = content.split("\n");
-  const findings: ReviewFallowFinding[] = [];
-  const seen = new Set<string>();
-  let inSection = false;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (!inSection) {
-      if (trimmed === "## Fallow Findings") inSection = true;
-      continue;
-    }
-
-    if (trimmed.startsWith("## ") && trimmed !== "## Fallow Findings") break;
-    if (!trimmed.startsWith("- ")) continue;
-
-    const text = trimmed.slice(2).trim();
-    if (!text || /^none\.?$/i.test(text) || /^no fallow findings\.?$/i.test(text)) continue;
-    const key = normalizeFallowFindingKey(text);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    findings.push({ key, text });
-  }
-
-  return findings;
-}
-
-interface ComplaintsLogFallowEntry {
-  index: number;
-  line: string;
-  storyLabel: string;
-  key: string;
-  status: string;
-}
-
-function parseComplaintsLogFallowEntry(line: string, index: number): ComplaintsLogFallowEntry | null {
-  const match = line.match(/^([^|]+)\|\s*([^|]+)\|\s*\[fallow\]\s*(.+?)\s*\|\s*status:\s*([^|]+?)\s*$/i);
-  if (!match) return null;
-  return {
-    index,
-    line,
-    storyLabel: match[2].trim().toLowerCase(),
-    key: normalizeFallowFindingKey(match[3]),
-    status: match[4].trim().toLowerCase(),
-  };
-}
-
-export function countFallowOccurrences(cwd: string, findingKey: string): number {
-  const normalizedKey = normalizeFallowFindingKey(findingKey);
-  if (!normalizedKey) return 0;
-
-  const stories = new Set(
-    readIfExists(complaintsLogPath(cwd))
-      .split("\n")
-      .map((line, index) => parseComplaintsLogFallowEntry(line, index))
-      .filter((entry): entry is ComplaintsLogFallowEntry => entry !== null)
-      .filter(entry => entry.key === normalizedKey)
-      .map(entry => entry.storyLabel),
-  );
-  return stories.size;
-}
-
-export function appendFallowToComplaintsLog(cwd: string, storyLabel: string, fallowFindings: ReviewFallowFinding[]): boolean {
-  const normalizedStoryLabel = storyLabel.trim().toLowerCase();
-  if (!normalizedStoryLabel || normalizedStoryLabel === "—" || fallowFindings.length === 0) return false;
-
-  const logPath = complaintsLogPath(cwd);
-  fs.mkdirSync(path.dirname(logPath), { recursive: true });
-
-  const lines = readIfExists(logPath).split("\n");
-  const existingEntries = lines
-    .map((line, index) => parseComplaintsLogFallowEntry(line, index))
-    .filter((entry): entry is ComplaintsLogFallowEntry => entry !== null);
-  const uniqueFindings = new Map(fallowFindings.map(finding => [finding.key, finding]));
-  let changed = false;
-
-  for (const finding of uniqueFindings.values()) {
-    const alreadyTrackedForStory = existingEntries.some(entry => entry.storyLabel === normalizedStoryLabel && entry.key === finding.key);
-    if (!alreadyTrackedForStory) {
-      const nextCount = countFallowOccurrences(cwd, finding.key) + 1;
-      const nextStatus = nextCount >= 3 ? "promoted" : "noted";
-      const safeText = sanitizeComplaintsLogText(finding.text);
-      lines.push(`${nowISO()} | ${storyLabel} | [fallow] ${safeText} | status: ${nextStatus}`);
-      changed = true;
-    }
-  }
-
-  const refreshedEntries = lines
-    .map((line, index) => parseComplaintsLogFallowEntry(line, index))
-    .filter((entry): entry is ComplaintsLogFallowEntry => entry !== null);
-  for (const finding of uniqueFindings.values()) {
-    const occurrenceCount = new Set(
-      refreshedEntries.filter(entry => entry.key === finding.key).map(entry => entry.storyLabel),
-    ).size;
-    if (occurrenceCount < 3) continue;
-    for (const entry of refreshedEntries.filter(entry => entry.key === finding.key && entry.status !== "promoted")) {
-      lines[entry.index] = entry.line.replace(/status:\s*[^|]+$/i, "status: promoted");
-      changed = true;
-    }
-  }
-
-  if (!changed) return false;
-
-  const content = lines.filter((line, index, array) => !(index === array.length - 1 && line === "")).join("\n");
-  fs.writeFileSync(logPath, `${content}\n`);
-  return true;
 }
 
 export function formatReviewFindingSummary(finding: ReviewFindingSummary): string {
@@ -2811,7 +2688,7 @@ function designSystemHasGaps(content: string): boolean {
 
 export function createReviewDraft(
   cwd: string,
-  options: { focus: string; scope?: ReviewScope; storyLabel?: string; trigger?: string; staticAnalysis?: string; fallowFindings?: FallowAuditIssue[] },
+  options: { focus: string; scope?: ReviewScope; storyLabel?: string; trigger?: string },
 ): ReviewDraft {
   ensureReviewStructure(cwd);
 
@@ -2831,14 +2708,11 @@ export function createReviewDraft(
     suffix += 1;
   }
 
-  const staticAnalysis = options.staticAnalysis ?? "not run (fallow unavailable)";
-  const fallowFindings = options.fallowFindings ?? [];
-
   const storyFile = storyLabel !== "—" ? path.join(storiesDir(cwd), `${storyLabel}.md`) : "";
   const isUi = storyFile ? hasUiTypeOverride(storyFile) || isUiStory(storyFile) : false;
   const dsEmpty = isUi ? designSystemHasGaps(readIfExists(designSystemPath(cwd))) : false;
 
-  fs.writeFileSync(filePath, reviewFileTemplate(created, scope, storyLabel, options.focus, trigger, staticAnalysis, isUi, dsEmpty, fallowFindings));
+  fs.writeFileSync(filePath, reviewFileTemplate(created, scope, storyLabel, options.focus, trigger, isUi, dsEmpty));
 
   return {
     created,
@@ -2846,14 +2720,12 @@ export function createReviewDraft(
     scope,
     storyLabel,
     trigger,
-    staticAnalysis,
-    fallowFindings,
     fileName,
     filePath,
   };
 }
 
-export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt = "", cwd = ""): string {
+export function buildReviewInstruction(review: ReviewDraft, cwd = ""): string {
   const reviewScope = review.scope === "whole-codebase"
     ? "whole codebase"
     : review.storyLabel !== "—"
@@ -2874,7 +2746,6 @@ export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt
   }
 
   return [
-    ...(staticAnalysisPrompt ? [staticAnalysisPrompt, ""] : []),
     `Run a code review and write the results to .context/reviews/${review.fileName}.`,
     "",
     "Requirements:",
@@ -2888,11 +2759,10 @@ export function buildReviewInstruction(review: ReviewDraft, staticAnalysisPrompt
     "8. Do not change story status as part of the review. A story only becomes complete when the user explicitly says so.",
     "9. Finish by writing the Completion Summary, setting `**Status:** complete`, and setting `**Completed:**` to today's date.",
     "10. Do not update .context/reviews/summary.md or .context/reviews/remembered.md manually; Vazir syncs them automatically.",
-    "11. The `## Fallow Findings` section in the review file is pre-populated by Vazir. Preserve it as-is unless the findings are clearly unrelated to the review scope. Do not remove or reformat pre-populated Fallow findings.",
-    `12. Review scope: ${reviewScope}.`,
-    `13. Review focus: ${review.focus}.`,
-    review.storyLabel !== "—" ? `14. Story: ${review.storyLabel}.` : "14. No story is attached; keep the review manual and comprehensive within the requested scope.",
-    `15. Trigger: ${review.trigger}.`,
+    `11. Review scope: ${reviewScope}.`,
+    `12. Review focus: ${review.focus}.`,
+    review.storyLabel !== "—" ? `13. Story: ${review.storyLabel}.` : "13. No story is attached; keep the review manual and comprehensive within the requested scope.",
+    `14. Trigger: ${review.trigger}.`,
     ...(designNotes.length > 0 ? ["", ...designNotes] : []),
   ].join("\n");
 }
@@ -2903,10 +2773,8 @@ export function reviewFileTemplate(
   storyLabel: string,
   focus: string,
   trigger: string,
-  staticAnalysis: string,
   isUiStory = false,
   designSystemEmpty = false,
-  fallowFindings: FallowAuditIssue[] = [],
 ): string {
   const designCompliance = isUiStory
     ? [
@@ -2923,10 +2791,6 @@ export function reviewFileTemplate(
       ]
     : [];
 
-  const fallowSection = fallowFindings.length === 0
-    ? ["- No Fallow findings."]
-    : fallowFindings.map(issue => `- [${issue.rule}] ${issue.location} — ${issue.summary}`);
-
   return [
     `# Code Review ${created}`,
     "",
@@ -2935,7 +2799,6 @@ export function reviewFileTemplate(
     `**Completed:** —  `,
     `**Scope:** ${scope}  `,
     `**Story:** ${storyLabel}  `,
-    `**Static analysis:** ${staticAnalysis}  `,
     `**Focus:** ${focus}  `,
     `**Trigger:** ${trigger}`,
     "",
@@ -2962,11 +2825,6 @@ export function reviewFileTemplate(
     "- Evidence: ",
     "- Recommendation: ",
     "- Rule candidate: —",
-    "",
-    "---",
-    "",
-    "## Fallow Findings",
-    ...fallowSection,
     "",
     "---",
     "",
@@ -3025,7 +2883,7 @@ export function buildConsolidationInstruction(cwd: string): string {
     "Run Vazir consolidation using the currently selected Pi model.",
     "",
     "Tasks:",
-    "1. Read .context/complaints-log.md and cluster similar complaints, including `[fallow] ... | status: noted/promoted` entries and `/fix` entries as valid recurring signals.",
+    "1. Read .context/complaints-log.md and cluster `/fix` entries as valid recurring signals.",
     "2. Read .context/reviews/summary.md and any detailed code review files only if the summary needs clarification.",
     "3. Read story completion summaries in .context/stories/story-*.md for positive patterns (clean closes, repeated approaches, successful techniques).",
     hasDecisions ? "4. Read .context/decisions.md for recurring decision types and positive patterns." : "4. If .context/decisions.md exists, read it for recurring decision types and positive patterns.",
@@ -3054,7 +2912,6 @@ export function buildMiniConsolidateInstruction(cwd: string, storyLabel: string,
     ? [
         `- Read the review file at .context/reviews/${path.basename(reviewFilePath)}.`,
         "- Read the Findings, Recommended Fixes, and Other Fixes sections.",
-        "- If the review has a Fallow Findings section, read that too.",
       ]
     : ["- No review file was created for this closeout."];
 
@@ -3064,7 +2921,7 @@ export function buildMiniConsolidateInstruction(cwd: string, storyLabel: string,
     "Your job:",
     `- Read the story file at .context/stories/${storyLabel}.md.`,
     "- Read the Issues section and extract any patterns or lessons from resolved or open issues.",
-    `- Read .context/complaints-log.md and treat any \`[fallow]\` entries for ${storyLabel} as valid signal sources alongside story issues and review findings.`,
+    "- Read .context/complaints-log.md for relevant `/fix` entries alongside story issues and review findings.",
     ...reviewLines,
     "- Propose 0–2 concise learned-rule candidates based on the patterns you found.",
     "- Assign each candidate a confidence level: high, medium, or low.",
@@ -3289,15 +3146,15 @@ export function buildLearnedRuleCloseoutInstruction(cwd: string, storyLabel: str
     "",
     "Read these sources:",
     `- .context/stories/${storyLabel}.md (especially ## Issues, ## Checklist, and ## Completion Summary)`,
-    reviewFilePath ? `- ${reviewLabel} (review findings, recommended fixes, and static analysis notes)` : "- No review file exists for this closeout; rely on the story issues and completion summary.",
-    "- .context/complaints-log.md (treat any `[fallow]` entries tied to this story as valid signal alongside story issues and review findings)",
+    reviewFilePath ? `- ${reviewLabel} (review findings and recommended fixes)` : "- No review file exists for this closeout; rely on the story issues and completion summary.",
+    "- .context/complaints-log.md (treat relevant `/fix` entries tied to this story as valid signal alongside story issues and review findings)",
     `- ${systemLabel} (avoid duplicate or overlapping learned rules)`,
     "",
     "Your job:",
-    "1. Distill at most 2 reusable rule candidates from the story's issues, review findings, any `[fallow]` complaints-log entries for the story, and any Fallow/static-analysis findings mentioned in the review.",
+    "1. Distill at most 2 reusable rule candidates from the story's issues and review findings.",
     "2. Each candidate must be a concise reusable rule, not a story-specific bug report.",
     "3. Assign each candidate a confidence of `high`, `medium`, or `low`.",
-    "4. Add short source labels such as `story issue`, `review finding`, or `fallow` so Vazir can show attribution.",
+    "4. Add short source labels such as `story issue` or `review finding` so Vazir can show attribution.",
     "5. If system.md already contains an equivalent learned rule, do not propose it again.",
     "6. If there are no good candidates, leave `candidates` empty and set `note` to one short sentence explaining why.",
     "7. Write the result to the JSON file below. Do not modify system.md directly.",

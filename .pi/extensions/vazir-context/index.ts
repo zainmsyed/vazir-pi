@@ -14,7 +14,6 @@ import {
   compareStoriesByRecencyDesc,
   complaintsLogPath,
   detectFossil,
-  detectJJ,
   findActiveStory,
   fossilRepositoryPath,
   hasVcsSafetyPolicyText,
@@ -40,7 +39,6 @@ import {
   createCompleteStoryController,
   isHighPrioritySeverity,
   promptReviewFindingsCloseout,
-  recordCompletedReviewFallowFindings,
   resetReviewFileForRemediation,
   resolveContextPersistenceChoice,
   type PendingCompleteStoryRequest,
@@ -49,7 +47,6 @@ import { showScrollableText } from "../vazir-tracker/chrome.ts";
 import { refreshVcsState } from "../vazir-tracker/index.ts";
 import { showMarkdownViewer, showSelectionList } from "../../lib/vazir-ui.ts";
 import {
-  appendFallowToComplaintsLog,
   archiveDir,
   archiveMemoryReviewCandidates,
   appendLearnedRules,
@@ -84,7 +81,6 @@ import {
   prepareLearnedRulesForConsolidation,
   parseReviewFrontmatter,
   prepareReviewFileForCloseout,
-  reviewFallowFindingsFromFile,
   reviewFileHash,
   reviewFindingsFromFile,
   reviewRecommendedFixesFromFile,
@@ -146,7 +142,6 @@ import {
   undescribedIndexFiles,
   userExplicitlyApprovedStatusChange,
   walkSourceFiles,
-  type FallowAuditIssue,
   writeIndex,
 } from "./helpers.ts";
 
@@ -164,6 +159,7 @@ const CONTEXT_MAP_TEMPLATE = [
 ].join("\n");
 
 const SYSTEM_MD_TEMPLATE = buildDefaultSystemRulesMarkdown();
+
 
 const AGENTS_MD_TEMPLATE = [
   "# AGENTS.md",
@@ -192,7 +188,7 @@ const SETTINGS_README_TEMPLATE = [
   "## Tunables",
   "",
   "- `active_vcs_mode` — Current active version control system: `git`, `fossil`, or `none`. Set by `/vazir-init` or `/vcs-settings`.",
-  "- `vcs_preference` — Explicit VCS override: `auto`, `git`, `jj`, or `fossil`. Use `/vcs-settings` to change without hand-editing.",
+  "- `vcs_preference` — Explicit VCS override: `auto`, `git`, or `fossil`. Use `/vcs-settings` to change without hand-editing. Legacy `vcs_preference: jj` values from before story-083 resolve to `auto`.",
   "- `vcs_mirror` — Optional mirror hint object. Today Vazir supports `mode: \"git-mirror-of-fossil\"` for repos where Fossil is canonical and Git is only a mirror.",
   "  - `path` points at the Git mirror checkout used by `/vcs-mirror-sync`.",
   "  - `remoteName` and `branch` are descriptive metadata for the configured mirror target.",
@@ -201,27 +197,14 @@ const SETTINGS_README_TEMPLATE = [
   "",
   "## Changing settings",
   "",
-  "Run `/vcs-settings` to open a picker, `/vcs-settings <auto|git|jj|fossil>` to set the active VCS, or `/vcs-settings mirror <none|git>` to change the optional mirror hint.",
-  "If you choose Git/JJ or Fossil and the required tool is missing, Vazir will prompt before helping you install it.",
+  "Run `/vcs-settings` to open a picker, `/vcs-settings <auto|git|fossil>` to set the active VCS, or `/vcs-settings mirror <none|git>` to change the optional mirror hint.",
+  "If you choose Git or Fossil and the required tool is missing, Vazir will prompt before helping you install it.",
   "Mirror hints are informational only. Vazir will not auto-sync, auto-push, or switch active VCS modes just because both Fossil and Git are present.",
   "Run `/vcs-mirror-sync` only when `vcs_mirror.mode` is `git-mirror-of-fossil` and `vcs_mirror.path` is configured.",
   "",
 ].join("\n");
 
-const JJ_DOCS_URL = "https://www.jj-vcs.dev/latest/install-and-setup/";
-const JJ_OVERVIEW_URL = "https://www.jj-vcs.dev/latest/";
-const FALLOW_INSTALL_COMMAND = "npm install -D fallow";
-const FALLOW_MAX_PROMPT_ISSUES = 12;
-
-type FallowAuditVerdict = "pass" | "warn" | "fail";
-type FallowAuditResult = { summaryLine: string; promptPrefix: string; findings: FallowAuditIssue[] };
-type GitAuditScope =
-  | { mode: "base"; files: string[] }
-  | { mode: "initial"; files: string[] }
-  | { mode: "unavailable" };
-
 let lastUserPrompt = "";
-let useJJ = false;
 let pendingInitSummary: string | null = null;
 const storyFrontmatterSnapshots = new Map<string, Map<string, { status: string; completed: string }>>();
 type PendingManualReviewRequest = {
@@ -333,7 +316,6 @@ function suspendManualReview(
 const pendingCompleteStoryRequests = new Map<string, PendingCompleteStoryRequest>();
 const pendingManualReviewRequests = new Map<string, PendingManualReviewRequest>();
 const approvedStoryCloseouts = new Map<string, Set<string>>();
-const missingFallowNoticeShown = new Set<string>();
 const pendingPlanRepairRequests = new Map<string, { existingStoryFilesAtStart: string[]; seededIdeaNumber?: number }>();
 type ManualReviewScope = "story" | "whole-codebase";
 type ReviewCloseoutTarget = "story" | "review";
@@ -358,70 +340,12 @@ export default function (pi: ExtensionAPI) {
     return { action: "continue" as const };
   });
 
-  pi.on("session_start", async (_event: any, ctx: any) => {
-    useJJ = detectJJ(ctx.cwd);
+  pi.on("session_start", async (_event: any, _ctx: any) => {
+    // Session startup remains intentionally side-effect free for reviews.
   });
 
   function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
-
-  function fallowBinaryPath(cwd: string): string {
-    return path.join(cwd, "node_modules", ".bin", process.platform === "win32" ? "fallow.cmd" : "fallow");
-  }
-
-  function fallowNotRun(reason: string): FallowAuditResult {
-    return {
-      summaryLine: `not run (${reason})`,
-      promptPrefix: "",
-      findings: [],
-    };
-  }
-
-  function pickString(...values: unknown[]): string | null {
-    for (const value of values) {
-      if (typeof value === "string" && value.trim()) return value.trim();
-    }
-    return null;
-  }
-
-  function pickNumber(...values: unknown[]): number | null {
-    for (const value of values) {
-      if (typeof value === "number" && Number.isFinite(value)) return value;
-      if (typeof value === "string" && value.trim()) {
-        const parsed = Number(value);
-        if (Number.isFinite(parsed)) return parsed;
-      }
-    }
-    return null;
-  }
-
-  function maybeNotifyMissingFallow(ctx: any, cwd: string): void {
-    if (missingFallowNoticeShown.has(cwd)) return;
-    missingFallowNoticeShown.add(cwd);
-    ctx.ui.notify(`Fallow not found — running LLM-only review. Install with: ${FALLOW_INSTALL_COMMAND}`, "info");
-  }
-
-  async function maybePromptForFallowInstall(ctx: any, cwd: string): Promise<void> {
-    if (fs.existsSync(fallowBinaryPath(cwd)) || typeof ctx.ui?.select !== "function") return;
-
-    const choice = await ctx.ui.select(
-      "Install Fallow for Vazir's optional /review static-analysis pre-pass?",
-      [
-        "Yes — install Fallow",
-        "No — skip Fallow",
-      ],
-    );
-
-    if (choice !== "Yes — install Fallow") return;
-
-    try {
-      childProcess.execFileSync("npm", ["install", "-D", "fallow"], { cwd, stdio: "pipe" });
-      missingFallowNoticeShown.delete(cwd);
-      ctx.ui.notify("Fallow installed for /review static analysis. For manual CLI use, run: npx fallow", "info");
-    } catch (error: any) {
-      ctx.ui.notify(`Fallow install failed: ${error?.message || String(error)}. /review will continue without it.`, "warning");
-    }
   }
 
   function commandExists(command: string, args: string[] = ["--version"]): boolean {
@@ -440,7 +364,6 @@ export default function (pi: ExtensionAPI) {
       "node_modules/",
       ".git/",
       ".jj/",
-      ".fallow/",
       ".env",
       ".env.*",
       "*.local",
@@ -483,422 +406,8 @@ export default function (pi: ExtensionAPI) {
       `- Active mode from settings: ${activeMode}`,
       "- Check project settings for the current active version control system (VCS) before doing VCS-specific work.",
       "- The active mode can change over time, so do not assume the /vazir-init choice is still current.",
-      "- If repository guidance depends on version control, double-check settings instead of assuming Git/JJ or Fossil.",
+      "- If repository guidance depends on version control, double-check settings instead of assuming Git or Fossil.",
     ].join("\n");
-  }
-
-  function listGitVisibleFiles(cwd: string): string[] {
-    try {
-      const output = childProcess.execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
-        cwd,
-        encoding: "utf-8",
-        stdio: "pipe",
-      });
-      return Array.from(new Set(
-        output
-          .split("\n")
-          .map(line => line.trim())
-          .filter(Boolean)
-          .filter(file => fs.existsSync(path.join(cwd, file))),
-      ));
-    } catch {
-      return [];
-    }
-  }
-
-  function collectGitAuditScope(cwd: string): GitAuditScope {
-    try {
-      const output = childProcess.execFileSync("git", ["diff", "--name-only", "--diff-filter=ACMR", "HEAD~1"], {
-        cwd,
-        encoding: "utf-8",
-        stdio: "pipe",
-      });
-      const files = Array.from(new Set(
-        output
-          .split("\n")
-          .map(line => line.trim())
-          .filter(Boolean)
-          .filter(file => fs.existsSync(path.join(cwd, file))),
-      ));
-      return { mode: "base", files };
-    } catch {
-      const initialFiles = listGitVisibleFiles(cwd);
-      if (initialFiles.length > 0) return { mode: "initial", files: initialFiles };
-      return { mode: "unavailable" };
-    }
-  }
-
-  function collectJjAuditFiles(cwd: string): string[] | null {
-    try {
-      const output = childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8", stdio: "pipe" });
-      const files = output
-        .split("\n")
-        .map(line => line.match(/^\s*(.+?)\s+\|/)?.[1]?.trim() ?? "")
-        .filter(Boolean)
-        .filter(file => fs.existsSync(path.join(cwd, file)));
-      return Array.from(new Set(files));
-    } catch {
-      return null;
-    }
-  }
-
-  function parseFossilStatusPaths(output: string): string[] {
-    return output
-      .split("\n")
-      .map(line => line.trim())
-      .filter(Boolean)
-      .map(line => line.replace(/^[A-Z?]+\s+/, "").trim())
-      .filter(Boolean);
-  }
-
-  function collectFossilAuditFiles(cwd: string): string[] | null {
-    try {
-      const files = new Set<string>();
-      for (const args of [["changes"], ["extras", "--dotfiles"]] as const) {
-        const output = childProcess.execFileSync("fossil", [...args], {
-          cwd,
-          encoding: "utf-8",
-          stdio: "pipe",
-        });
-        for (const file of parseFossilStatusPaths(output)) {
-          if (fs.existsSync(path.join(cwd, file))) files.add(file);
-        }
-      }
-      return Array.from(files);
-    } catch {
-      return null;
-    }
-  }
-
-  function fossilParentHash(cwd: string): string | null {
-    try {
-      const info = childProcess.execFileSync("fossil", ["info"], { cwd, encoding: "utf-8", stdio: "pipe" });
-      return info.match(/^parent:\s+([a-f0-9]+)/im)?.[1] ?? null;
-    } catch {
-      return null;
-    }
-  }
-
-  function runFallowAuditViaFossilBridge(cwd: string, binaryPath: string, fileCount: number | null): FallowAuditResult | null {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vazir-fallow-fossil-"));
-    const parentHash = fossilParentHash(cwd);
-
-    try {
-      const repoDir = path.join(tmpDir, "repo");
-      fs.mkdirSync(repoDir, { recursive: true });
-
-      if (parentHash) {
-        const tarball = path.join(tmpDir, "parent.tar.gz");
-        childProcess.execFileSync("fossil", ["tarball", parentHash, tarball, "--name", "repo"], { cwd, stdio: "pipe" });
-        childProcess.execFileSync("tar", ["xzf", tarball, "-C", tmpDir], { stdio: "pipe" });
-      }
-
-      if (fs.readdirSync(repoDir).length === 0) {
-        fs.writeFileSync(path.join(repoDir, ".vazir-fallow-base"), "");
-      }
-
-      // VCS safety policy blocks `git init`, so create the minimal repo structure manually.
-      const gitDir = path.join(repoDir, ".git");
-      fs.mkdirSync(path.join(gitDir, "objects"), { recursive: true });
-      fs.mkdirSync(path.join(gitDir, "refs", "heads"), { recursive: true });
-      fs.writeFileSync(path.join(gitDir, "HEAD"), "ref: refs/heads/main\n");
-      fs.writeFileSync(path.join(gitDir, "config"), "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n\tlogallrefupdates = true\n");
-      childProcess.execFileSync("git", ["add", "-A"], { cwd: repoDir, stdio: "pipe" });
-      childProcess.execFileSync("git", ["-c", "user.name=Vazir", "-c", "user.email=vazir@example.invalid", "commit", "-m", "base"], { cwd: repoDir, stdio: "pipe" });
-
-      const excluded = new Set([".git", "node_modules", ".jj", ".fslckout", "_FOSSIL_", ".context", "dist", "build", "out"]);
-      const copyContents = (src: string, dest: string): void => {
-        for (const entry of fs.readdirSync(src)) {
-          if (excluded.has(entry)) continue;
-          const srcPath = path.join(src, entry);
-          const destPath = path.join(dest, entry);
-          const stat = fs.statSync(srcPath);
-          if (stat.isDirectory()) {
-            fs.mkdirSync(destPath, { recursive: true });
-            copyContents(srcPath, destPath);
-          } else {
-            fs.copyFileSync(srcPath, destPath);
-          }
-        }
-      };
-
-      for (const entry of fs.readdirSync(repoDir)) {
-        if (entry === ".git") continue;
-        fs.rmSync(path.join(repoDir, entry), { recursive: true, force: true });
-      }
-      copyContents(cwd, repoDir);
-
-      childProcess.execFileSync("git", ["add", "-A"], { cwd: repoDir, stdio: "pipe" });
-      childProcess.execFileSync("git", ["-c", "user.name=Vazir", "-c", "user.email=vazir@example.invalid", "commit", "-m", "head"], { cwd: repoDir, stdio: "pipe" });
-
-      const args = parentHash
-        ? ["audit", "--base", "HEAD~1", "--format", "json"]
-        : ["audit", "--format", "json"];
-      try {
-        const stdout = childProcess.execFileSync(binaryPath, args, {
-          cwd: repoDir,
-          encoding: "utf-8",
-          stdio: ["ignore", "pipe", "pipe"],
-          shell: process.platform === "win32",
-        });
-
-        const parsed = parseFallowAuditOutput(stdout, fileCount);
-        if (!parsed) return null;
-        if (!parentHash) {
-          return formatFallowInitialScanResult(parsed);
-        }
-        return parsed;
-      } catch (error: any) {
-        const stdout = typeof error?.stdout === "string" ? error.stdout : error?.stdout?.toString("utf-8") ?? "";
-        const parsed = parseFallowAuditOutput(stdout, fileCount);
-        if (!parsed) throw error;
-        if (!parentHash) {
-          return formatFallowInitialScanResult(parsed);
-        }
-        return parsed;
-      }
-    } finally {
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
-    }
-  }
-
-  function normalizeFallowRule(sectionName: string, key: string): string {
-    if (sectionName === "duplication") return "duplication";
-    if (sectionName === "complexity") return "complexity";
-    return key.replace(/_/g, "-");
-  }
-
-  function formatLocation(value: unknown): string | null {
-    if (typeof value === "string" && value.trim()) return value.trim();
-    if (!value || typeof value !== "object") return null;
-
-    const entry = value as Record<string, unknown>;
-    const file = pickString(
-      entry.file,
-      entry.path,
-      entry.relative_path,
-      entry.relativePath,
-      entry.module,
-      entry.source_path,
-      entry.sourcePath,
-    );
-    const line = pickNumber(entry.line, entry.start_line, entry.startLine, entry.line_number, entry.lineNumber);
-    const column = pickNumber(entry.column, entry.start_column, entry.startColumn, entry.column_number, entry.columnNumber);
-
-    if (file) return line == null ? file : `${file}:${line}${column == null ? "" : `:${column}`}`;
-
-    const locations = [entry.files, entry.paths, entry.locations, entry.occurrences]
-      .filter(Array.isArray)
-      .flatMap(group => (group as unknown[]).map(item => formatLocation(item)).filter(Boolean) as string[]);
-    if (locations.length > 0) return locations.slice(0, 2).join(" ↔ ");
-
-    return pickString(entry.name, entry.symbol, entry.export, entry.id);
-  }
-
-  function formatIssueSummary(rule: string, entry: Record<string, unknown>): string {
-    const direct = pickString(entry.message, entry.summary, entry.reason, entry.description, entry.details, entry.title);
-    if (direct) return direct;
-
-    const symbol = pickString(entry.symbol, entry.name, entry.export, entry.function, entry.function_name, entry.functionName);
-    const score = pickNumber(entry.score, entry.cyclomatic, entry.cyclomatic_score, entry.cyclomaticScore, entry.complexity);
-
-    if (rule === "complexity") {
-      if (symbol && score != null) return `function ${symbol} exceeds complexity threshold (score: ${score})`;
-      if (symbol) return `function ${symbol} exceeds complexity threshold`;
-      if (score != null) return `complexity exceeds threshold (score: ${score})`;
-      return "complexity exceeds threshold";
-    }
-
-    if (rule === "duplication") {
-      const locationCount = Array.isArray(entry.occurrences)
-        ? entry.occurrences.length
-        : Array.isArray(entry.locations)
-          ? entry.locations.length
-          : 0;
-      return locationCount > 0 ? `duplicate code across ${locationCount} locations` : "duplicate code detected";
-    }
-
-    if (symbol) return `${symbol} triggered ${rule}`;
-    return rule.replace(/-/g, " ");
-  }
-
-  function collectFallowIssues(parsed: Record<string, unknown>): FallowAuditIssue[] {
-    const issues: FallowAuditIssue[] = [];
-    const seen = new Set<string>();
-
-    const pushIssue = (rule: string, value: unknown): void => {
-      const entry = value && typeof value === "object" ? value as Record<string, unknown> : { value };
-      const location = formatLocation(entry) ?? pickString(entry.value) ?? "location unavailable";
-      const summary = formatIssueSummary(rule, entry);
-      const key = `${rule}|${location}|${summary}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      issues.push({ rule, location, summary });
-    };
-
-    if (Array.isArray(parsed.issues)) {
-      for (const entry of parsed.issues) {
-        const record = entry && typeof entry === "object" ? entry as Record<string, unknown> : { value: entry };
-        const rule = pickString(record.code, record.kind, record.rule, record.type) ?? "issue";
-        pushIssue(rule.replace(/_/g, "-"), record);
-      }
-    }
-
-    for (const [sectionName, sectionValue] of [
-      ["dead-code", parsed.dead_code ?? parsed.deadCode],
-      ["duplication", parsed.duplication ?? parsed.dupes],
-      ["complexity", parsed.complexity ?? parsed.health],
-    ] as const) {
-      if (!sectionValue || typeof sectionValue !== "object") continue;
-      for (const [key, value] of Object.entries(sectionValue as Record<string, unknown>)) {
-        if (!Array.isArray(value)) continue;
-        const rule = normalizeFallowRule(sectionName, key);
-        for (const entry of value) pushIssue(rule, entry);
-      }
-    }
-
-    return issues;
-  }
-
-  function parseFallowAuditOutput(raw: string, fileCount: number | null): FallowAuditResult | null {
-    const trimmed = raw.trim();
-    if (!trimmed) return null;
-
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
-
-    const issues = collectFallowIssues(parsed);
-    const verdictValue = pickString(parsed.verdict, (parsed.summary as Record<string, unknown> | undefined)?.verdict)?.toLowerCase();
-    const verdict: FallowAuditVerdict = verdictValue === "warn" || verdictValue === "fail" || verdictValue === "pass"
-      ? verdictValue
-      : issues.length > 0
-        ? "warn"
-        : "pass";
-
-    const summaryLine = issues.length === 0
-      ? fileCount == null
-        ? `fallow audit — ${verdict} (no issues found)`
-        : `fallow audit — ${verdict} (${fileCount} file${fileCount === 1 ? "" : "s"} scanned, no issues found)`
-      : fileCount == null
-        ? `fallow audit — ${verdict}`
-        : `fallow audit — ${verdict} (${fileCount} file${fileCount === 1 ? "" : "s"} scanned)`;
-
-    if (issues.length === 0) return { summaryLine, promptPrefix: "", findings: [] };
-
-    const visibleIssues = issues.slice(0, FALLOW_MAX_PROMPT_ISSUES);
-    const scopeLine = fileCount == null ? "changed files" : `${fileCount} changed file${fileCount === 1 ? "" : "s"}`;
-    const extraIssues = issues.length - visibleIssues.length;
-    return {
-      summaryLine,
-      promptPrefix: [
-        "## Static Analysis Findings (Fallow)",
-        `Verdict: ${verdict}`,
-        `Scope: ${scopeLine}`,
-        "",
-        "Issues:",
-        ...visibleIssues.map(issue => `- [${issue.rule}] ${issue.location} — ${issue.summary}`),
-        ...(extraIssues > 0 ? [`- [summary] ${extraIssues} additional finding${extraIssues === 1 ? "" : "s"} omitted from this prompt block`] : []),
-        "",
-        "Treat these as verified findings. Do not re-derive them. Synthesise with your own inspection where relevant.",
-      ].join("\n"),
-      findings: issues,
-    };
-  }
-
-  function formatFallowInitialScanResult(parsed: FallowAuditResult): FallowAuditResult {
-    return {
-      summaryLine: parsed.summaryLine.replace(/^fallow audit/, "fallow scan").replace(/ \([^)]*files scanned\)/, "") + " (initial repo scan)",
-      promptPrefix: parsed.promptPrefix.replace(/^## Static Analysis Findings \(Fallow\)/, "## Static Analysis Findings (Fallow initial scan)"),
-      findings: parsed.findings,
-    };
-  }
-
-  function runFallowAudit(ctx: any, cwd: string): FallowAuditResult {
-    const binaryPath = fallowBinaryPath(cwd);
-    if (!fs.existsSync(binaryPath)) {
-      maybeNotifyMissingFallow(ctx, cwd);
-      return fallowNotRun("fallow unavailable");
-    }
-
-    const activeVcsMode = readActiveVcsMode(cwd);
-    if (activeVcsMode === "fossil" && detectFossil(cwd)) {
-      const changedFiles = collectFossilAuditFiles(cwd);
-      if (changedFiles == null) {
-        ctx.ui.notify("Fallow audit scope could not be resolved for this Fossil checkout — running LLM-only review.", "warning");
-        return fallowNotRun("audit scope unavailable");
-      }
-      if (changedFiles.length === 0) return fallowNotRun("no changed files");
-
-      if (!commandExists("git", ["--version"]) || !commandExists("tar", ["--version"])) {
-        ctx.ui.notify("Fallow audit in Fossil mode requires git and tar binaries, which are not available on this system — running LLM-only review.", "warning");
-        return fallowNotRun("git or tar unavailable for fossil bridge");
-      }
-
-      try {
-        const parsed = runFallowAuditViaFossilBridge(cwd, binaryPath, changedFiles.length);
-        if (parsed) return parsed;
-      } catch (error: any) {
-        ctx.ui.notify(`Fallow audit bridge failed — running LLM-only review. ${error?.message || String(error)}`, "warning");
-        return fallowNotRun("fallow audit failed");
-      }
-
-      ctx.ui.notify("Fallow audit bridge returned unusable output — running LLM-only review.", "warning");
-      return fallowNotRun("fallow audit failed");
-    }
-
-    const gitScope = collectGitAuditScope(cwd);
-    const changedFiles = gitScope.mode !== "unavailable"
-      ? gitScope.files
-      : detectJJ(cwd)
-        ? collectJjAuditFiles(cwd)
-        : null;
-
-    if (changedFiles == null) {
-      ctx.ui.notify("Fallow audit scope could not be resolved — running LLM-only review.", "warning");
-      return fallowNotRun("audit scope unavailable");
-    }
-
-    if (changedFiles.length === 0) return fallowNotRun("no changed files");
-
-    if (gitScope.mode === "unavailable") {
-      ctx.ui.notify("Fallow audit is unavailable for this JJ-only checkout — running LLM-only review.", "warning");
-      return fallowNotRun("audit scope unavailable");
-    }
-
-    const args = gitScope.mode === "initial"
-      ? ["audit", "--format", "json"]
-      : ["audit", "--base", "HEAD~1", "--format", "json"];
-    const summaryFileCount = gitScope.mode === "initial" ? null : changedFiles.length;
-
-    try {
-      const stdout = childProcess.execFileSync(binaryPath, args, {
-        cwd,
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-        shell: process.platform === "win32",
-      });
-      const parsed = parseFallowAuditOutput(stdout, summaryFileCount);
-      if (!parsed) return fallowNotRun("fallow audit failed");
-      if (gitScope.mode === "initial") {
-        return formatFallowInitialScanResult(parsed);
-      }
-      return parsed;
-    } catch (error: any) {
-      const stdout = typeof error?.stdout === "string" ? error.stdout : error?.stdout?.toString("utf-8") ?? "";
-      const parsed = parseFallowAuditOutput(stdout, summaryFileCount);
-      if (parsed) {
-        if (gitScope.mode === "initial") {
-          return formatFallowInitialScanResult(parsed);
-        }
-        return parsed;
-      }
-      ctx.ui.notify(`Fallow audit failed — running LLM-only review. ${error?.message || String(error)}`, "warning");
-      return fallowNotRun("fallow audit failed");
-    }
   }
 
   function matchReviewPrefix(input: string, prefixes: string[]): string | null {
@@ -1153,11 +662,10 @@ export default function (pi: ExtensionAPI) {
     options: { focus: string; scope?: ManualReviewScope; storyLabel?: string; trigger?: string },
     beforeDispatch?: (review: ReturnType<typeof createReviewDraft>) => void,
   ): Promise<ReturnType<typeof createReviewDraft>> {
-    const fallowAudit = runFallowAudit(ctx, ctx.cwd);
-    const review = createReviewDraft(ctx.cwd, { ...options, staticAnalysis: fallowAudit.summaryLine, fallowFindings: fallowAudit.findings });
+    const review = createReviewDraft(ctx.cwd, options);
     syncReviewSummaryAndPromoteRules(ctx.cwd);
     ctx.ui.notify(`Created ${review.fileName} in .context/reviews/`, "info");
-    const instruction = buildReviewInstruction(review, fallowAudit.promptPrefix, ctx.cwd);
+    const instruction = buildReviewInstruction(review, ctx.cwd);
 
     if (beforeDispatch) {
       beforeDispatch(review);
@@ -1245,7 +753,6 @@ export default function (pi: ExtensionAPI) {
     clearCompleteStoryCloseout(pendingCompleteStoryRequests, ctx.cwd);
     pendingManualReviewRequests.delete(ctx.cwd);
     approvedStoryCloseouts.delete(ctx.cwd);
-    missingFallowNoticeShown.delete(ctx.cwd);
     pendingPlanRepairRequests.delete(ctx.cwd);
     lastViewedIdeaByCwd.delete(ctx.cwd);
   });
@@ -1336,7 +843,6 @@ export default function (pi: ExtensionAPI) {
     });
     persistManualReviewCloseoutState(cwd, pendingManualReviewRequests.get(cwd)!);
 
-    recordCompletedReviewFallowFindings(cwd, pendingManualReview.reviewFile);
     const findings = reviewFindingsFromFile(pendingManualReview.reviewFile);
     const recommendedFixes = reviewRecommendedFixesFromFile(pendingManualReview.reviewFile);
     const trackedFixes = recommendedFixes.length > 0 ? recommendedFixes : reviewRecommendedFixesFromFindings(findings);
@@ -1530,7 +1036,7 @@ export default function (pi: ExtensionAPI) {
   // ── /vazir-init ──────────────────────────────────────────────────────
 
   pi.registerCommand("vazir-init", {
-    description: "Bootstrap Vazir context files, then set up Git/JJ or Fossil", 
+    description: "Bootstrap Vazir context files, then set up Git or Fossil",
     handler: async (_args: string, ctx: any) => {
       const cwd = ctx.cwd;
 
@@ -1643,7 +1149,7 @@ export default function (pi: ExtensionAPI) {
         ensureGitignoreEntries(
           [
             "node_modules/",
-            ".fallow/",
+            ".jj/",
             ".local/",
             ".env",
             ".env.local",
@@ -1691,61 +1197,11 @@ export default function (pi: ExtensionAPI) {
       let gitReady = initialGitReady;
       let fossilReady = initialFossilReady;
       let selectedMode: "git" | "fossil" | "none" = "none";
-      let shouldAttemptJjSetup = false;
-
-      const gitAndJjSetupFlow = async (): Promise<{ jjLine: string; jjDetailLine: string }> => {
-        let nextJjLine = "☒ JJ (Jujutsu): Not started";
-        let nextJjDetailLine = `  ↳ Install JJ here ${JJ_DOCS_URL}`;
-        let jjAvailable = false;
-
-        try {
-          childProcess.execFileSync("jj", ["--version"], { cwd, stdio: "pipe" });
-          jjAvailable = true;
-        } catch {
-          ctx.ui.notify(
-            "JJ is not installed. It gives Vazir a full checkpoint history of every agent turn.\n\nTo install:  brew install jj  (macOS)\n             cargo install jj-cli  (Linux)\n\nAfter installing, run:  jj git init --colocate\nOr just re-run /vazir-init — files are already set up.",
-            "info",
-          );
-        }
-
-        try {
-          if (jjAvailable) {
-            try {
-              childProcess.execFileSync("jj", ["root"], { cwd, stdio: "pipe" });
-              ctx.ui.notify("JJ already initialised", "info");
-              nextJjLine = "☑ JJ (Jujutsu): active";
-              nextJjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
-            } catch {
-              childProcess.execFileSync("jj", ["git", "init", "--colocate"], { cwd, stdio: "pipe" });
-              for (const branch of ["main", "master"]) {
-                try {
-                  childProcess.execFileSync("jj", ["bookmark", "track", `${branch}@origin`], { cwd, stdio: "pipe" });
-                  break;
-                } catch {
-                  // Try the next common default branch.
-                }
-              }
-              ctx.ui.notify("JJ initialised", "info");
-              nextJjLine = "☑ JJ (Jujutsu): active";
-              nextJjDetailLine = `  ↳ Learn more about JJ ${JJ_OVERVIEW_URL}`;
-            }
-
-            ensureGitignoreEntries([".jj/"], "Added .jj/ to .gitignore");
-          }
-        } catch (error: any) {
-          ctx.ui.notify(`JJ setup failed: ${error?.message || String(error)} — continuing with git fallback`, "warning");
-          nextJjDetailLine = "  ↳ JJ setup failed, so Git remains active without JJ checkpoints";
-        }
-
-        useJJ = detectJJ(cwd);
-        return { jjLine: nextJjLine, jjDetailLine: nextJjDetailLine };
-      };
-
       if (!gitReady && !fossilReady) {
         const choice = await ctx.ui.select(
           "No version control system (VCS) is configured in this repo yet. Which mode should Vazir set up? This choice can be changed later in settings.",
           [
-            "Git/JJ",
+            "Git",
             "Fossil",
           ],
         );
@@ -1758,7 +1214,7 @@ export default function (pi: ExtensionAPI) {
         const choice = await ctx.ui.select(
           "Both Git and Fossil are already present in this repo. Which one should be the active mode in settings?",
           [
-            "Git/JJ",
+            "Git",
             "Fossil",
           ],
         );
@@ -1771,7 +1227,7 @@ export default function (pi: ExtensionAPI) {
           gitReady = true;
           ctx.ui.notify("✓ git initialised\nRemember to add a remote:\ngit remote add origin <url>", "info");
         } catch (error: any) {
-          ctx.ui.notify(`Git init failed: ${error?.message || String(error)} — JJ skipped`, "warning");
+          ctx.ui.notify(`Git init failed: ${error?.message || String(error)}`, "warning");
           selectedMode = "none";
           vcsDetailLine = "  ↳ Git initialisation failed.";
         }
@@ -1797,55 +1253,6 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
-      const jjAlreadyActive = gitReady && detectJJ(cwd);
-      if (selectedMode === "git" && gitReady) {
-        if (initialGitReady && !initialFossilReady && !jjAlreadyActive) {
-          const jjChoice = await ctx.ui.select(
-            "Git is already set up in this repo. Do you want to enable JJ for checkpoints?",
-            [
-              "Yes — enable JJ checkpoints",
-              "No — keep Git only for now",
-            ],
-          );
-          shouldAttemptJjSetup = jjChoice === "Yes — enable JJ checkpoints";
-        } else if (initialGitReady && initialFossilReady && selectedMode === "git" && !jjAlreadyActive) {
-          const jjChoice = await ctx.ui.select(
-            "Git is the active mode for this repo. Do you want to enable JJ for checkpoints too?",
-            [
-              "Yes — enable JJ checkpoints",
-              "No — keep Git only for now",
-            ],
-          );
-          shouldAttemptJjSetup = jjChoice === "Yes — enable JJ checkpoints";
-        } else if (!initialGitReady && !initialFossilReady && !jjAlreadyActive) {
-          const jjChoice = await ctx.ui.select(
-            "Git is active for this new repo. Do you want to enable JJ for checkpoints too?",
-            [
-              "Yes — enable JJ checkpoints",
-              "No — keep Git only for now",
-            ],
-          );
-          shouldAttemptJjSetup = jjChoice === "Yes — enable JJ checkpoints";
-        } else {
-          shouldAttemptJjSetup = false;
-        }
-      }
-
-      let jjLine = "☒ JJ (Jujutsu): Not started";
-      let jjDetailLine = `  ↳ Install JJ here ${JJ_DOCS_URL}`;
-      if (selectedMode === "git" && gitReady) {
-        if (shouldAttemptJjSetup || detectJJ(cwd)) {
-          const jjStatus = await gitAndJjSetupFlow();
-          jjLine = jjStatus.jjLine;
-          jjDetailLine = jjStatus.jjDetailLine;
-        } else {
-          useJJ = detectJJ(cwd);
-          jjDetailLine = "  ↳ Git is active. JJ can be enabled later for checkpoints.";
-        }
-      } else {
-        useJJ = false;
-      }
-
       if (selectedMode === "fossil" && fossilReady) {
         if (ensureFossilIgnoreGlob(cwd)) {
           ctx.ui.notify("Added Fossil ignore defaults (.context/, node_modules/, .git/, .jj/)", "info");
@@ -1853,15 +1260,9 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (selectedMode === "git" && gitReady) {
-        writeProjectSettings(cwd, { active_vcs_mode: "git", vcs_preference: useJJ ? "jj" : "git" });
-        vcsLine = "☑ Version control system (VCS): Git/JJ active";
-        vcsDetailLine = useJJ
-          ? `  ↳ JJ checkpoints are active. The active mode can be changed later in settings.`
-          : [
-              "  ↳ Git is active. JJ remains optional for checkpoints. The active mode can be changed later in settings.",
-              jjLine,
-              jjDetailLine,
-            ].join("\n");
+        writeProjectSettings(cwd, { active_vcs_mode: "git", vcs_preference: "git" });
+        vcsLine = "☑ Version control system (VCS): Git active";
+        vcsDetailLine = "  ↳ Git is active. The active mode can be changed later in settings.";
       } else if (selectedMode === "fossil" && fossilReady) {
         writeProjectSettings(cwd, { active_vcs_mode: "fossil", vcs_preference: "fossil" });
         vcsLine = "☑ Version control system (VCS): Fossil active";
@@ -1870,8 +1271,6 @@ export default function (pi: ExtensionAPI) {
         writeProjectSettings(cwd, { active_vcs_mode: "none" });
         vcsLine = "☒ Version control system (VCS): Not configured";
       }
-
-      await maybePromptForFallowInstall(ctx, cwd);
 
       const initSummary = buildInitSummary([
         { label: ".context/memory/system.md", present: fs.existsSync(systemPath(cwd)) },
@@ -1893,7 +1292,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       // Refresh the footer immediately so the VCS state (branch, commit counter)
-      // reflects the new git/JJ setup without requiring a manual /reload.
+      // reflects the new git/fossil setup without requiring a manual /reload.
       refreshVcsState(cwd);
     },
   });
@@ -2560,14 +1959,13 @@ export default function (pi: ExtensionAPI) {
 
   function resolveAutoVcsModeForSettings(cwd: string): "git" | "fossil" | "none" {
     const hasGit = detectGitRepo(cwd);
-    const hasJJ = hasGit ? detectJJ(cwd) : false;
     const hasFossil = detectFossil(cwd);
-    if (hasJJ || hasGit) return "git";
+    if (hasGit) return "git";
     if (hasFossil) return "fossil";
     return "none";
   }
 
-  function persistVcsSettings(cwd: string, preference: "auto" | "git" | "jj" | "fossil", activeMode: "git" | "fossil" | "none") {
+  function persistVcsSettings(cwd: string, preference: "auto" | "git" | "fossil", activeMode: "git" | "fossil" | "none") {
     writeProjectSettings(cwd, {
       vcs_preference: preference,
       active_vcs_mode: activeMode,
@@ -2576,21 +1974,7 @@ export default function (pi: ExtensionAPI) {
     refreshVcsState(cwd);
   }
 
-  function ensureGitignoreEntriesForVcsCommand(cwd: string, entries: string[], ctx: any, notification: string): void {
-    const gitignorePath = path.join(cwd, ".gitignore");
-    let current = readIfExists(gitignorePath);
-    let changed = false;
-    for (const entry of entries) {
-      if (new RegExp(`^${escapeRegExp(entry)}$`, "m").test(current)) continue;
-      current = `${current.trimEnd()}${current.trim() ? "\n" : ""}${entry}\n`;
-      changed = true;
-    }
-    if (!changed) return;
-    fs.writeFileSync(gitignorePath, current);
-    ctx.ui.notify(notification, "info");
-  }
-
-  async function promptInstallIfMissing(ctx: any, label: "Git" | "JJ" | "Fossil", message: string): Promise<boolean> {
+  async function promptInstallIfMissing(ctx: any, label: "Git" | "Fossil", message: string): Promise<boolean> {
     if (typeof ctx.ui?.select !== "function") {
       ctx.ui.notify(message, "info");
       return false;
@@ -2616,8 +2000,7 @@ export default function (pi: ExtensionAPI) {
     return choice === "Yes";
   }
 
-  async function activateGitOrJjMode(ctx: any, cwd: string, requestedPreference: "git" | "jj"): Promise<void> {
-    const preferJj = requestedPreference === "jj";
+  async function activateGitMode(ctx: any, cwd: string): Promise<void> {
     if (!commandExists("git", ["--version"])) {
       await promptInstallIfMissing(
         ctx,
@@ -2637,56 +2020,15 @@ export default function (pi: ExtensionAPI) {
       try {
         childProcess.execSync("git init", { cwd, stdio: "pipe" });
         gitReady = true;
-        ctx.ui.notify("✓ git initialised\nRemember to add a remote:\ngit remote add origin <url>", "info");
+        ctx.ui.notify("git initialised\nRemember to add a remote:\ngit remote add origin <url>", "info");
       } catch (error: any) {
         ctx.ui.notify(`Git init failed: ${error?.message || String(error)}`, "warning");
         return;
       }
     }
 
-    let jjActive = gitReady ? detectJJ(cwd) : false;
-    if (preferJj && gitReady && !jjActive) {
-      if (!commandExists("jj", ["--version"])) {
-        const wantsInstallHelp = await promptInstallIfMissing(
-          ctx,
-          "JJ",
-          "JJ is not installed. It gives Vazir a full checkpoint history of every agent turn.\n\nTo install:\n  macOS: brew install jj\n  Linux: cargo install jj-cli\n\nAfter installing, re-run /vcs-settings and choose Git/JJ.",
-        );
-        ctx.ui.notify(
-          wantsInstallHelp
-            ? "Continuing with Git only for now. Re-run /vcs-settings after installing JJ to enable checkpoints."
-            : "JJ setup skipped. Continuing with Git only for now.",
-          "info",
-        );
-      } else {
-        const shouldInitializeJj = await promptInitializeMode(ctx, "JJ");
-        if (!shouldInitializeJj) {
-          ctx.ui.notify("JJ setup skipped. Continuing with Git only for now.", "info");
-        } else {
-          try {
-            childProcess.execFileSync("jj", ["git", "init", "--colocate"], { cwd, stdio: "pipe" });
-            for (const branch of ["main", "master"]) {
-              try {
-                childProcess.execFileSync("jj", ["bookmark", "track", `${branch}@origin`], { cwd, stdio: "pipe" });
-                break;
-              } catch {
-                // Try the next common default branch.
-              }
-            }
-            ensureGitignoreEntriesForVcsCommand(cwd, [".jj/"], ctx, "Added .jj/ to .gitignore");
-            ctx.ui.notify("JJ initialised", "info");
-          } catch (error: any) {
-            ctx.ui.notify(`JJ setup failed: ${error?.message || String(error)} — continuing with Git only`, "warning");
-          }
-          jjActive = detectJJ(cwd);
-        }
-      }
-    }
-
-    useJJ = jjActive;
-    const resolvedPreference = "git";
-    persistVcsSettings(cwd, resolvedPreference, "git");
-    ctx.ui.notify(`VCS preference set to ${resolvedPreference}`, "info");
+    persistVcsSettings(cwd, "git", "git");
+    ctx.ui.notify("VCS preference set to git", "info");
   }
 
   async function activateFossilMode(ctx: any, cwd: string): Promise<void> {
@@ -2722,19 +2064,18 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.notify("Added Fossil ignore defaults (.context/, node_modules/, .git/, .jj/)", "info");
     }
 
-    useJJ = false;
     persistVcsSettings(cwd, "fossil", "fossil");
     ctx.ui.notify("VCS preference set to fossil", "info");
   }
 
-  async function chooseVcsPreferenceFromMenu(ctx: any): Promise<"auto" | "git" | "jj" | "fossil" | "mirror-git" | "mirror-none" | null | undefined> {
+  async function chooseVcsPreferenceFromMenu(ctx: any): Promise<"auto" | "git" | "fossil" | "mirror-git" | "mirror-none" | null | undefined> {
     if (typeof ctx.ui?.select !== "function") return undefined;
     const choice = await ctx.ui.select(
       "Which VCS setting should Vazir change?",
-      ["Auto", "Git/JJ", "Fossil", "Mirror: Git mirror of Fossil", "Mirror: none", "Cancel"],
+      ["Auto", "Git", "Fossil", "Mirror: Git mirror of Fossil", "Mirror: none", "Cancel"],
     );
     if (choice === "Auto") return "auto";
-    if (choice === "Git/JJ") return "jj";
+    if (choice === "Git") return "git";
     if (choice === "Fossil") return "fossil";
     if (choice === "Mirror: Git mirror of Fossil") return "mirror-git";
     if (choice === "Mirror: none") return "mirror-none";
@@ -2922,11 +2263,11 @@ export default function (pi: ExtensionAPI) {
     const cwd = ctx.cwd;
     const normalizedParts = rawArgs.trim().split(/\s+/).filter(Boolean);
 
-    let preference: "auto" | "git" | "jj" | "fossil" | "mirror-git" | "mirror-none" | "mirror-autosync-on" | "mirror-autosync-off" | null = null;
+    let preference: "auto" | "git" | "fossil" | "mirror-git" | "mirror-none" | "mirror-autosync-on" | "mirror-autosync-off" | null = null;
     if (normalizedParts.length < 1) {
       preference = await chooseVcsPreferenceFromMenu(ctx);
       if (preference === undefined) {
-        ctx.ui.notify("Usage: /vcs-settings <auto|git|jj|fossil|mirror <none|git|autosync <on|off>>>", "info");
+        ctx.ui.notify("Usage: /vcs-settings <auto|git|fossil|mirror <none|git|autosync <on|off>>>", "info");
         return;
       }
       if (preference === null) return;
@@ -2941,13 +2282,16 @@ export default function (pi: ExtensionAPI) {
           if (autosyncCandidate === "on") preference = "mirror-autosync-on";
           else if (autosyncCandidate === "off") preference = "mirror-autosync-off";
         }
-      } else if (candidate === "auto" || candidate === "git" || candidate === "jj" || candidate === "fossil") {
+      } else if (candidate === "auto" || candidate === "git" || candidate === "fossil") {
         preference = candidate;
+      } else if (candidate === "jj") {
+        // Legacy JJ preference resolves to automatic detection (story-083).
+        preference = "auto";
       }
     }
 
     if (preference === null) {
-      ctx.ui.notify(`Invalid VCS setting: ${normalizedParts[0]}. Use auto, git, jj, fossil, or mirror <none|git|autosync <on|off>>.`, "warning");
+      ctx.ui.notify(`Invalid VCS setting: ${normalizedParts[0]}. Use auto, git, fossil, or mirror <none|git|autosync <on|off>>.`, "warning");
       return;
     }
 
@@ -2990,7 +2334,7 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    await activateGitOrJjMode(ctx, cwd, preference);
+    await activateGitMode(ctx, cwd);
   }
 
   pi.registerCommand("vcs-settings", {

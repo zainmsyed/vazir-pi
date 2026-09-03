@@ -1,0 +1,214 @@
+{
+  "milestones": [
+    {
+      "id": "491a69cc-1780163836122",
+      "opId": "71a8123e",
+      "label": "so i think the curl command is off the github url is https://github.com/zainmsyed/vazir-pi",
+      "timestamp": "2026-05-30T17:57:16.122Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "55fe6d8c-1780164489467",
+      "opId": "f26f3a6b",
+      "label": "please dont commit anything until i ask\n\nlets add the installation instructions for windows mac and ",
+      "timestamp": "2026-05-30T18:08:09.467Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "a83cb5dc-1780164631825",
+      "opId": "e4c60498",
+      "label": "install node js only has macos not linux. home brew is mCOS USUALLY. can you adjust that and add the",
+      "timestamp": "2026-05-30T18:10:31.825Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "ebaf8e17-1780166393781",
+      "opId": "8cb46e4d",
+      "label": "how does one update vazir?",
+      "timestamp": "2026-05-30T18:39:53.781Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "bb9f8889-1780166718834",
+      "opId": "4f38c3e2",
+      "label": "still not working sill getting same warning",
+      "timestamp": "2026-05-30T18:45:18.834Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "b4303f55-1780168905458",
+      "opId": "65ea3f13",
+      "label": "ok replan and create a story",
+      "timestamp": "2026-05-30T19:21:45.458Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "e557cb28-1780168905651",
+      "opId": "65ea3f13",
+      "label": "ok replan and create a story",
+      "timestamp": "2026-05-30T19:21:45.651Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "6850ea4c-1780169252562",
+      "opId": "1bd45004",
+      "label": "Implement the in-progress story in .context/stories/story-043.md.\n\nYour job:\n1. Read the story goal,",
+      "timestamp": "2026-05-30T19:27:32.562Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "15cb8bfb-1780169455293",
+      "opId": "3e2c5338",
+      "label": "intake folder does not have bug reports. and can we not abbreviate prd use the whole thing with (PRD",
+      "timestamp": "2026-05-30T19:30:55.293Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "47379e9a-1780169609517",
+      "opId": "77ff4c14",
+      "label": "we should probably put something like if you dont see .context folder you have to show hidden files.",
+      "timestamp": "2026-05-30T19:33:29.517Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "343ecd7f-1780170327154",
+      "opId": "0ed7161b",
+      "label": "Run Vazir consolidation using the currently selected Pi model.\n\nTasks:\n1. Read .context/complaints-l",
+      "timestamp": "2026-05-30T19:45:27.154Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "ced3801a-1780170832828",
+      "opId": "44c1d3bf",
+      "label": "can we fix the consolodate flow. the use is asked before consolodate runs if they accept or cancel. ",
+      "timestamp": "2026-05-30T19:53:52.828Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "d396a829-1780171039769",
+      "opId": "46175e65",
+      "label": "Run Vazir consolidation using the currently selected Pi model.\n\nTasks:\n1. Read .context/complaints-l",
+      "timestamp": "2026-05-30T19:57:19.769Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "36c387bf-1780188054154",
+      "opId": "bf1459a4",
+      "label": "ok i think we need to update how /design works but can you update the files in the design folder wit",
+      "timestamp": "2026-05-31T00:40:54.154Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "87eb5874-1780188658159",
+      "opId": "34c806db",
+      "label": "ok lets replan and create the stories based on the plan and story templates",
+      "timestamp": "2026-05-31T00:50:58.159Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "2bcff6fe-1780189341027",
+      "opId": "17e5521a",
+      "label": "Implement the in-progress story in .context/stories/story-044.md.\n\nYour job:\n1. Read the story goal,",
+      "timestamp": "2026-05-31T01:02:21.027Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "054d5c82-1780189964154",
+      "opId": "13acc35b",
+      "label": "Implement the in-progress story in .context/stories/story-045.md.\n\nYour job:\n1. Read the story goal,",
+      "timestamp": "2026-05-31T01:12:44.154Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "13c690b8-1780194103522",
+      "opId": "ec990d24",
+      "label": "Implement the in-progress story in .context/stories/story-046.md.\n\nYour job:\n1. Read the story goal,",
+      "timestamp": "2026-05-31T02:21:43.522Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "ccd47d02-1780195405085",
+      "opId": "1df5cc70",
+      "label": "yes we need to fix that",
+      "timestamp": "2026-05-31T02:43:25.085Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "40872690-1780231836069",
+      "opId": "83fecf98",
+      "label": "there are a lot of issues many 404 eroors",
+      "timestamp": "2026-05-31T12:50:36.069Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "8835f99b-1780361232351",
+      "opId": "0f66adf2",
+      "label": "ok sounds good",
+      "timestamp": "2026-06-02T00:47:12.351Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "17295c10-1780361547080",
+      "opId": "d5af973d",
+      "label": "Implement the in-progress story in .context/stories/story-047.md.\n\nYour job:\n1. Read the story goal,",
+      "timestamp": "2026-06-02T00:52:27.080Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "2be81974-1780363629272",
+      "opId": "1fd9302c",
+      "label": "Implement the in-progress story in .context/stories/story-048.md.\n\nYour job:\n1. Read the story goal,",
+      "timestamp": "2026-06-02T01:27:09.272Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "99eaf6d3-1780367545545",
+      "opId": "19e0aa92",
+      "label": "Implement the in-progress story in .context/stories/story-049.md.\n\nYour job:\n1. Read the story goal,",
+      "timestamp": "2026-06-02T02:32:25.545Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "53394995-1780368274449",
+      "opId": "fa693be8",
+      "label": "9please cont",
+      "timestamp": "2026-06-02T02:44:34.449Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "6db4d81f-1780370096282",
+      "opId": "e9835b4e",
+      "label": "Implement the in-progress story in .context/stories/story-050.md.\n\nYour job:\n1. Read the story goal,",
+      "timestamp": "2026-06-02T03:14:56.282Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "2d393a9b-1780371960715",
+      "opId": "2c58e79e",
+      "label": "yes please create that story and replan based on vazirs template please",
+      "timestamp": "2026-06-02T03:46:00.715Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "f0020a52-1780372705757",
+      "opId": "de6802e5",
+      "label": "Implement the in-progress story in .context/stories/story-051.md.\n\nYour job:\n1. Read the story goal,",
+      "timestamp": "2026-06-02T03:58:25.757Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "86eb4188-1780395756985",
+      "opId": "9d475222",
+      "label": "Warning: Mirror auto-sync failed: unrecognized command-line option or missing argument: --autopush",
+      "timestamp": "2026-06-02T10:22:36.985Z",
+      "kind": "agent-run"
+    },
+    {
+      "id": "-1780396606227",
+      "opId": "efd0af26",
+      "label": "lets mark issue as solved",
+      "timestamp": "2026-06-02T10:36:46.227Z",
+      "kind": "agent-run"
+    }
+  ]
+}

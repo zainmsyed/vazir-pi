@@ -1,0 +1,17 @@
+{
+  "note": "Extracted two reusable lessons from the VCS workflow migration and its follow-up fixes.",
+  "candidates": [
+    {
+      "text": "When extracting a workflow into a new extension, move shared operational helpers into a neutral module and keep the legacy module as a thin compatibility re-export instead of making the new owner import back from its consumer.",
+      "confidence": "high",
+      "sources": ["story-022"],
+      "rationale": "This story initially left vazir-vcs dependent on vazir-tracker for concrete VCS logic, then fixed the circular dependency by moving the helpers into .pi/lib/vazir-vcs-helpers.ts and reducing vazir-tracker/vcs.ts to a compatibility layer."
+    },
+    {
+      "text": "When moving session lifecycle behavior into a new extension, delete the old owner’s duplicate startup hooks so one module remains solely responsible for shared tickers and other session-wide side effects.",
+      "confidence": "high",
+      "sources": ["story-022"],
+      "rationale": "The extraction briefly left both vazir-vcs and vazir-tracker starting the footer refresh ticker, and the follow-up fix consolidated ownership so chrome refresh behavior no longer depended on extension load order."
+    }
+  ]
+}

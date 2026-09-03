@@ -11,7 +11,7 @@ const POLL_INTERVAL_MS = 750;
 const WATCHABLE_FILE_PATTERN = /\.(ts|js|mts|cts)$/i;
 const IGNORE_FILE_PATTERN = /(^\.|~$|\.swp$|\.tmp$|\.temp$|\.bak$)/i;
 
-let watcher: fs.FSWatcher | null = null;
+const watchers: fs.FSWatcher[] = [];
 let pendingReloadTimer: ReturnType<typeof setTimeout> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let reloadInFlight = false;
@@ -38,9 +38,14 @@ function clearPollTimer(): void {
 function closeWatcher(): void {
   clearPendingReloadTimer();
   clearPollTimer();
-  if (!watcher) return;
-  watcher.close();
-  watcher = null;
+  for (const dirWatcher of watchers) {
+    try {
+      dirWatcher.close();
+    } catch {
+      // Ignore close failures during reload churn.
+    }
+  }
+  watchers.length = 0;
 }
 
 function shouldHandleFile(filename: string | null): boolean {
@@ -67,20 +72,35 @@ function setStatus(text: string | undefined): void {
 }
 
 function directorySnapshot(extDir: string): string {
-  const entries = fs.existsSync(extDir)
-    ? fs.readdirSync(extDir)
-        .filter((name: string) => shouldHandleFile(name))
-        .sort()
-        .map((name: string) => {
-          const filePath = path.join(extDir, name);
-          try {
-            const stats = fs.statSync(filePath);
-            return `${name}:${stats.mtimeMs}:${stats.size}`;
-          } catch {
-            return `${name}:missing`;
-          }
-        })
-    : [];
+  // Recursive walk: extension code lives in nested directories
+  // (e.g., .pi/extensions/vazir-context/index.ts), and fs.watch is not
+  // recursive on Linux, so a flat snapshot would miss every nested edit.
+  const entries: string[] = [];
+  const pending = [extDir];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    let dirents;
+    try {
+      dirents = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of dirents.sort((a, b) => a.name.localeCompare(b.name))) {
+      const entryPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(entryPath);
+        continue;
+      }
+      if (!shouldHandleFile(entry.name)) continue;
+      const relative = path.relative(extDir, entryPath);
+      try {
+        const stats = fs.statSync(entryPath);
+        entries.push(`${relative}:${stats.mtimeMs}:${stats.size}`);
+      } catch {
+        entries.push(`${relative}:missing`);
+      }
+    }
+  }
 
   return entries.join("|");
 }
@@ -120,11 +140,26 @@ function startWatcher(extDir: string): void {
   lastSnapshot = directorySnapshot(extDir);
   setStatus("live reload: armed");
 
-  watcher = fs.watch(extDir, (eventType: string, filename: unknown) => {
-    const resolvedFilename = typeof filename === "string" ? filename : filename == null ? null : String(filename);
-    if (!shouldHandleFile(resolvedFilename)) return;
-    queueReload(`${resolvedFilename} (${eventType})`);
-  });
+  // Watch the top-level directory plus every nested extension directory:
+  // fs.watch is not recursive on Linux, so without the nested watchers
+  // edits inside e.g. .pi/extensions/vazir-context/ go undetected.
+  const watchDirs = [extDir];
+  try {
+    for (const entry of fs.readdirSync(extDir, { withFileTypes: true })) {
+      if (entry.isDirectory()) watchDirs.push(path.join(extDir, entry.name));
+    }
+  } catch {
+    // Keep the top-level watch only.
+  }
+
+  for (const dir of watchDirs) {
+    const dirWatcher = fs.watch(dir, (eventType: string, filename: unknown) => {
+      const resolvedFilename = typeof filename === "string" ? filename : filename == null ? null : String(filename);
+      if (!shouldHandleFile(resolvedFilename)) return;
+      queueReload(`${path.relative(extDir, dir)}/${resolvedFilename} (${eventType})`);
+    });
+    watchers.push(dirWatcher);
+  }
 
   pollTimer = setInterval(() => {
     if (!extDir || Date.now() < ignoreEventsUntil) return;

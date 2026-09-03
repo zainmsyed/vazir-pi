@@ -39,14 +39,6 @@ function createProject(prefix: string): string {
   return cwd;
 }
 
-function jjAvailable(): boolean {
-  try {
-    childProcess.execSync("jj --version", { stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function fossilAvailable(): boolean {
   try {
@@ -69,31 +61,8 @@ function createGitProject(prefix: string): string {
   return cwd;
 }
 
-function createColocatedGitJjProject(prefix: string, activeMode: "git" | "jj"): string {
-  const cwd = createProject(prefix);
-  fs.mkdirSync(path.join(cwd, ".context", "settings"), { recursive: true });
-  fs.writeFileSync(path.join(cwd, ".context", "settings", "project.json"), JSON.stringify({ active_vcs_mode: "git", vcs_preference: activeMode }, null, 2));
-  childProcess.execFileSync("jj", ["git", "init", "--colocate"], { cwd, stdio: "pipe" });
-  childProcess.execSync("git config user.name 'Vazir Test'", { cwd, stdio: "pipe" });
-  childProcess.execSync("git config user.email 'vazir-test@example.com'", { cwd, stdio: "pipe" });
-  childProcess.execSync("git add -A", { cwd, stdio: "pipe" });
-  childProcess.execSync("git commit --allow-empty -qm init", { cwd, stdio: "pipe" });
-  return cwd;
-}
 
-function createJjProject(prefix: string): string {
-  const cwd = createProject(prefix);
-  fs.mkdirSync(path.join(cwd, ".context", "settings"), { recursive: true });
-  fs.writeFileSync(path.join(cwd, ".context", "settings", "project.json"), JSON.stringify({ active_vcs_mode: "jj", vcs_preference: "jj" }, null, 2));
-  childProcess.execSync("git init -q", { cwd, stdio: "pipe" });
-  childProcess.execSync("jj git init --colocate", { cwd, stdio: "pipe" });
-  childProcess.execSync("jj bookmark create main", { cwd, stdio: "pipe" });
-  return cwd;
-}
 
-function currentJjOpId(cwd: string): string {
-  return childProcess.execSync("jj op log --no-graph --limit 1 --template 'id.short(8)'", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-}
 
 function createFossilProject(prefix: string): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -550,10 +519,9 @@ async function runReviewGatedScenario() {
   assert(harness.sentInternalMessages[0].message.display === false, "review-gated complete-story should hide the internal review turn from the TUI");
 
   const reviewPath = path.join(reviewDir, reviewFiles[0]);
-  assert(
-    fs.readFileSync(reviewPath, "utf-8").includes("**Static analysis:** not run (fallow unavailable)"),
-    "review-gated complete-story should record when Fallow was not available",
-  );
+  const generatedReview = fs.readFileSync(reviewPath, "utf-8");
+  assert(!generatedReview.includes("Static analysis"), "LLM-only review should not include a static-analysis field");
+  assert(!generatedReview.includes("Fallow"), "LLM-only review should not include Fallow sections");
   writeCompletedReview(reviewPath);
   await harness.emit("turn_end", {}, ctx);
   await harness.emit("agent_end", {}, ctx);
@@ -910,10 +878,15 @@ async function runDirtyContextDeclineScenario() {
   return { cwd, notifications, selectCalls };
 }
 
-async function runColocatedGitPreferredCommitScenario() {
-  if (!jjAvailable()) return null;
 
-  const cwd = createColocatedGitJjProject("vazir-complete-story-colocated-git-", "git");
+async function runLegacyJjPreferenceCommitScenario() {
+  const cwd = createGitProject("vazir-complete-story-legacy-jj-preference-");
+  // Legacy JJ settings from before story-083 must resolve to automatic
+  // detection (Git here) instead of activating any JJ behavior.
+  fs.writeFileSync(
+    path.join(cwd, ".context", "settings", "project.json"),
+    JSON.stringify({ active_vcs_mode: "jj", vcs_preference: "jj" }, null, 2),
+  );
   const notifications: Notification[] = [];
   const selectCalls: SelectCall[] = [];
   const harness = makePi();
@@ -936,64 +909,20 @@ async function runColocatedGitPreferredCommitScenario() {
 
   await harness.completeStory.handler("", ctx);
 
-  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "colocated git-preferred scenario should keep the story open until mini-consolidate finishes");
-  assert(harness.sentInternalMessages.length === 1, "colocated git-preferred scenario should queue a mini-consolidate turn");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "legacy JJ-preference scenario should keep the story open until mini-consolidate finishes");
+  assert(harness.sentInternalMessages.length === 1, "legacy JJ-preference scenario should queue a mini-consolidate turn");
 
   fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
   await harness.emit("agent_end", {}, ctx);
 
   const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
-  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated git-preferred scenario should complete the story after mini-consolidate");
-  assert(notifications.some(note => note.message.includes(`Committed with Git: ${expectedMessage}`)), "colocated git-preferred scenario should honor Git instead of switching to JJ");
-  assert(!notifications.some(note => note.message.includes("Recorded JJ change")), "colocated git-preferred scenario should not describe the change with JJ");
+  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "legacy JJ-preference scenario should complete the story after mini-consolidate");
+  assert(notifications.some(note => note.message.includes(`Committed with Git: ${expectedMessage}`)), "legacy JJ-preference scenario should commit with Git after resolving to auto");
+  assert(!notifications.some(note => note.message.includes("Recorded JJ change")), "legacy JJ-preference scenario should not record any JJ change");
   const gitMessage = childProcess.execSync("git log -1 --pretty=%B", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-  assert(gitMessage === expectedMessage, "colocated git-preferred scenario should keep the descriptive Git commit message");
-  const status = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-  assert(status === "", "colocated git-preferred scenario should leave the Git checkout clean");
-
-  return { cwd, notifications, selectCalls };
-}
-
-async function runColocatedJjPreferredCommitScenario() {
-  if (!jjAvailable()) return null;
-
-  const cwd = createColocatedGitJjProject("vazir-complete-story-colocated-jj-", "jj");
-  const notifications: Notification[] = [];
-  const selectCalls: SelectCall[] = [];
-  const harness = makePi();
-  const ctx = makeCtx(cwd, notifications, {
-    hasUI: true,
-    selectResponses: ["Close story and commit all"],
-    selectCalls,
-  });
-  const storyPath = writeStory(cwd, {
-    checklist: ["- [x] Example task"],
-    issues: [
-      "### /fix — \"signup button broken\"",
-      "- **Reported:** 2026-03-25  ",
-      "- **Status:** resolved  ",
-      "- **Agent note:** —  ",
-      "- **Solution:** Added missing submit handler",
-    ],
-    completionSummary: "Implemented the story and verified the expected flow.",
-  });
-
-  await harness.completeStory.handler("", ctx);
-
-  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** in-progress"), "colocated JJ-preferred scenario should keep the story open until mini-consolidate finishes");
-  assert(harness.sentInternalMessages.length === 1, "colocated JJ-preferred scenario should queue a mini-consolidate turn");
-
-  fs.writeFileSync(path.join(cwd, ".context", "stories", "story-001-candidates.md"), "No candidates found.\n");
-  await harness.emit("agent_end", {}, ctx);
-
-  const expectedMessage = "complete story-001 Example: Implemented the story and verified the expected flow.";
-  assert(fs.readFileSync(storyPath, "utf-8").includes("**Status:** complete"), "colocated JJ-preferred scenario should complete the story after mini-consolidate");
-  assert(notifications.some(note => note.message.includes(`Committed with Git: ${expectedMessage}`)), "colocated JJ-preferred scenario should keep using Git commits even when JJ is the preference");
-  assert(!notifications.some(note => note.message.includes("Recorded JJ change")), "colocated JJ-preferred scenario should not replace the commit with a JJ describe operation");
-  const gitMessage = childProcess.execSync("git log -1 --pretty=%B", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-  assert(gitMessage === expectedMessage, "colocated JJ-preferred scenario should create a real Git commit with the descriptive message");
+  assert(gitMessage === expectedMessage, "legacy JJ-preference scenario should create a real Git commit with the descriptive message");
   const gitStatus = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
-  assert(gitStatus === "", "colocated JJ-preferred scenario should leave the colocated Git checkout clean after commit all");
+  assert(gitStatus === "", "legacy JJ-preference scenario should leave the Git checkout clean after commit all");
 
   return { cwd, notifications, selectCalls };
 }
@@ -1339,10 +1268,8 @@ async function runReviewCloseoutRestartResumeScenario() {
   return { cwd, notifications, selectCalls: restartSelectCalls };
 }
 
-async function runJjRestoreResyncReviewCloseoutScenario() {
-  if (!jjAvailable()) return null;
-
-  const cwd = createJjProject("vazir-complete-story-jj-restore-review-closeout-");
+async function runRestoredStateResyncReviewCloseoutScenario() {
+  const cwd = createProject("vazir-complete-story-restored-state-review-closeout-");
   const notifications: Notification[] = [];
   const selectCalls: SelectCall[] = [];
   const storyPath = writeStory(cwd, {
@@ -1364,8 +1291,8 @@ async function runJjRestoreResyncReviewCloseoutScenario() {
   });
 
   closeoutModule.enterCompleteStoryReview(pending, cwd, storyPath, reviewPath);
-  childProcess.execSync("jj describe -m 'restore-safe review closeout state'", { cwd, stdio: "pipe" });
-  const restoreTargetOpId = currentJjOpId(cwd);
+  const statePath = path.join(cwd, ".context", "reviews", "story-001-complete-story-closeout.json");
+  const restoredStateContent = fs.readFileSync(statePath, "utf-8");
 
   const draftPath = path.join(cwd, ".context", "reviews", "story-001-learned-rule-closeout.json");
   fs.writeFileSync(draftPath, JSON.stringify({ note: "No candidates found.", candidates: [] }, null, 2));
@@ -1375,9 +1302,10 @@ async function runJjRestoreResyncReviewCloseoutScenario() {
     closeIntent: "close",
     reviewFile: reviewPath,
   });
-  childProcess.execSync("jj describe -m 'stale learned-rule state'", { cwd, stdio: "pipe" });
 
-  childProcess.execFileSync("jj", ["op", "restore", restoreTargetOpId], { cwd, stdio: "pipe" });
+  // Simulate an external restore reverting the on-disk closeout state to the
+  // earlier review-closeout snapshot while memory still holds the newer state.
+  fs.writeFileSync(statePath, restoredStateContent);
 
   const ctx = makeCtx(cwd, notifications, {
     hasUI: true,
@@ -1386,16 +1314,14 @@ async function runJjRestoreResyncReviewCloseoutScenario() {
   });
   await controller.handleTurnEnd(ctx);
 
-  assert(selectCalls.some(call => call.prompt.includes("Review complete.")), "jj restore should resync stale learned-rule closeout memory back to the restored review-closeout prompt during turn_end");
-  assert(!pending.get(cwd)?.learnedRuleCloseoutFile, "jj restore should replace stale in-memory learned-rule closeout state with the restored pending review state");
+  assert(selectCalls.some(call => call.prompt.includes("Review complete.")), "restored state should resync stale learned-rule closeout memory back to the restored review-closeout prompt during turn_end");
+  assert(!pending.get(cwd)?.learnedRuleCloseoutFile, "restored state should replace stale in-memory learned-rule closeout state with the restored pending review state");
 
   return { cwd, notifications, selectCalls };
 }
 
-async function runJjRestoreCrossStoryPendingSwapScenario() {
-  if (!jjAvailable()) return null;
-
-  const cwd = createJjProject("vazir-complete-story-jj-restore-cross-story-");
+async function runRestoredStateCrossStoryPendingSwapScenario() {
+  const cwd = createProject("vazir-complete-story-restored-state-cross-story-");
   const notifications: Notification[] = [];
   const selectCalls: SelectCall[] = [];
   const storyOnePath = writeStory(cwd, {
@@ -1421,13 +1347,13 @@ async function runJjRestoreCrossStoryPendingSwapScenario() {
 
   const pending = new Map<string, any>();
   closeoutModule.enterCompleteStoryReview(pending, cwd, storyTwoPath, reviewTwoPath);
-  childProcess.execSync("jj describe -m 'restore-safe story-002 pending closeout'", { cwd, stdio: "pipe" });
-  const restoreTargetOpId = currentJjOpId(cwd);
+  const stateTwoPath = path.join(cwd, ".context", "reviews", "story-002-complete-story-closeout.json");
+  const restoredTwoContent = fs.readFileSync(stateTwoPath, "utf-8");
 
   const reviewOnePath = path.join(cwd, ".context", "reviews", "review-story-001.md");
   writeInProgressReview(reviewOnePath);
   closeoutModule.enterCompleteStoryReview(pending, cwd, storyOnePath, reviewOnePath);
-  childProcess.execSync("jj describe -m 'stale story-001 pending closeout'", { cwd, stdio: "pipe" });
+  const stateOnePath = path.join(cwd, ".context", "reviews", "story-001-complete-story-closeout.json");
 
   const controller = closeoutModule.createCompleteStoryController({
     pendingRequests: pending,
@@ -1437,7 +1363,10 @@ async function runJjRestoreCrossStoryPendingSwapScenario() {
     },
   });
 
-  childProcess.execFileSync("jj", ["op", "restore", restoreTargetOpId], { cwd, stdio: "pipe" });
+  // Simulate an external restore: story-001's pending marker disappears and
+  // story-002's on-disk state reverts to the earlier snapshot.
+  fs.rmSync(stateOnePath, { force: true });
+  fs.writeFileSync(stateTwoPath, restoredTwoContent);
 
   const ctx = makeCtx(cwd, notifications, {
     hasUI: true,
@@ -1446,16 +1375,14 @@ async function runJjRestoreCrossStoryPendingSwapScenario() {
   });
   await controller.handleTurnEnd(ctx);
 
-  assert(selectCalls.some(call => call.prompt.includes("Review complete.")), "jj restore should resume the restored story-002 review-closeout prompt even when stale memory still points at story-001");
-  assert(pending.get(cwd)?.storyFile === storyTwoPath, "jj restore should replace stale story-001 in-memory pending state with restored story-002 state");
+  assert(selectCalls.some(call => call.prompt.includes("Review complete.")), "restored state should resume the restored story-002 review-closeout prompt even when stale memory still points at story-001");
+  assert(pending.get(cwd)?.storyFile === storyTwoPath, "restored state should replace stale story-001 in-memory pending state with restored story-002 state");
 
   return { cwd, notifications, selectCalls };
 }
 
-async function runJjRestoreClearsStalePendingScenario() {
-  if (!jjAvailable()) return null;
-
-  const cwd = createJjProject("vazir-complete-story-jj-restore-clear-pending-");
+async function runRestoredStateClearsStalePendingScenario() {
+  const cwd = createProject("vazir-complete-story-restored-state-clear-pending-");
   const notifications: Notification[] = [];
   const selectCalls: SelectCall[] = [];
   const storyPath = writeStory(cwd, {
@@ -1464,16 +1391,12 @@ async function runJjRestoreClearsStalePendingScenario() {
     completionSummary: "Implemented the story and verified the expected flow.",
   });
 
-  childProcess.execSync("jj describe -m 'restore-safe ready state'", { cwd, stdio: "pipe" });
-  const restoreTargetOpId = currentJjOpId(cwd);
-
   const reviewPath = path.join(cwd, ".context", "reviews", "review-stale.md");
   fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
   writeInProgressReview(reviewPath);
 
   const pending = new Map<string, any>();
   closeoutModule.enterCompleteStoryReview(pending, cwd, storyPath, reviewPath);
-  childProcess.execSync("jj describe -m 'stale review in progress state'", { cwd, stdio: "pipe" });
 
   const controller = closeoutModule.createCompleteStoryController({
     pendingRequests: pending,
@@ -1483,7 +1406,10 @@ async function runJjRestoreClearsStalePendingScenario() {
     },
   });
 
-  childProcess.execFileSync("jj", ["op", "restore", restoreTargetOpId], { cwd, stdio: "pipe" });
+  // Simulate an external restore to before the review and its pending marker
+  // existed: both vanish from disk while memory still holds the pending state.
+  fs.rmSync(path.join(cwd, ".context", "reviews", "story-001-complete-story-closeout.json"), { force: true });
+  fs.rmSync(reviewPath, { force: true });
 
   const ctx = makeCtx(cwd, notifications, {
     hasUI: true,
@@ -1492,8 +1418,8 @@ async function runJjRestoreClearsStalePendingScenario() {
   });
   await controller.handleCommand(ctx);
 
-  assert(selectCalls.some(call => call.prompt.includes("is ready. What would you like to do?")), "jj restore should clear stale pending closeout memory when the restored .context state has no pending closeout file");
-  assert(!pending.has(cwd), "jj restore should drop stale in-memory pending closeout state when no restored pending marker remains");
+  assert(selectCalls.some(call => call.prompt.includes("is ready. What would you like to do?")), "restored state should clear stale pending closeout memory when the restored .context state has no pending closeout file");
+  assert(!pending.has(cwd), "restored state should drop stale in-memory pending closeout state when no restored pending marker remains");
 
   return { cwd, notifications, selectCalls };
 }
@@ -1508,8 +1434,7 @@ try {
   const readyCloseAndCommit = await runReadyCloseAndCommitScenario();
   const dirtyContextCommit = await runDirtyContextCommitScenario();
   const dirtyContextDecline = await runDirtyContextDeclineScenario();
-  const colocatedGitPreferred = await runColocatedGitPreferredCommitScenario();
-  const colocatedJjPreferred = await runColocatedJjPreferredCommitScenario();
+  const legacyJjPreference = await runLegacyJjPreferenceCommitScenario();
   const fossilCloseAndCommit = await runFossilCloseAndCommitScenario();
   const keepWorking = await runKeepWorkingScenario();
   const candidatesPromote = await runCandidatesPromoteScenario();
@@ -1518,9 +1443,9 @@ try {
   const readinessReviewIdempotency = await runReadinessReviewIdempotencyScenario();
   const learnedRuleDraftRestart = await runLearnedRuleDraftRestartScenario();
   const reviewCloseoutRestartResume = await runReviewCloseoutRestartResumeScenario();
-  const jjRestoreReviewCloseoutResync = await runJjRestoreResyncReviewCloseoutScenario();
-  const jjRestoreCrossStoryPendingSwap = await runJjRestoreCrossStoryPendingSwapScenario();
-  const jjRestoreClearsStalePending = await runJjRestoreClearsStalePendingScenario();
+  const restoredStateReviewCloseoutResync = await runRestoredStateResyncReviewCloseoutScenario();
+  const restoredStateCrossStoryPendingSwap = await runRestoredStateCrossStoryPendingSwapScenario();
+  const restoredStateClearsStalePending = await runRestoredStateClearsStalePendingScenario();
 
   console.log("Review Gated Closeout");
   console.log(`cwd: ${reviewGated.cwd}`);
@@ -1582,26 +1507,15 @@ try {
     console.log(`  - [${note.level}] ${note.message}`);
   }
 
-  if (colocatedGitPreferred) {
-    console.log("Colocated Git/JJ Closeout (Git preferred)");
-    console.log(`cwd: ${colocatedGitPreferred.cwd}`);
+  
+  if (legacyJjPreference) {
+    console.log("");
+    console.log("Legacy JJ-Preference Commit");
+    console.log(`cwd: ${legacyJjPreference.cwd}`);
     console.log("notifications:");
-    for (const note of colocatedGitPreferred.notifications) {
+    for (const note of legacyJjPreference.notifications) {
       console.log(`  - [${note.level}] ${note.message}`);
     }
-  } else {
-    console.log("Colocated Git/JJ Closeout (Git preferred) skipped — jj binary not installed");
-  }
-
-  if (colocatedJjPreferred) {
-    console.log("Colocated Git/JJ Closeout (JJ preferred)");
-    console.log(`cwd: ${colocatedJjPreferred.cwd}`);
-    console.log("notifications:");
-    for (const note of colocatedJjPreferred.notifications) {
-      console.log(`  - [${note.level}] ${note.message}`);
-    }
-  } else {
-    console.log("Colocated Git/JJ Closeout (JJ preferred) skipped — jj binary not installed");
   }
 
   if (fossilCloseAndCommit) {
@@ -1664,37 +1578,31 @@ try {
     console.log(`  - [${note.level}] ${note.message}`);
   }
 
-  if (jjRestoreReviewCloseoutResync) {
-    console.log("JJ Restore Review-Closeout Resync");
-    console.log(`cwd: ${jjRestoreReviewCloseoutResync.cwd}`);
+  if (restoredStateReviewCloseoutResync) {
+    console.log("Restored State Review-Closeout Resync");
+    console.log(`cwd: ${restoredStateReviewCloseoutResync.cwd}`);
     console.log("notifications:");
-    for (const note of jjRestoreReviewCloseoutResync.notifications) {
+    for (const note of restoredStateReviewCloseoutResync.notifications) {
       console.log(`  - [${note.level}] ${note.message}`);
     }
-  } else {
-    console.log("JJ Restore Review-Closeout Resync skipped — jj binary not installed");
   }
 
-  if (jjRestoreCrossStoryPendingSwap) {
-    console.log("JJ Restore Cross-Story Pending Swap");
-    console.log(`cwd: ${jjRestoreCrossStoryPendingSwap.cwd}`);
+  if (restoredStateCrossStoryPendingSwap) {
+    console.log("Restored State Cross-Story Pending Swap");
+    console.log(`cwd: ${restoredStateCrossStoryPendingSwap.cwd}`);
     console.log("notifications:");
-    for (const note of jjRestoreCrossStoryPendingSwap.notifications) {
+    for (const note of restoredStateCrossStoryPendingSwap.notifications) {
       console.log(`  - [${note.level}] ${note.message}`);
     }
-  } else {
-    console.log("JJ Restore Cross-Story Pending Swap skipped — jj binary not installed");
   }
 
-  if (jjRestoreClearsStalePending) {
-    console.log("JJ Restore Clears Stale Pending State");
-    console.log(`cwd: ${jjRestoreClearsStalePending.cwd}`);
+  if (restoredStateClearsStalePending) {
+    console.log("Restored State Clears Stale Pending State");
+    console.log(`cwd: ${restoredStateClearsStalePending.cwd}`);
     console.log("notifications:");
-    for (const note of jjRestoreClearsStalePending.notifications) {
+    for (const note of restoredStateClearsStalePending.notifications) {
       console.log(`  - [${note.level}] ${note.message}`);
     }
-  } else {
-    console.log("JJ Restore Clears Stale Pending State skipped — jj binary not installed");
   }
 } finally {
   cleanupStubModules(stubModuleDirs);

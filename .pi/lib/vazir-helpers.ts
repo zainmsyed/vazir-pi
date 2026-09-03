@@ -183,15 +183,6 @@ export function resolveGitTopLevel(cwd: string): string | null {
   }
 }
 
-export function detectJJ(cwd: string): boolean {
-  try {
-    const root = childProcess.execSync("jj root", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 3000 }).trim();
-    return root ? isCurrentDirectoryInsideRepo(cwd, root) : false;
-  } catch {
-    return false;
-  }
-}
-
 function trimShellToken(token: string): string {
   return token
     .trim()
@@ -631,8 +622,14 @@ export function readActiveVcsMode(cwd: string): ActiveVcsMode {
   if (active === "git" || active === "fossil" || active === "none") return active;
 
   const legacyPreference = typeof settings.vcs_preference === "string" ? settings.vcs_preference.trim().toLowerCase() : "";
-  if (legacyPreference === "git" || legacyPreference === "jj") return "git";
+  if (legacyPreference === "git") return "git";
   if (legacyPreference === "fossil") return "fossil";
+  if (legacyPreference === "jj") {
+    // Legacy JJ preference resolves to automatic detection (story-083).
+    if (detectGitRepo(cwd)) return "git";
+    if (detectFossil(cwd)) return "fossil";
+    return "none";
+  }
   return "none";
 }
 
@@ -680,7 +677,7 @@ export function listPendingContextChanges(cwd: string): PendingContextChanges {
     return { activeMode, files: [...files].sort(), ...(errors.length > 0 ? { inspectionError: errors.join("; ") } : {}) };
   }
 
-  if (detectGitRepo(cwd) || detectJJ(cwd) || activeMode === "git") {
+  if (detectGitRepo(cwd) || activeMode === "git") {
     try {
       const output = childProcess.execSync("git status --porcelain -- .context", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 });
       return { activeMode, files: parseGitStatusPaths(output).filter(isContextPath).sort() };
@@ -717,7 +714,7 @@ export function inspectUntrackedContextFiles(cwd: string): UntrackedContextInspe
     }
   }
 
-  if (detectGitRepo(cwd) || detectJJ(cwd) || activeMode === "git") {
+  if (detectGitRepo(cwd) || activeMode === "git") {
     try {
       const output = childProcess.execSync("git status --porcelain -uall -- .context", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 });
       const untrackedOnly = output
