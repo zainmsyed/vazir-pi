@@ -104,6 +104,7 @@
 - When implementation scope expands, update the story's Scope section at the same time as the approval or Issues note so the story contract remains auditable. <!-- source: story-083 --> <!-- confidence: high -->
 - When a workflow depends on an interactive terminal picker, validate the actual TTY path in addition to headless and programmatic tests, including the user's selection and resulting state change. <!-- source: story-083 --> <!-- confidence: high -->
 - When adding a command alias for an interactive flow, route both entry points through one shared opener and test the alias's UI lifecycle. <!-- source: story-084 --> <!-- confidence: high -->
+- Do not persist normalized defaults or repair malformed configuration during an unrelated settings write; normalize on read and mutate only the explicitly requested section. <!-- source: story-085 --> <!-- confidence: high -->
 ### From successes
 - When implementing bounded resource allocation, make reuse, conflict recovery, reassignment, and exhaustion behavior deterministic, and test each branch with isolated resources. <!-- source: story-066 --> <!-- confidence: low — no signal in last 5 stories -->
 - When layered configuration overrides are supported, define precedence explicitly and preserve the standard fallback path when an override is invalid or occupied. <!-- source: story-067 --> <!-- confidence: low — no signal in last 5 stories -->

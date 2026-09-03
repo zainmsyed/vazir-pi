@@ -1,10 +1,10 @@
 # Story 085: Add stack-neutral test-sandbox settings
 
-**Status:** not-started  
+**Status:** complete  
 **Type:** feature  
 **Created:** 2026-09-03  
 **Last accessed:** 2026-09-03  
-**Completed:** —
+**Completed:** 2026-09-03
 
 ---
 
@@ -31,11 +31,11 @@ Run targeted settings validation against valid, missing, and malformed project s
 ---
 
 ## Checklist
-- [ ] Define normalized stack-neutral test-sandbox settings and structured command types
-- [ ] Validate setup, start, readiness, and test executable/argument arrays without shell evaluation
-- [ ] Normalize bounded timeout, port-role, and preserve-on-failure options with safe defaults
-- [ ] Preserve unrelated and legacy project settings during reads and merge-safe writes
-- [ ] Add regression coverage for valid, missing, malformed, and round-trip settings
+- [x] Define normalized stack-neutral test-sandbox settings and structured command types
+- [x] Validate setup, start, readiness, and test executable/argument arrays without shell evaluation
+- [x] Normalize bounded timeout, port-role, and preserve-on-failure options with safe defaults
+- [x] Preserve unrelated and legacy project settings during reads and merge-safe writes
+- [x] Add regression coverage for valid, missing, malformed, and round-trip settings
 
 ---
 
@@ -44,3 +44,4 @@ Run targeted settings validation against valid, missing, and malformed project s
 ---
 
 ## Completion Summary
+Implemented normalized `test_sandbox` project settings in `.pi/lib/vazir-helpers.ts`. Settings support optional structured `setup`, `start`, and `readiness` commands, a required structured `test` command when configured, bounded timeout values, validated port roles, and preserve-on-failure behavior. Commands remain executable-and-argument arrays and shell strings are rejected; unknown nested settings and unrelated legacy project settings are preserved during normalization and merge-safe writes. Added actionable validation and safe read defaults for malformed or missing settings. Added `scripts/validate-vazir-test-sandbox-settings.mts` covering valid, missing, malformed, round-trip, boundary, and passthrough cases.
