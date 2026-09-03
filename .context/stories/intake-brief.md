@@ -1,33 +1,32 @@
 # Intake Brief
 
-**Last updated:** 2026-09-02
+**Last updated:** 2026-09-03
 
 ## Planning brief
-Plan idea-007 as two removal stories: remove Vazir’s Fallow review integration and remove Vazir’s JJ VCS integration while preserving all historical data.
+idea 8 — add a terminal-safe `/help` command alias for Pi's existing `Ctrl+?` help experience
 
 ## Source files
 - .context/intake/prd/vazir-product-plan.md (10905 bytes)
 - .context/intake/references/amanah-authorized-process-threat-model.md (6433 bytes)
 
 ## Distilled notes
-### User decisions
-- Remove Fallow from active Vazir reviews, `/complete-story`, review templates, and installation prompts.
-- New reviews are always LLM-only; remove the static-analysis field entirely.
-- Remove JJ completely from active Vazir support: detection, settings, setup, checkpoints, undo, diffs, chrome, help, and documentation.
-- Legacy `vcs_preference: "jj"` resolves to `auto`.
-- Keep Git’s existing `.context/checkpoints/` file-snapshot integration unchanged.
-- Checkpoints remain Git-only; do not add checkpoint support for Fossil.
-- Preserve all historical data and records, including Fallow findings, JJ settings/checkpoints, reviews, complaints, and documentation.
-- Leave user-owned `.jj/` metadata, JJ installations, Fallow configuration, and project dependencies untouched.
-- Split the work into story-082 (Fallow) and story-083 (JJ).
-
 ### .context/intake/prd/vazir-product-plan.md
-The product plan requires broad current command and workflow parity, including VCS and review behavior. The user’s explicit decision for this replan supersedes that broad parity direction for Fallow and JJ: active Vazir support is intentionally reduced to LLM-only reviews and Git/Fossil VCS support.
+Large file (10905 bytes). Read enough of it to extract evidence for every planning field before asking questions.
 
 ### .context/intake/references/amanah-authorized-process-threat-model.md
-No direct feature requirements apply. Preserve Vazir’s existing approval, protected-target, and secret-safe behavior while removing the integrations.
+Large file (6433 bytes). Read enough of it to extract evidence for every planning field before asking questions.
+
+## Final distilled answers
+- Users: Vazir/Pi terminal users, especially users whose terminal swallows or cannot deliver `Ctrl+?`.
+- V1: Add `/help` as a direct command alias for the exact existing `Ctrl+?` help behavior.
+- Do not build: new help content, a second renderer, search, categories, documentation links, alternate interaction behavior, GUI help, or unrelated shortcut changes.
+- Existing stack: Vazir extensions on Pi; reuse Pi's current help implementation and command-registration API.
+- Acceptance: `/help` opens the same help UI and preserves the same dismissal/selection behavior; targeted, aggregate, and interactive validation cover the alias.
 
 ## Planning rules
 - Treat listed source files as user-authored planning inputs unless they are explicitly marked as generated artifacts.
 - Vazir-generated files in .context/stories/ are replan context, not primary intake.
-- Preserve historical `.context/` data; do not rewrite or delete old records as part of this feature.
+- Read all text-based planning sources before asking questions.
+- Ask only implementation-blocking delta questions after reviewing this brief and any raw files you actually need.
+- State safe default assumptions briefly so the user can correct them.
+- Surface contradictions instead of resolving them silently.

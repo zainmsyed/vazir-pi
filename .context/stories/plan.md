@@ -111,6 +111,7 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-068 | Aggregate validation registration for port assignment | in-progress | story-065, story-066, story-067 |
 | story-082 | Remove Fallow from Vazir reviews and closeout | not-started | - |
 | story-083 | Remove JJ from Vazir VCS integration | in-progress | - |
+| story-084 | Add a `/help` command as a terminal-safe alias for `Ctrl+?` | not-started | - |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
@@ -142,3 +143,4 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-08-08** — Started story-067 and added file/environment port override precedence, validation warnings, occupied-override fallback, and regression coverage.
 - **2026-08-08** — Started story-068 and registered the deterministic port validation in the aggregate runner with documented test-only assumptions.
 - **2026-09-02** — Replanned idea-007 on branch `remove-fallow-jj`. Preserved all existing story files and added story-082 for removal of active Fallow review/closeout integration and story-083 for removal of active JJ VCS integration. New reviews are LLM-only; Git file-snapshot checkpoints remain unchanged; Fossil receives no checkpoint path; all historical data and user-owned metadata remain untouched.
+- **2026-09-03** — Replanned idea-008 on branch `help-command-for-terminal-shortcuts`. Preserved existing story files and appended story-084 for a `/help` command that delegates to the exact existing `Ctrl+?` help experience, providing a terminal-safe alternative without new help UI or content.
