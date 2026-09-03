@@ -60,6 +60,7 @@ const ANSI_CSI_PATTERN = /\x1b\[[0-?]*[ -/]*[@-~]/g;
 const ANSI_OSC_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 // Keep this list in sync with command registration across vazir-context.ts and this file.
 const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
+  { command: "/help", description: "open the same help experience as Ctrl+?" },
   { command: "/vazir-init", description: "bootstrap .context and seed the project brain" },
   { command: "/plan", description: "review intake, ask delta questions, and generate stories" },
   { command: "/idea", description: "capture or browse ideas without interrupting the active story" },
@@ -82,6 +83,14 @@ const VAZIR_COMMAND_HELP: CommandHelpEntry[] = [
 ];
 
 const VAZIR_COMMAND_DOCS: CommandDoc[] = [
+  {
+    command: "/help",
+    shortDesc: "open the same help experience as Ctrl+?",
+    usage: "/help",
+    args: [],
+    examples: ["/help"],
+    longDesc: "Opens the same interactive, searchable command help experience as Pi's Ctrl+? shortcut, including identical command details, dismissal, and selection behavior.",
+  },
   {
     command: "/vazir-init",
     shortDesc: "bootstrap .context and seed the project brain",
@@ -859,7 +868,7 @@ function isCommandHelpShortcut(data: string): boolean {
   ].some(key => piTui.matchesKey(data, key));
 }
 
-async function showCommandHelp(ctx: { ui: any }): Promise<void> {
+export async function showCommandHelp(ctx: { hasUI?: boolean; ui: any }): Promise<void> {
   if (!ctx.hasUI || typeof ctx.ui?.custom !== "function") {
     ctx.ui?.notify("Help overlay requires a TUI session", "info");
     return;
@@ -950,7 +959,17 @@ async function showCommandHelp(ctx: { ui: any }): Promise<void> {
   }
 }
 
-export function registerCommandHelpShortcut(ctx: { ui: { onTerminalInput(handler: (data: string) => { consume?: boolean; data?: string } | undefined): () => void } }): void {
+export async function openCommandHelp(ctx: { hasUI?: boolean; ui: any }): Promise<void> {
+  if (commandHelpOpen) return;
+  commandHelpOpen = true;
+  try {
+    await showCommandHelp(ctx);
+  } finally {
+    commandHelpOpen = false;
+  }
+}
+
+export function registerCommandHelpShortcut(ctx: { hasUI?: boolean; ui: { onTerminalInput(handler: (data: string) => { consume?: boolean; data?: string } | undefined): () => void } }): void {
   if (typeof ctx.ui.onTerminalInput !== "function") {
     commandHelpInputUnsubscribe = null;
     return;
@@ -962,10 +981,7 @@ export function registerCommandHelpShortcut(ctx: { ui: { onTerminalInput(handler
       return undefined;
     }
 
-    commandHelpOpen = true;
-    void showCommandHelp(ctx).finally(() => {
-      commandHelpOpen = false;
-    });
+    void openCommandHelp(ctx);
     return { consume: true };
   });
 }
@@ -1191,7 +1207,7 @@ function footerTokenOrWorkSegment(snapshot: FooterSessionSnapshot): string {
 function footerHint(): string {
   return activeToolCalls > 0 && currentWorkingMessage
     ? paint("Ctrl+C to abort", "dim")
-    : paint("Ctrl+? for help", "dim");
+    : paint("Ctrl+? · /help", "dim");
 }
 
 function footerSeparatorLine(width: number): string {

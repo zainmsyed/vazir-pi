@@ -26,6 +26,7 @@ const validations = [
   "validate-vazir-fossil-footer.mts",
   "validate-vazir-fossil-timeouts.mts",
   "validate-vazir-git-checkpoints.mts",
+  "validate-vazir-help-command.mts",
   "validate-vazir-implement-command.mts",
   "validate-vazir-init.mts",
   "validate-vazir-ports.mts",

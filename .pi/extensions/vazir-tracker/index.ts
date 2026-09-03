@@ -34,6 +34,7 @@ import {
   formatEditStreamEntry,
   getEditStreamSnapshot,
   invalidateStoryProgressCache,
+  openCommandHelp,
   pushPendingEditCall,
   recordEditStreamEntry,
   refreshWidgets,
@@ -613,6 +614,15 @@ export default function (pi: ExtensionAPI) {
     warnOnUntrackedContextFiles(ctx.cwd, ctx.ui);
     if (ctx.hasUI) ensureSessionChromeMounted(ctx.ui, ctx.cwd);
 
+  });
+
+  // ── /help ─────────────────────────────────────────────────────────────
+
+  pi.registerCommand("help", {
+    description: "Open the same interactive help experience as Ctrl+?",
+    handler: async (_args: string, ctx: { hasUI?: boolean; ui: any }) => {
+      await openCommandHelp(ctx);
+    },
   });
 
   // ── /diff ─────────────────────────────────────────────────────────────

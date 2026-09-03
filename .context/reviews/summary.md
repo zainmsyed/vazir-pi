@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-09-03T18:24:11Z
+**Last updated:** 2026-09-03T19:15:35Z
 
 ## Findings
 - Shared test fixtures should live in one place and be imported where needed. | count: 2 | status: promoted | sources: review-20260901-134651.md, review-20260901-143438.md | stories: story-083, story-084
@@ -25,6 +25,7 @@
 - Static dead-code findings on dynamically loaded or test-facing APIs must be reconciled against real consumers before removal. | count: 1 | status: tracked | sources: review-20260901-130053.md
 - Tool-availability checks must verify the executable bit, not just path presence. | count: 1 | status: tracked | sources: review-20260831-172552.md | stories: story-076
 - Validation APIs should return structured failures for malformed input rather than throwing from field-normalization helpers. | count: 1 | status: tracked | sources: review-20260901-150755.md | stories: story-085
+- When a command aliases an interactive shortcut, automated coverage should exercise the command's UI path rather than relying only on source assertions and a non-UI fallback. | count: 1 | status: tracked | sources: review-20260903-191121.md | stories: story-084
 - When a story's frontmatter status changes during implementation, update the plan queue entry and completion summary in the same work so persisted workflow state stays consistent. | count: 1 | status: tracked | sources: review-20260901-133430.md | stories: story-082
 - When extracting a command into a new extension, update every validation script that exercises that command to load the new extension module alongside the original entrypoint. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
 - When extracting a large block of helpers from a module, run a reference check for every removed function name against the remaining code in that module before committing the extraction. | count: 1 | status: tracked | sources: review-20260518-220832.md | stories: story-020
