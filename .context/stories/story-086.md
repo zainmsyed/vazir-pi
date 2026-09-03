@@ -1,10 +1,10 @@
 # Story 086: Create disposable E2E workspaces
 
-**Status:** not-started  
+**Status:** complete  
 **Type:** feature  
 **Created:** 2026-09-03  
 **Last accessed:** 2026-09-03  
-**Completed:** —
+**Completed:** 2026-09-03
 
 ---
 
@@ -18,6 +18,7 @@ Run isolated filesystem regressions using temporary fixture projects. Confirm or
 - `.pi/lib/vazir-sandbox-workspace.ts`
 - `scripts/lib/test-sandbox-fixtures.mts`
 - `scripts/validate-vazir-sandbox-workspace.mts`
+- `scripts/run-validations.mts`
 - `.context/stories/plan.md`
 - `.context/stories/story-086.md`
 
@@ -32,17 +33,20 @@ Run isolated filesystem regressions using temporary fixture projects. Confirm or
 ---
 
 ## Checklist
-- [ ] Create unique temporary workspaces with explicit source and destination boundaries
-- [ ] Exclude `.context/` and all protected VCS metadata from every nested copy path
-- [ ] Handle files, directories, and symlinks without permitting source-boundary escapes
-- [ ] Add deterministic cleanup and configurable failure-preservation results
-- [ ] Build shared temporary-project fixtures for sandbox validations
-- [ ] Add regressions for exclusions, concurrency, preservation, cleanup, and source immutability
+- [x] Create unique temporary workspaces with explicit source and destination boundaries
+- [x] Exclude `.context/` and all protected VCS metadata from every nested copy path
+- [x] Handle files, directories, and symlinks without permitting source-boundary escapes
+- [x] Add deterministic cleanup and configurable failure-preservation results
+- [x] Build shared temporary-project fixtures for sandbox validations
+- [x] Add regressions for exclusions, concurrency, preservation, cleanup, and source immutability
 
 ---
 
 ## Issues
 
+- Scope expansion approved during review remediation: `scripts/run-validations.mts` now registers the workspace validation in the aggregate suite.
+
 ---
 
 ## Completion Summary
+Implemented `.pi/lib/vazir-sandbox-workspace.ts`, a reusable disposable workspace staging helper with canonical source boundaries, unique temporary destinations, recursive exclusion of `.context/` and protected Git, JJ, and Fossil metadata, safe internal symlink translation, and rejection of symlink or destination boundary escapes. Added deterministic cleanup with configurable failure preservation and no automatic source export. Added shared temporary-project fixtures and filesystem regressions covering nested copies, exclusions, symlinks, concurrency, preservation, cleanup, boundary rejection, and source immutability.
