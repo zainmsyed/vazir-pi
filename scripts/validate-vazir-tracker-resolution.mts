@@ -11,7 +11,7 @@ const stubModuleDirs = installCommonPiStubs();
 const trackerModule = await loadExtensionModule<{
   default: (pi: any) => void;
   refreshVcsState: (cwd: string) => void;
-  getResolvedVcsKind: () => "none" | "git" | "jj" | "fossil";
+  getResolvedVcsKind: () => "none" | "git" | "fossil";
 }>("vazir-tracker");
 
 function createProject(prefix: string): string {
@@ -72,6 +72,22 @@ async function runTrackerSettingsDrivenScenario() {
     trackerModule.refreshVcsState(cwd);
     const kindD = trackerModule.getResolvedVcsKind();
     assert(kindD === "none", `fossil-only + active_vcs_mode=git should resolve to none, got ${kindD}`);
+
+    // Scenario E: git only with legacy JJ preference → resolves to auto → git
+    fs.rmSync(path.join(cwd, ".fslckout"));
+    initGitRepo(cwd);
+    writeProjectSettings(cwd, { active_vcs_mode: "jj", vcs_preference: "jj" });
+    trackerModule.refreshVcsState(cwd);
+    const kindE = trackerModule.getResolvedVcsKind();
+    assert(kindE === "git", `git-only + legacy vcs_preference=jj should resolve to auto (git), got ${kindE}`);
+
+    // Scenario F: fossil only with legacy JJ preference → resolves to auto → fossil
+    markFakeFossilCheckout(cwd);
+    fs.rmSync(path.join(cwd, ".git"), { recursive: true, force: true });
+    writeProjectSettings(cwd, { active_vcs_mode: "jj", vcs_preference: "jj" });
+    trackerModule.refreshVcsState(cwd);
+    const kindF = trackerModule.getResolvedVcsKind();
+    assert(kindF === "fossil", `fossil-only + legacy vcs_preference=jj should resolve to auto (fossil), got ${kindF}`);
   } finally {
     /* temp dir cleaned by OS */
   }

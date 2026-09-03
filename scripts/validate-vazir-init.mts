@@ -14,7 +14,7 @@ const register = extensionModule.default;
 const trackerModule = await loadExtensionModule<{
   default: (pi: any) => void;
   refreshVcsState: (cwd: string) => void;
-  getResolvedVcsKind: () => "none" | "git" | "jj" | "fossil";
+  getResolvedVcsKind: () => "none" | "git" | "fossil";
 }>("vazir-tracker");
 
 type Notification = { message: string; level: string };
@@ -224,7 +224,7 @@ async function runNoVcsGitChoiceScenario() {
   process.env.PATH = createToolPath({ git: true });
 
   try {
-    await command.handler("", makeCtx(cwd, ["Git/JJ"], notifications, selectCalls));
+    await command.handler("", makeCtx(cwd, ["Git"], notifications, selectCalls));
   } finally {
     process.env.PATH = originalPath;
   }
@@ -232,13 +232,13 @@ async function runNoVcsGitChoiceScenario() {
   const summary = getSummary(notifications);
   const settings = readProjectSettings(cwd);
   assertPromptShown(selectCalls, "No version control system (VCS) is configured in this repo yet");
-  assert(summary.includes("Git/JJ active"), "no-VCS git-choice summary did not show Git/JJ active");
+  assert(summary.includes("Git active"), "no-VCS git-choice summary did not show Git active");
   assert(summary.includes("active mode can be changed later in settings"), "no-VCS git-choice summary did not mention later settings changes");
   assert(settings.active_vcs_mode === "git", "no-VCS git-choice did not write active_vcs_mode=git");
   assert(settings.vcs_preference === "git", "no-VCS git-choice did not write vcs_preference=git");
   assertCommonGitignoreBoilerplate(cwd);
   assert(selectCalls.every(call => !call.prompt.includes("Install Fallow")), "no-VCS git-choice should no longer prompt for Fallow install");
-  assert(sentMessages.every(message => !message.includes("JJ is not installed")), "missing-JJ guidance should stay in notifications, not follow-up messages");
+  assert(selectCalls.every(call => !call.prompt.includes("JJ")), "no-VCS git-choice should not prompt about JJ");
   return { cwd, summary, notifications, selectCalls };
 }
 
@@ -252,7 +252,7 @@ async function runGitOnlyScenario() {
   process.env.PATH = createToolPath({ git: true });
 
   try {
-    await command.handler("", makeCtx(cwd, ["No — keep Git only for now"], notifications, selectCalls));
+    await command.handler("", makeCtx(cwd, [], notifications, selectCalls));
   } finally {
     process.env.PATH = originalPath;
   }
@@ -260,9 +260,8 @@ async function runGitOnlyScenario() {
   const summary = getSummary(notifications);
   const settings = readProjectSettings(cwd);
   assertPromptNotShown(selectCalls, "No version control system (VCS) is configured in this repo yet");
-  assertPromptShown(selectCalls, "Git is already set up in this repo. Do you want to enable JJ for checkpoints?");
-  assert(summary.includes("Git/JJ active"), "git-only summary did not show Git/JJ active");
-  assert(summary.includes("JJ remains optional for checkpoints"), "git-only summary did not mention optional JJ checkpoints");
+  assert(selectCalls.every(call => !call.prompt.includes("JJ")), "git-only flow should not prompt about JJ");
+  assert(summary.includes("Git active"), "git-only summary did not show Git active");
   assert(settings.active_vcs_mode === "git", "git-only flow did not write active_vcs_mode=git");
   assert(settings.vcs_preference === "git", "git-only flow did not keep vcs_preference=git");
   return { cwd, summary, notifications, selectCalls };
@@ -286,7 +285,7 @@ async function runFossilOnlyScenario() {
   const summary = getSummary(notifications);
   const settings = readProjectSettings(cwd);
   assertPromptNotShown(selectCalls, "No version control system (VCS) is configured in this repo yet");
-  assertPromptNotShown(selectCalls, "Do you want to enable JJ for checkpoints");
+  assert(selectCalls.every(call => !call.prompt.includes("JJ")), "fossil-only flow should not prompt about JJ");
   assert(summary.includes("Fossil active"), "fossil-only summary did not show Fossil active");
   assert(summary.includes("active mode can be changed later in settings"), "fossil-only summary did not mention later settings changes");
   assert(settings.active_vcs_mode === "fossil", "fossil-only flow did not write active_vcs_mode=fossil");
@@ -314,7 +313,7 @@ async function runBothPresentScenario() {
   const summary = getSummary(notifications);
   const settings = readProjectSettings(cwd);
   assertPromptShown(selectCalls, "Both Git and Fossil are already present in this repo");
-  assertPromptNotShown(selectCalls, "Git is the active mode for this repo. Do you want to enable JJ for checkpoints too?");
+  assert(selectCalls.every(call => !call.prompt.includes("JJ")), "both-present flow should not prompt about JJ");
   assert(summary.includes("Fossil active"), "both-present summary did not show the selected Fossil mode");
   assert(settings.active_vcs_mode === "fossil", "both-present flow did not persist the selected Fossil active mode");
   assert(settings.vcs_preference === "fossil", "both-present flow did not persist vcs_preference=fossil");
@@ -389,7 +388,7 @@ try {
     console.log("");
   }
 
-  printScenario("No VCS → Git/JJ choice", noVcsGitChoice);
+  printScenario("No VCS → Git choice", noVcsGitChoice);
   printScenario("Git only", gitOnly);
   printScenario("Fossil only", fossilOnly);
   printScenario("Both present → Fossil active", bothPresent);

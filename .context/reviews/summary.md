@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-09-02T16:15:27Z
+**Last updated:** 2026-09-03T18:06:04Z
 
 ## Findings
 - Shared test fixtures should live in one place and be imported where needed. | count: 2 | status: promoted | sources: review-20260901-134651.md, review-20260901-143438.md | stories: story-083, story-084
@@ -39,6 +39,7 @@
 - When extracting helpers into a new module, update every validation/import site that exercises those helpers and rerun the moved module's validation scripts before closing the story. | count: 1 | status: tracked | sources: review-20260518-220211.md | stories: story-020
 - When extracting lifecycle handlers into a new extension, remove the original registration to avoid duplicate event processing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When generating bounded cyclic candidates, normalize modulo results so negative starting offsets cannot escape the committed range. | count: 1 | status: tracked | sources: review-20260808-000002.md | stories: story-066
+- When implementation scope expands, update the story's Scope section at the same time as the approval/Issues note so the story contract remains auditable. | count: 1 | status: tracked | sources: review-20260903-173807.md | stories: story-083
 - When performing bulk deletions with automated scripts, always run a smoke test or grep for remaining references before committing. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - When removing a feature, remove its dedicated validations in the same change; dropping them only from the aggregate runner leaves broken, runnable-looking tests behind. | count: 1 | status: tracked | sources: review-20260902-151652.md | stories: story-082
 - When two release-validation paths perform the same filesystem operation, consolidate the operation in one shared helper and test the combined contract. | count: 1 | status: tracked | sources: review-20260901-130053.md

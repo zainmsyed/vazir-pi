@@ -29,14 +29,10 @@ export interface CheckpointMeta {
   newFiles: string[];
 }
 
-interface JjCheckpointLabelStore {
-  labels: Record<string, string>;
-}
-
 const pendingVcsApprovals = new Map<string, PendingVcsApproval>();
 const acknowledgedVcsApprovals = new Map<string, Set<string>>();
 
-export type VcsKind = "none" | "git" | "jj" | "fossil";
+export type VcsKind = "none" | "git" | "fossil";
 
 const FOSSIL_STATUS_TIMEOUT_MS = 5000;
 
@@ -191,306 +187,6 @@ export function findOrphanedGitSessions(cwd: string, currentId: string): string[
     .filter((id: string) => id !== currentId);
 }
 
-// ── JJ helpers ─────────────────────────────────────────────────────────
-
-const jjOpPromptMap = new Map<string, string>();
-
-function jjCheckpointLabelsPath(cwd: string): string {
-  return path.join(cwd, ".context", "settings", "jj-checkpoint-labels.json");
-}
-
-export function loadJjCheckpointLabels(cwd: string): void {
-  jjOpPromptMap.clear();
-
-  const labelsPath = jjCheckpointLabelsPath(cwd);
-  if (!fs.existsSync(labelsPath)) return;
-
-  try {
-    const parsed = JSON.parse(fs.readFileSync(labelsPath, "utf-8")) as Partial<JjCheckpointLabelStore>;
-    for (const [opId, label] of Object.entries(parsed.labels ?? {})) {
-      if (typeof label === "string" && label.trim()) {
-        jjOpPromptMap.set(opId, label.trim());
-      }
-    }
-  } catch {
-    /* ignore invalid label store */
-  }
-}
-
-function saveJjCheckpointLabel(cwd: string, opId: string, prompt: string): void {
-  const trimmedPrompt = prompt.trim();
-  if (!trimmedPrompt) return;
-
-  const labelsPath = jjCheckpointLabelsPath(cwd);
-  fs.mkdirSync(path.dirname(labelsPath), { recursive: true });
-
-  let store: JjCheckpointLabelStore = { labels: {} };
-  if (fs.existsSync(labelsPath)) {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(labelsPath, "utf-8")) as Partial<JjCheckpointLabelStore>;
-      if (parsed.labels && typeof parsed.labels === "object") {
-        store = { labels: { ...parsed.labels } };
-      }
-    } catch {
-      store = { labels: {} };
-    }
-  }
-
-  const label = trimmedPrompt.slice(0, 80);
-  store.labels[opId] = label;
-  fs.writeFileSync(labelsPath, JSON.stringify(store, null, 2));
-  jjOpPromptMap.set(opId, label);
-}
-
-export function persistCurrentJjCheckpointLabel(cwd: string, prompt: string): void {
-  const opId = currentJjOpId(cwd);
-  if (opId) saveJjCheckpointLabel(cwd, opId, prompt);
-}
-
-export function autoDescribeCurrentJjChange(cwd: string, prompt: string): void {
-  const trimmedPrompt = prompt.trim();
-  if (!trimmedPrompt) return;
-  childProcess.execFileSync("jj", ["describe", "-m", trimmedPrompt.slice(0, 72)], { cwd, stdio: "pipe", timeout: 5000 });
-}
-
-function isJjDescribeOperation(op: { description: string }): boolean {
-  return op.description.startsWith("describe commit ");
-}
-
-function jjOpLog(cwd: string, limit = 15): Array<{ id: string; description: string; ago: string }> {
-  try {
-    const raw = childProcess
-      .execSync(
-        `jj op log --no-graph --limit ${limit} --template 'id.short(8) ++ "||" ++ description ++ "||" ++ time.start().ago() ++ "\\n"'`,
-        { cwd, encoding: "utf-8", timeout: 5000 },
-      )
-      .trim();
-    return raw
-      .split("\n")
-      .filter(Boolean)
-      .map((line: string) => {
-        const [id, description, ago] = line.split("||");
-        return { id: id.trim(), description: description.trim(), ago: ago.trim() };
-      });
-  } catch {
-    return [];
-  }
-}
-
-function isUserVisibleJjCheckpoint(op: { description: string }): boolean {
-  return op.description === "snapshot working copy" || op.description === "restore to operation";
-}
-
-function fallbackJjCheckpointLabel(op: { description: string }): string {
-  if (op.description === "restore to operation") return "Restored checkpoint";
-  return "Checkpoint";
-}
-
-export function checkpointLabel(op: { id: string; description: string; ago: string; label?: string }): string {
-  const prompt = op.label ?? jjOpPromptMap.get(op.id);
-  const label = prompt ? prompt.slice(0, 50) : fallbackJjCheckpointLabel(op);
-  return `${op.ago} · ${label}`;
-}
-
-export function currentJjOpId(cwd: string): string {
-  try {
-    return childProcess
-      .execSync(`jj op log --no-graph --limit 1 --template 'id.short(8)'`, { cwd, encoding: "utf-8", timeout: 5000 })
-      .trim();
-  } catch {
-    return "";
-  }
-}
-
-function currentJjCheckpointId(
-  ops: Array<{ id: string; description: string; ago: string }>,
-  currentOpId: string,
-): string {
-  if (ops.length === 0) return "";
-
-  const currentIndex = ops.findIndex(op => op.id === currentOpId);
-  if (currentIndex === -1) {
-    return isUserVisibleJjCheckpoint(ops[0]) ? ops[0].id : "";
-  }
-
-  const currentOp = ops[currentIndex];
-  if (isUserVisibleJjCheckpoint(currentOp)) return currentOp.id;
-
-  for (let index = currentIndex + 1; index < ops.length; index++) {
-    if (isUserVisibleJjCheckpoint(ops[index])) return ops[index].id;
-  }
-
-  return "";
-}
-
-const JJ_CHECKPOINT_SCAN_LIMIT = 120;
-const JJ_CHECKPOINT_MAX_CHOICES = 12;
-
-export function jjCheckpointChoices(
-  cwd: string,
-): Array<{ id: string; description: string; ago: string; label?: string }> {
-  loadJjCheckpointLabels(cwd);
-
-  const ops = jjOpLog(cwd, JJ_CHECKPOINT_SCAN_LIMIT);
-  if (ops.length <= 1) return [];
-
-  const currentOpId = currentJjOpId(cwd) || ops[0]?.id || "";
-  const currentCheckpointId = currentJjCheckpointId(ops, currentOpId);
-
-  const visible = ops
-    .map((op, index) => {
-      if (op.id === currentOpId || op.id === currentCheckpointId || !isUserVisibleJjCheckpoint(op)) return null;
-      const directLabel = jjOpPromptMap.get(op.id);
-      const previousDescribeLabel =
-        index > 0 && isJjDescribeOperation(ops[index - 1]) ? jjOpPromptMap.get(ops[index - 1].id) : undefined;
-      return { ...op, label: directLabel ?? previousDescribeLabel };
-    })
-    .filter(Boolean) as Array<{ id: string; description: string; ago: string; label?: string }>;
-
-  return visible.slice(0, JJ_CHECKPOINT_MAX_CHOICES);
-}
-
-export function jjDiffStat(cwd: string): string {
-  try {
-    return childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8", timeout: 5000 }).trim();
-  } catch {
-    return "";
-  }
-}
-
-export function jjDiffFile(cwd: string, file: string): string {
-  try {
-    return childProcess.execFileSync("jj", ["diff", "--no-color", "--", file], { cwd, encoding: "utf-8", timeout: 5000 });
-  } catch {
-    return "";
-  }
-}
-
-export function jjHasChanges(cwd: string): boolean {
-  try {
-    return childProcess.execSync("jj diff --stat", { cwd, encoding: "utf-8", timeout: 5000 }).trim() !== "";
-  } catch {
-    return false;
-  }
-}
-
-export function jjRestoreCheckpoint(cwd: string, opId: string): void {
-  childProcess.execFileSync("jj", ["op", "restore", opId], { cwd, stdio: "pipe", timeout: 5000 });
-}
-
-// ── Agent-run checkpoint helpers ───────────────────────────────────────
-
-export interface AgentRunCheckpoint {
-  preRunOpId: string;
-  prompt: string;
-  files: string[];
-  timestamp: string;
-  hasChanges: boolean;
-}
-
-interface AgentRunCheckpointStore {
-  checkpoints: AgentRunCheckpoint[];
-}
-
-const AGENT_RUN_CHECKPOINT_MAX = 20;
-
-function agentRunCheckpointsPath(cwd: string): string {
-  return path.join(cwd, ".context", "settings", "jj-agent-run-checkpoints.json");
-}
-
-export function loadAgentRunCheckpoints(cwd: string): AgentRunCheckpoint[] {
-  const storePath = agentRunCheckpointsPath(cwd);
-  if (!fs.existsSync(storePath)) return [];
-  try {
-    const parsed = JSON.parse(fs.readFileSync(storePath, "utf-8")) as Partial<AgentRunCheckpointStore>;
-    if (Array.isArray(parsed.checkpoints)) return parsed.checkpoints;
-  } catch {
-    /* ignore corrupt store */
-  }
-  return [];
-}
-
-function pruneAgentRunCheckpoints(checkpoints: AgentRunCheckpoint[]): AgentRunCheckpoint[] {
-  return checkpoints.slice(-AGENT_RUN_CHECKPOINT_MAX);
-}
-
-export function saveAgentRunCheckpoint(cwd: string, checkpoint: AgentRunCheckpoint): void {
-  const storePath = agentRunCheckpointsPath(cwd);
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  const existing = loadAgentRunCheckpoints(cwd);
-  existing.push(checkpoint);
-  const pruned = pruneAgentRunCheckpoints(existing);
-  fs.writeFileSync(storePath, JSON.stringify({ checkpoints: pruned }, null, 2));
-}
-
-export function getLatestUndoableAgentRun(cwd: string): AgentRunCheckpoint | null {
-  const checkpoints = loadAgentRunCheckpoints(cwd);
-  for (let i = checkpoints.length - 1; i >= 0; i--) {
-    if (checkpoints[i].hasChanges) return checkpoints[i];
-  }
-  return null;
-}
-
-// ── Milestone helpers ──────────────────────────────────────────────────
-// NOTE: This block is mirrored in .pi/lib/vazir-vcs-helpers.ts.
-// Any change here should be applied there as well (or the duplication
-// should be removed by importing from a single source of truth).
-
-export interface Milestone {
-  id: string;
-  opId: string;
-  label: string;
-  timestamp: string;
-  kind: "agent-run" | "explicit-save" | "workflow-boundary";
-}
-
-interface MilestoneStore {
-  milestones: Milestone[];
-}
-
-const MILESTONE_MAX = 30;
-
-function milestonesPath(cwd: string): string {
-  return path.join(cwd, ".context", "settings", "jj-milestones.json");
-}
-
-export function loadMilestones(cwd: string): Milestone[] {
-  const storePath = milestonesPath(cwd);
-  if (!fs.existsSync(storePath)) return [];
-  try {
-    const parsed = JSON.parse(fs.readFileSync(storePath, "utf-8")) as Partial<MilestoneStore>;
-    if (Array.isArray(parsed.milestones)) return parsed.milestones;
-  } catch {
-    /* ignore corrupt store */
-  }
-  return [];
-}
-
-function pruneMilestones(milestones: Milestone[]): Milestone[] {
-  return milestones.slice(-MILESTONE_MAX);
-}
-
-export function saveMilestone(cwd: string, milestone: Milestone): void {
-  const storePath = milestonesPath(cwd);
-  fs.mkdirSync(path.dirname(storePath), { recursive: true });
-  const existing = loadMilestones(cwd);
-  existing.push(milestone);
-  const pruned = pruneMilestones(existing);
-  fs.writeFileSync(storePath, JSON.stringify({ milestones: pruned }, null, 2));
-}
-
-export function milestoneLabel(ms: Milestone): string {
-  const t = new Date(ms.timestamp).toLocaleTimeString();
-  const kindPrefix = ms.kind === "agent-run" ? "Run" : ms.kind === "explicit-save" ? "Save" : "Boundary";
-  return `${t} · ${kindPrefix} · ${ms.label.slice(0, 50)} · ${ms.id.slice(-4)}`;
-}
-
-export function getMilestoneChoices(cwd: string): Milestone[] {
-  return loadMilestones(cwd).slice().reverse();
-}
-
-// ── VCS sync ───────────────────────────────────────────────────────────
-
 function syncFromGit(cwd: string): void {
   try {
     const statusOut = childProcess.execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 });
@@ -549,28 +245,6 @@ function syncFromGit(cwd: string): void {
     }
   } catch {
     /* not a git repo */
-  }
-}
-
-function syncFromJJ(cwd: string): void {
-  changedFiles.clear();
-  try {
-    const stat = jjDiffStat(cwd);
-    if (!stat) return;
-    for (const line of stat.split("\n")) {
-      const m = line.match(/^\s*(.+?)\s+\|\s+(\d+)\s+([+-]*)/);
-      if (!m) continue;
-      const file = m[1].trim();
-      const plusMinus = m[3];
-      changedFiles.set(file, {
-        file,
-        status: "M",
-        added: (plusMinus.match(/\+/g) || []).length,
-        removed: (plusMinus.match(/-/g) || []).length,
-      });
-    }
-  } catch {
-    /* ignore */
   }
 }
 
@@ -684,17 +358,6 @@ function gitRefLabel(cwd: string): string {
   return "workspace";
 }
 
-function jjRefLabel(cwd: string): string {
-  try {
-    const label = childProcess.execSync("jj bookmark list --revision @ --no-graph", { cwd, encoding: "utf-8", stdio: "pipe", timeout: 5000 }).trim();
-    if (label) return label;
-  } catch {
-    // ignore
-  }
-
-  return "jj";
-}
-
 function fossilRefLabel(cwd: string): string {
   try {
     const branch = childProcess.execSync("fossil branch current", { cwd, encoding: "utf-8", stdio: "pipe", timeout: FOSSIL_STATUS_TIMEOUT_MS }).trim();
@@ -737,17 +400,6 @@ function buildVcsDisplayInfo(cwd: string, kind: VcsKind): VcsDisplayInfo {
   const mirrorLabel = mirrorStatus.shortLabel;
   const mirrorSeverity = mirrorStatus.severity;
 
-  if (kind === "jj") {
-    return {
-      kind,
-      refLabel: jjRefLabel(cwd),
-      workingLabel: dirtyCount > 0 ? `${dirtyCount} uncommitted` : "✓ clean",
-      syncLabel: "",
-      mirrorLabel,
-      mirrorSeverity,
-    };
-  }
-
   if (kind === "git") {
     return {
       kind,
@@ -788,8 +440,7 @@ export function syncChanges(cwd: string, vcsKind: VcsKind): VcsDisplayInfo {
     return buildVcsDisplayInfo(cwd, vcsKind);
   }
 
-  if (vcsKind === "jj") syncFromJJ(cwd);
-  else if (vcsKind === "fossil") syncFromFossil(cwd);
+  if (vcsKind === "fossil") syncFromFossil(cwd);
   else syncFromGit(cwd);
 
   return buildVcsDisplayInfo(cwd, vcsKind);

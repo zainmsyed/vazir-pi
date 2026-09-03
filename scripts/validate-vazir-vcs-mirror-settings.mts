@@ -11,10 +11,10 @@ const stubModuleDirs = installCommonPiStubs();
 const contextModule = await loadExtensionModule<{ default: (pi: any) => void }>("vazir-context", String(Date.now()));
 const trackerModule = await loadExtensionModule<{
   refreshVcsState: (cwd: string) => void;
-  getResolvedVcsKind: () => "none" | "git" | "jj" | "fossil";
+  getResolvedVcsKind: () => "none" | "git" | "fossil";
 }>("vazir-tracker", String(Date.now()));
 const trackerVcsModule = await loadFileModule<{
-  syncChanges: (cwd: string, kind: "none" | "git" | "jj" | "fossil") => { mirrorLabel: string; mirrorSeverity: "success" | "warning" | "error" | null; syncLabel: string; workingLabel: string; refLabel: string };
+  syncChanges: (cwd: string, kind: "none" | "git" | "fossil") => { mirrorLabel: string; mirrorSeverity: "success" | "warning" | "error" | null; syncLabel: string; workingLabel: string; refLabel: string };
 }>(path.join(repoRoot, ".pi", "extensions", "vazir-tracker", "vcs.ts"), String(Date.now()));
 const helperModule = await loadFileModule<{
   readVcsMirrorSettings: (cwd: string) => { mode: string; path: string; remoteName: string; branch: string };
@@ -94,6 +94,26 @@ async function runMirrorCommandScenario() {
   await command!.handler("mirror none", makeCtx(cwd, notifications));
   const disabled = readProjectSettings(cwd);
   assert(disabled.vcs_mirror?.mode === "none", "mirror none should disable mirror guidance");
+
+  return { cwd, notifications };
+}
+
+async function runLegacyJjArgumentScenario() {
+  const cwd = createProject("vazir-vcs-settings-legacy-jj-");
+  initGitRepo(cwd);
+  writeProjectSettings(cwd, { active_vcs_mode: "git", vcs_preference: "git" });
+
+  const pi = makePi([contextModule.default]);
+  const command = pi.getCommand("vcs-settings");
+  assert(command, "vcs-settings command should be registered for legacy jj scenario");
+
+  const notifications: Array<{ message: string; level: string }> = [];
+  await command!.handler("jj", makeCtx(cwd, notifications));
+
+  const settings = readProjectSettings(cwd);
+  assert(settings.vcs_preference === "auto", "legacy /vcs-settings jj argument should resolve to auto");
+  assert(settings.active_vcs_mode === "git", "legacy /vcs-settings jj argument should resolve to the detected git mode");
+  assert(notifications.some(entry => entry.message.includes("VCS preference set to auto")), "legacy jj argument should announce auto resolution");
 
   return { cwd, notifications };
 }
@@ -306,6 +326,7 @@ async function runNoGitDetectedPathSetupScenario() {
 
 try {
   const commandScenario = await runMirrorCommandScenario();
+  const legacyJjScenario = await runLegacyJjArgumentScenario();
   const displayScenario = runMirrorDisplayScenario();
   const missingGitScenario = await runMissingGitScenario();
   const inactiveMirrorScenario = runInactiveMirrorScenario();

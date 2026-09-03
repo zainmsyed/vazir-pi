@@ -134,7 +134,7 @@ Validates the story checklist and issues, checks completion readiness, and optio
 | `/unlearn` | Remove a promoted rule from system memory |
 | `/consolidate` | Cluster complaints and promote repeated rule candidates |
 | `/design [instruction]` | Review and edit design system, brand, components |
-| `/vcs-settings [mode]` | Pick or set the preferred VCS mode (auto, git, jj, fossil) |
+| `/vcs-settings [mode]` | Pick or set the preferred VCS mode (auto, git, fossil) |
 | `/diff [file]` | Show the diff for one changed file |
 | `/edits` | Show the recent file edit stream |
 | `/checkpoint` | Pick a checkpoint to restore |

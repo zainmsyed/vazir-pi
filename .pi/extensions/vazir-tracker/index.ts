@@ -9,7 +9,6 @@ import {
   complaintsLogPath,
   compareStoriesByRecencyDesc,
   detectFossil,
-  detectJJ,
   findActiveStory,
   inspectUntrackedContextFiles,
   listStoryValidationIssues,
@@ -54,49 +53,27 @@ import {
   isUiStory,
 } from "../vazir-context/helpers.ts";
 import {
-  autoDescribeCurrentJjChange,
   clearPendingVcsApproval,
   type CheckpointMeta,
-  checkpointLabel,
-  currentJjOpId,
   detectGitRepo,
   findOrphanedGitSessions,
-  getLatestUndoableAgentRun,
-  getMilestoneChoices,
   gitRestoreCheckpoint,
   gitSnapshotFile,
   inspectVcsToolGuard,
   isGitClean,
-  jjCheckpointChoices,
-  jjDiffFile,
-  jjHasChanges,
-  jjRestoreCheckpoint,
   listGitCheckpoints,
-  loadJjCheckpointLabels,
-  milestoneLabel,
   noteUserVcsApproval,
-  persistCurrentJjCheckpointLabel,
-  saveAgentRunCheckpoint,
-  saveMilestone,
   sessionCheckpointDir,
   syncChanges,
-  type Milestone,
 } from "./vcs.ts";
 
 // ── Session state ──────────────────────────────────────────────────────
 
 let lastUserPrompt = "";
-let useJJ = false;
 let hasGitRepo = false;
 let hasFossilRepo = false;
-let vcsKind: "none" | "git" | "jj" | "fossil" = "none";
+let vcsKind: "none" | "git" | "fossil" = "none";
 let currentSessionId = "";
-
-// ── JJ agent-run checkpoint state ──────────────────────────────────────
-
-let jjPreRunOpId = "";
-let jjRunWroteFiles = false;
-let jjRunFiles: string[] = [];
 
 export function normalizeTrackerInputText(text: string): string {
   return text.trim() === "/impliment" ? "/implement" : text;
@@ -327,19 +304,16 @@ async function resolveStoryForImplementation(
   return selected;
 }
 
-function resolvePreferredVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" {
+function resolvePreferredVcsKind(cwd: string): "none" | "git" | "fossil" {
   const settings = readProjectSettings(cwd);
   const vcsPreference = typeof settings.vcs_preference === "string" ? settings.vcs_preference.trim().toLowerCase() : "";
   const hasExplicitMode = "active_vcs_mode" in settings;
   const activeMode = readActiveVcsMode(cwd);
 
   // Footer/chrome identity shows the backend VCS only: git or fossil.
-  // JJ remains a helper for checkpoints/undo when Git is active.
   if (vcsPreference && vcsPreference !== "auto") {
     if (vcsPreference === "fossil" && hasFossilRepo) return "fossil";
-    if (((vcsPreference === "jj" && useJJ) || vcsPreference === "git") && hasGitRepo) {
-      return "git";
-    }
+    if (vcsPreference === "git" && hasGitRepo) return "git";
   }
 
   if (hasExplicitMode) {
@@ -352,34 +326,31 @@ function resolvePreferredVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" 
   }
 
   // Legacy fallback for pre-story-014 projects without active_vcs_mode
-  // Prefer Git over Fossil when both are present. Colocated Git+JJ still renders as Git.
-  if (useJJ || hasGitRepo) return "git";
+  // Prefer Git over Fossil when both are present.
+  if (hasGitRepo) return "git";
   if (hasFossilRepo) return "fossil";
   return "none";
 }
 
-function computeAutoDetectedVcsKind(cwd: string): "none" | "git" | "jj" | "fossil" {
+function computeAutoDetectedVcsKind(cwd: string): "none" | "git" | "fossil" {
   const git = detectGitRepo(cwd);
-  const jj = git ? detectJJ(cwd) : false;
   const fossil = detectFossil(cwd);
-  if (jj || git) return "git";
+  if (git) return "git";
   if (fossil) return "fossil";
   return "none";
 }
 
 function refreshDetectedVcs(cwd: string): void {
   hasGitRepo = detectGitRepo(cwd);
-  useJJ = hasGitRepo ? detectJJ(cwd) : false;
   hasFossilRepo = detectFossil(cwd);
   vcsKind = resolvePreferredVcsKind(cwd);
-  if (useJJ) loadJjCheckpointLabels(cwd);
 }
 
 function syncAndPublishVcs(cwd: string): void {
   const display = syncChanges(cwd, vcsKind);
   const autoKind = computeAutoDetectedVcsKind(cwd);
   const isOverridden = vcsKind !== autoKind;
-  setVcsFlags(hasGitRepo, useJJ, vcsKind, display, isOverridden);
+  setVcsFlags(hasGitRepo, vcsKind, display, isOverridden);
 }
 
 export function refreshVcsState(cwd: string): void {
@@ -430,7 +401,7 @@ function deferInitialVcsRefresh(cwd: string): void {
   }, 0);
 }
 
-export function getResolvedVcsKind(): "none" | "git" | "jj" | "fossil" {
+export function getResolvedVcsKind(): "none" | "git" | "fossil" {
   return vcsKind;
 }
 
@@ -510,7 +481,7 @@ export default function (pi: ExtensionAPI) {
           fs.existsSync(path.join(cwd, ".context", "settings", "project.json"));
         if (!isInitialized) {
           ctx.ui.notify(
-            "Vazir is not initialized here. Run /vazir-init to bootstrap .context and optional git/JJ setup.",
+            "Vazir is not initialized here. Run /vazir-init to bootstrap .context and optional git or fossil setup.",
             "info",
           );
         }
@@ -523,14 +494,7 @@ export default function (pi: ExtensionAPI) {
       // ── Recovery check (deferred so it doesn't block session startup) ──
       setTimeout(() => {
         try {
-          if (useJJ) {
-            if (jjHasChanges(cwd)) {
-              ctx.ui.notify(
-                "Work in progress from previous session detected. Use /reset to restore an earlier state.",
-                "warning",
-              );
-            }
-          } else if (hasGitRepo) {
+          if (hasGitRepo) {
             const orphans = findOrphanedGitSessions(cwd, currentSessionId);
             if (orphans.length > 0) {
               if (!isGitClean(cwd)) {
@@ -562,7 +526,6 @@ export default function (pi: ExtensionAPI) {
     if (ctx.cwd) clearPendingVcsApproval(ctx.cwd);
     hasGitRepo = false;
     hasFossilRepo = false;
-    useJJ = false;
     vcsKind = "none";
     warnedUntrackedContextFiles.clear();
     lastUntrackedContextInspectionError = "";
@@ -577,13 +540,6 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (_event: unknown, ctx: { cwd: string; hasUI?: boolean; ui?: any }) => {
     if (ctx.hasUI) {
       ensureSessionChromeMounted(ctx.ui, ctx.cwd);
-    }
-
-    if (useJJ) {
-      jjPreRunOpId = currentJjOpId(ctx.cwd);
-      jjRunWroteFiles = false;
-      jjRunFiles = [];
-      return;
     }
 
     if (!hasGitRepo) return;
@@ -619,13 +575,8 @@ export default function (pi: ExtensionAPI) {
         recordEditStreamEntry("start", toolName, file, callId);
         refreshWidgets();
 
-        if (useJJ && file !== "(unknown file)") {
-          jjRunWroteFiles = true;
-          if (!jjRunFiles.includes(file)) jjRunFiles.push(file);
-        }
       }
 
-      if (useJJ) return;
       if (event.toolName === "write" || event.toolName === "edit") {
         const filePath = (event.input as any)?.path;
         if (filePath && gitCurrentCheckpointDir) {
@@ -662,51 +613,6 @@ export default function (pi: ExtensionAPI) {
     warnOnUntrackedContextFiles(ctx.cwd, ctx.ui);
     if (ctx.hasUI) ensureSessionChromeMounted(ctx.ui, ctx.cwd);
 
-    if (!useJJ || !lastUserPrompt.trim()) return;
-
-    if (jjRunWroteFiles && jjPreRunOpId) {
-      try {
-        saveAgentRunCheckpoint(ctx.cwd, {
-          preRunOpId: jjPreRunOpId,
-          prompt: lastUserPrompt.slice(0, 200),
-          files: [...jjRunFiles],
-          timestamp: new Date().toISOString(),
-          hasChanges: true,
-        });
-      } catch (e: any) {
-        ctx.ui?.notify?.(`Failed to save undo checkpoint: ${e.message}`, "warning");
-      }
-
-      try {
-        const postRunOpId = currentJjOpId(ctx.cwd);
-        saveMilestone(ctx.cwd, {
-          id: `${postRunOpId}-${Date.now()}`,
-          opId: jjPreRunOpId,
-          label: lastUserPrompt.slice(0, 100),
-          timestamp: new Date().toISOString(),
-          kind: "agent-run",
-        });
-      } catch (e: any) {
-        ctx.ui?.notify?.(`Failed to save milestone: ${e.message}`, "warning");
-      }
-    }
-
-    // Reset per-run state for next agent run
-    jjPreRunOpId = "";
-    jjRunWroteFiles = false;
-    jjRunFiles = [];
-
-    try {
-      persistCurrentJjCheckpointLabel(ctx.cwd, lastUserPrompt);
-    } catch {
-      /* silent */
-    }
-
-    try {
-      autoDescribeCurrentJjChange(ctx.cwd, lastUserPrompt);
-    } catch {
-      /* silent */
-    }
   });
 
   // ── /diff ─────────────────────────────────────────────────────────────
@@ -734,9 +640,7 @@ export default function (pi: ExtensionAPI) {
 
       let diffText: string;
       try {
-        if (useJJ) {
-          diffText = jjDiffFile(ctx.cwd, chosen.file);
-        } else if (chosen.status === "?") {
+        if (chosen.status === "?") {
           const content = fs.readFileSync(path.join(ctx.cwd, chosen.file), "utf-8");
           diffText = content
             .split("\n")
@@ -971,94 +875,6 @@ export default function (pi: ExtensionAPI) {
   async function runCheckpointRestore(ctx: { cwd: string; ui: any }) {
     const cwd = ctx.cwd;
 
-    if (useJJ) {
-      const latestRun = getLatestUndoableAgentRun(cwd);
-      const milestones = getMilestoneChoices(cwd);
-      const rawPickable = jjCheckpointChoices(cwd);
-
-      const undoLabel = latestRun
-        ? `Undo last agent run — ${latestRun.prompt.slice(0, 40)}`
-        : milestones.length > 0
-          ? `Restore latest milestone — ${milestones[0].label.slice(0, 40)}`
-          : "No undo target available";
-
-      const restoreChoice = await ctx.ui.select("Restore checkpoint?", [
-        undoLabel,
-        "Browse milestones — pick from curated history",
-        "Save milestone — mark current state",
-        "Cancel",
-      ]);
-
-      if (restoreChoice === "Cancel" || restoreChoice == null) return;
-
-      if (restoreChoice === undoLabel) {
-        if (latestRun) {
-          try {
-            jjRestoreCheckpoint(cwd, latestRun.preRunOpId);
-            ctx.ui.notify(`Restored to pre-run state (${latestRun.prompt.slice(0, 50)})`, "info");
-          } catch (e: any) {
-            ctx.ui.notify(`Restore failed: ${e.message}`, "error");
-          }
-        } else if (milestones.length > 0) {
-          try {
-            jjRestoreCheckpoint(cwd, milestones[0].opId);
-            ctx.ui.notify(`Restored to previous milestone (${milestones[0].label.slice(0, 50)})`, "info");
-          } catch (e: any) {
-            ctx.ui.notify(`Restore failed: ${e.message}`, "error");
-          }
-        } else {
-          ctx.ui.notify("No checkpoints available to restore", "info");
-          return;
-        }
-      } else if (restoreChoice === "Browse milestones — pick from curated history") {
-        const labels = milestones.map(ms => milestoneLabel(ms));
-        const pick = await ctx.ui.select("Restore to which milestone?", [...labels, "Advanced — browse raw JJ history"]);
-        if (pick === "Advanced — browse raw JJ history") {
-          if (rawPickable.length === 0) {
-            ctx.ui.notify("No raw checkpoints available", "info");
-            return;
-          }
-          const rawLabels = rawPickable.map(op => checkpointLabel(op));
-          const rawPick = await ctx.ui.select("Restore to which raw checkpoint?", rawLabels);
-          if (rawPick != null) {
-            const chosen = rawPickable[rawLabels.indexOf(rawPick)];
-            try {
-              jjRestoreCheckpoint(cwd, chosen.id);
-              ctx.ui.notify(`Restored to raw checkpoint: ${checkpointLabel(chosen)}`, "info");
-            } catch (e: any) {
-              ctx.ui.notify(`Restore failed: ${e.message}`, "error");
-            }
-          }
-        } else if (pick != null) {
-          const chosen = milestones[labels.indexOf(pick)];
-          try {
-            jjRestoreCheckpoint(cwd, chosen.opId);
-            ctx.ui.notify(`Restored to milestone: ${milestoneLabel(chosen)}`, "info");
-          } catch (e: any) {
-            ctx.ui.notify(`Restore failed: ${e.message}`, "error");
-          }
-        }
-      } else if (restoreChoice === "Save milestone — mark current state") {
-        try {
-          const opId = currentJjOpId(cwd);
-          saveMilestone(cwd, {
-            id: `${opId}-${Date.now()}`,
-            opId,
-            label: lastUserPrompt.trim() ? `Manual save — ${lastUserPrompt.slice(0, 80)}` : "Manual save",
-            timestamp: new Date().toISOString(),
-            kind: "explicit-save",
-          });
-          ctx.ui.notify("Current state saved as milestone", "info");
-        } catch (e: any) {
-          ctx.ui.notify(`Failed to save milestone: ${e.message}`, "error");
-        }
-      }
-
-      syncAndPublishVcs(cwd);
-      refreshWidgets();
-      return;
-    }
-
     const checkpoints = listGitCheckpoints(cwd, currentSessionId);
     if (checkpoints.length === 0) {
       ctx.ui.notify("No checkpoints available to restore", "info");
@@ -1095,7 +911,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.registerCommand("checkpoint", {
-    description: "JJ checkpoint picker — restore to a previous operation",
+    description: "Restore from a numbered Git snapshot checkpoint",
     handler: async (_args: string, ctx: { cwd: string; ui: any }) => {
       await runCheckpointRestore(ctx);
     },

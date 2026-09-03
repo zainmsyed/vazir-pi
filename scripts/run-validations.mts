@@ -6,26 +6,12 @@ import { cleanupStubModules, installCommonPiStubs } from "./lib/validation-harne
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.dirname(scriptDir);
 
-// Environment-dependent validations are skipped only when their required external tool is absent.
-const REQUIRED_COMMANDS: Record<string, string> = {
-  "validate-vazir-jj-exact-restore.mts": "jj",
-};
-
-function commandAvailable(command: string): boolean {
-  try {
-    childProcess.execFileSync(command, ["--version"], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 // Manual-only validations:
 // - validate-vazir-live-reload.mts depends on host fs.watch timing/debounce behavior and is kept
 //   as an explicit troubleshooting/manual check instead of part of the deterministic aggregate suite.
 const validations = [
   "validate-learned-rule-draft-edge-cases.mts",
-  "validate-vazir-checkpoint-labels.mts",
   "validate-vazir-active-review-suppression.mts",
   "validate-vazir-complete-story.mts",
   "validate-vazir-confidence-and-subsections.mts",
@@ -39,12 +25,10 @@ const validations = [
   "validate-vazir-plan-idea.mts",
   "validate-vazir-fossil-footer.mts",
   "validate-vazir-fossil-timeouts.mts",
+  "validate-vazir-git-checkpoints.mts",
   "validate-vazir-implement-command.mts",
   "validate-vazir-init.mts",
   "validate-vazir-ports.mts",
-  "validate-vazir-jj-agent-run-checkpoints.mts",
-  "validate-vazir-jj-exact-restore.mts",
-  "validate-vazir-jj-milestones.mts",
   "validate-vazir-learning-loop.mts",
   "validate-vazir-memory-review.mts",
   "validate-vazir-package-install.mts",
@@ -70,15 +54,6 @@ const stubModuleDirs = installCommonPiStubs();
 
 try {
   for (const fileName of validations) {
-    const requiredCommand = REQUIRED_COMMANDS[fileName];
-    if (requiredCommand && !commandAvailable(requiredCommand)) {
-      if (process.env.VAZIR_REQUIRE_JJ === "1") {
-        throw new Error(`Required validation tool '${requiredCommand}' is not installed for ${fileName}.`);
-      }
-      console.log(`Skipping ${fileName} — ${requiredCommand} is not installed (set VAZIR_REQUIRE_JJ=1 to enforce this validation)`);
-      continue;
-    }
-
     const scriptPath = path.join(scriptDir, fileName);
     console.log(`Running ${fileName}`);
     try {

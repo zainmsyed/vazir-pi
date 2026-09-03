@@ -19,7 +19,7 @@
 - .pi/extensions/vazir-live-reload.ts — Dev-time extension watcher that reloads Pi when extension source files change
 - .pi/extensions/vazir-tracker/index.ts — Change tracker, story picker, /diff, /fix, /reset
 - .pi/extensions/vazir-tracker/chrome.ts — Session chrome, footer/status rendering, render refresh hooks
-- .pi/extensions/vazir-tracker/vcs.ts — Git/JJ detection, checkpoint handling, change syncing
+- .pi/extensions/vazir-tracker/vcs.ts — Git/Fossil detection, checkpoint handling, change syncing
 - .pi/skills/vazir-base/SKILL.md — Always-on agent constraints
 - .context/stories/ — Story files (plan.md + story-NNN.md)
 - .context/reviews/ — Structured per-review files with status/checklist, remembered rules log, running summary

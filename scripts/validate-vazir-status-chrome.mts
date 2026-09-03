@@ -588,16 +588,7 @@ async function runInitRefreshScenario() {
 
   const branch = childProcess.execSync("git symbolic-ref --short HEAD", { cwd, encoding: "utf-8", stdio: "pipe" }).trim();
   const afterInitLines = footerComponent.render(140).map(stripAnsi);
-  // Determine expected VCS label: if /vazir-init also ran jj git init --colocate the footer
-  // shows "jj" (no bookmarks yet), otherwise it shows the git branch name.
-  let jjRootInCwd = false;
-  try {
-    childProcess.execSync("jj root", { cwd, encoding: "utf-8", stdio: "pipe" });
-    jjRootInCwd = true;
-  } catch {
-    // JJ not active in this folder
-  }
-  const expectedVcsLabel = jjRootInCwd ? "jj" : branch;
+  const expectedVcsLabel = branch;
   assert(footerRenderRequests > 0, "vazir-init did not request a footer rerender");
   assert(afterInitLines[1]?.includes(expectedVcsLabel), `footer did not switch to the live VCS label (${expectedVcsLabel}) after /vazir-init without reload`);
   assert(!afterInitLines[1]?.includes("no-git"), "footer still showed no-git after /vazir-init");

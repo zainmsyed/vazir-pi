@@ -88,7 +88,7 @@ const VAZIR_COMMAND_DOCS: CommandDoc[] = [
     usage: "/vazir-init",
     args: [],
     examples: ["/vazir-init"],
-    longDesc: "Initializes the Vazir project context by creating the .context/ directory structure with stories, reviews, memory, and settings folders. Detects available version control systems (Git, JJ, Fossil) and configures the preferred mode. If already initialized, offers to reconfigure VCS preference instead of full re-bootstrap.",
+    longDesc: "Initializes the Vazir project context by creating the .context/ directory structure with stories, reviews, memory, and settings folders. Detects available version control systems (Git, Fossil) and configures the preferred mode. If already initialized, offers to reconfigure VCS preference instead of full re-bootstrap.",
   },
   {
     command: "/plan",
@@ -189,10 +189,10 @@ const VAZIR_COMMAND_DOCS: CommandDoc[] = [
   {
     command: "/vcs-settings",
     shortDesc: "set the active VCS mode and optional Fossil→Git mirror hint",
-    usage: "/vcs-settings [auto|git|jj|fossil|mirror <none|git|autosync <on|off>>]",
-    args: ["mode — auto, git, jj, fossil, or mirror <none|git|autosync <on|off>>"],
+    usage: "/vcs-settings [auto|git|fossil|mirror <none|git|autosync <on|off>>]",
+    args: ["mode — auto, git, fossil, or mirror <none|git|autosync <on|off>>"],
     examples: ["/vcs-settings", "/vcs-settings fossil", "/vcs-settings mirror git", "/vcs-settings mirror none", "/vcs-settings mirror autosync on"],
-    longDesc: "Configures Vazir's active version control system and optional mirror guidance. Supports Auto (detect), Git/JJ, and Fossil modes. Mirror mode is explicit and informational only: use `/vcs-settings mirror git` when Fossil is canonical and Git exists as a mirror. Use `/vcs-settings mirror autosync on|off` to optionally auto-export the Git mirror when closing a story with committed changes. Vazir will not auto-sync, auto-push, or switch modes just because both metadata directories are present. Updates .context/settings/project.json.",
+    longDesc: "Configures Vazir's active version control system and optional mirror guidance. Supports Auto (detect), Git, and Fossil modes. Mirror mode is explicit and informational only: use `/vcs-settings mirror git` when Fossil is canonical and Git exists as a mirror. Use `/vcs-settings mirror autosync on|off` to optionally auto-export the Git mirror when closing a story with committed changes. Vazir will not auto-sync, auto-push, or switch modes just because both metadata directories are present. Updates .context/settings/project.json.",
   },
   {
     command: "/vcs-mirror-sync",
@@ -208,7 +208,7 @@ const VAZIR_COMMAND_DOCS: CommandDoc[] = [
     usage: "/diff [file]",
     args: ["file — optional specific file to diff"],
     examples: ["/diff", "/diff src/app.ts"],
-    longDesc: "Shows an inline terminal diff for a changed file. If multiple files are changed, presents a picker. Supports Git, JJ, and Fossil diffs. New (untracked) files are shown as full additions.",
+    longDesc: "Shows an inline terminal diff for a changed file. If multiple files are changed, presents a picker. Supports Git and Fossil diffs. New (untracked) files are shown as full additions.",
   },
   {
     command: "/edits",
@@ -224,7 +224,7 @@ const VAZIR_COMMAND_DOCS: CommandDoc[] = [
     usage: "/checkpoint",
     args: [],
     examples: ["/checkpoint"],
-    longDesc: "Opens the checkpoint restore workflow. With JJ, offers to undo the last agent run, browse curated milestones, or save a new milestone. With Git, restores from numbered snapshot directories. Keeps code and relevant .context workflow state aligned after restore.",
+    longDesc: "Opens the checkpoint restore workflow. With Git, restores from numbered snapshot directories taken before each agent run. Keeps code and relevant .context workflow state aligned after restore.",
   },
   {
     command: "/reset",
@@ -311,7 +311,7 @@ const VAZIR_QUICKSTART_MARKDOWN = [
 
 // ── Exported mutable state (VCS code writes to these) ──────────────────
 
-/** Shared with VCS layer — syncFromGit/syncFromJJ write here; footer reads here. */
+/** Shared with VCS layer — syncFromGit/syncFromFossil write here; footer reads here. */
 export const changedFiles = new Map<string, FileInfo>();
 
 // ── Private chrome state ───────────────────────────────────────────────
@@ -336,9 +336,8 @@ let storyProgressCache: StoryProgressSummary | null | undefined = undefined;
 
 // Mirrors of VCS flags — synced from index.ts via setVcsFlags().
 let _hasGitRepo = false;
-let _useJJ = false;
 let _hasFossilRepo = false;
-let _vcsKind: "none" | "git" | "jj" | "fossil" = "none";
+let _vcsKind: "none" | "git" | "fossil" = "none";
 let _vcsDisplay = { refLabel: "workspace", workingLabel: "", syncLabel: "", mirrorLabel: "", mirrorSeverity: null as "success" | "warning" | "error" | null };
 let _vcsOverridden = false;
 
@@ -346,13 +345,11 @@ let _vcsOverridden = false;
 
 export function setVcsFlags(
   hasGitRepo: boolean,
-  useJJ: boolean,
-  vcsKind: "none" | "git" | "jj" | "fossil" = hasGitRepo ? "git" : "none",
+  vcsKind: "none" | "git" | "fossil" = hasGitRepo ? "git" : "none",
   display: { refLabel: string; workingLabel: string; syncLabel: string; mirrorLabel: string; mirrorSeverity: "success" | "warning" | "error" | null } = { refLabel: "workspace", workingLabel: "", syncLabel: "", mirrorLabel: "", mirrorSeverity: null },
   isOverridden: boolean = false,
 ): void {
   _hasGitRepo = hasGitRepo;
-  _useJJ = useJJ;
   _vcsKind = vcsKind;
   _hasFossilRepo = vcsKind === "fossil";
   _vcsDisplay = display;
@@ -1047,7 +1044,6 @@ export function clipInline(text: string, max = 40): string {
 function vcsIcon(kind: typeof _vcsKind): string {
   switch (kind) {
     case "git": return "";
-    case "jj": return "⧉";
     case "fossil": return "";
     default: return "";
   }

@@ -110,7 +110,7 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-067 | Port override handling for file and environment overrides | in-progress | story-065, story-066 |
 | story-068 | Aggregate validation registration for port assignment | in-progress | story-065, story-066, story-067 |
 | story-082 | Remove Fallow from Vazir reviews and closeout | not-started | - |
-| story-083 | Remove JJ from Vazir VCS integration | not-started | - |
+| story-083 | Remove JJ from Vazir VCS integration | in-progress | - |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
