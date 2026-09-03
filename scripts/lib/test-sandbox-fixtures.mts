@@ -47,6 +47,13 @@ export function createTemporaryProject(options: { escapingSymlink?: boolean } = 
   };
 }
 
+export function writeSandboxSettings(project: TemporaryProject, testSandbox: Record<string, unknown>): void {
+  const settingsDir = path.join(project.root, ".context", "settings");
+  fs.mkdirSync(settingsDir, { recursive: true });
+  fs.writeFileSync(path.join(settingsDir, "project.json"), JSON.stringify({ project_name: "sandbox-fixture", test_sandbox: testSandbox }, null, 2));
+  project.snapshot = snapshotEntry(project.root);
+}
+
 export function assertProjectUnchanged(project: TemporaryProject): void {
   if (snapshotEntry(project.root) !== project.snapshot) {
     throw new Error("Source project changed during sandbox validation");

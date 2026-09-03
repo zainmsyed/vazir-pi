@@ -39,6 +39,7 @@ const validations = [
   "validate-vazir-review-design-compliance.mts",
   "validate-vazir-review-loop.mts",
   "validate-vazir-sandbox-workspace.mts",
+  "validate-vazir-test-sandbox-runner.mts",
   "validate-vazir-status-chrome.mts",
   "validate-vazir-story-file-validation.mts",
   "validate-vazir-story-picker-order.mts",

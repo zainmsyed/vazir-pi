@@ -26,3 +26,5 @@ install.sh — One-line installer script for macOS/Linux that bootstraps pi-codi
 .pi/skills/herdr/SKILL.md — Herdr auxiliary skill instructions for controlling terminal panes, running validations, and inspecting exploratory agent work.
 .pi/lib/vazir-ports.ts — Per-service port allocation, persisted assignments, PID tracking, conflict recovery, and file/environment override resolution.
 .pi/lib/vazir-ports.ts — Per-service port allocation, persisted assignments, PID tracking, conflict recovery, and file/environment override resolution.
+.pi/lib/vazir-sandbox-workspace.ts — (undescribed)
+.pi/lib/vazir-test-sandbox.ts — (undescribed)
