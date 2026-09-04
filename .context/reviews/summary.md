@@ -1,6 +1,6 @@
 # Review Summary
 
-**Last updated:** 2026-09-03T21:18:01Z
+**Last updated:** 2026-09-04T02:28:26Z
 
 ## Findings
 - Every new targeted validation script must be registered in the aggregate runner so it is exercised alongside existing regressions. | count: 2 | status: promoted | sources: review-20260903-205930.md, review-20260903-211121.md | stories: story-086, story-087
@@ -9,8 +9,10 @@
 - Activation should be commit-last: never delete the current active pointer or release until the replacement is durably ready. | count: 1 | status: tracked | sources: review-20260831-232433.md | stories: story-078
 - After extracting helpers to a new module, delete the original copies to prevent drift and confusion. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - After large extension refactors, confirm the running session has reloaded the code before triggering flows that generate files from templates. | count: 1 | status: tracked | sources: review-20260902-151652.md | stories: story-082
+- Background process startup promises must have rejection handling attached immediately, and spawn errors must become explicit lifecycle failures before dependent phases run. | count: 1 | status: tracked | sources: review-20260904-021632.md | stories: story-088
 - Do not persist normalized defaults or repair malformed configuration during an unrelated settings write; normalize on read and mutate only the explicitly requested section. | count: 1 | status: tracked | sources: review-20260903-204825.md | stories: story-085
 - Do not silently swallow exceptions from structural persistence operations; surface a warning when tracking or recovery state cannot be verified. | count: 1 | status: tracked | sources: review-20260810-222500.md
+- Every abort-forwarding listener must be detached when its owned asynchronous operation settles, including successful completion paths. | count: 1 | status: tracked | sources: review-20260904-021632.md | stories: story-088
 - Every preflight signal that is surfaced to the user must have a tested display path. | count: 1 | status: tracked | sources: review-20260831-172552.md | stories: story-076
 - Extracted closeout flows must preserve all terminal branches of the original state machine, including commit-and-close paths. | count: 1 | status: tracked | sources: review-20260518-211642.md | stories: story-020
 - Fallback diagnostics must not impersonate a specific, user-facing error category. | count: 1 | status: tracked | sources: review-20260831-172552.md | stories: story-076
