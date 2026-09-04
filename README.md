@@ -99,7 +99,19 @@ Vazir reads any intake briefs in `.context/intake/`, asks clarifying questions o
 
 Starts implementation of the active in-progress story. If no story is active, Vazir offers to start the next open story or let you pick one from the queue.
 
-### 3. Complete the story
+### 3. Test the feature in a disposable workspace
+
+```text
+/test-sandbox test the new checkpoint restore behavior
+```
+
+Describe the behavior you want tested. The agent inspects the project, active story, relevant changes, and existing tooling, then decides whether workspace isolation is appropriate and builds a purpose-specific plan. Vazir shows every structured executable/argument array and requires explicit approval before anything runs. Afterward, the agent reports observed phase evidence, log excerpts, and any preserved failure workspace.
+
+This is recommended before `/complete-story`, but it is opt-in and never a completion gate. You can also ask naturally, such as “test this feature in the sandbox,” and the agent can use the same tool.
+
+> **Security boundary:** this provides disposable workspace isolation, not host security isolation. Test processes still run as your user and can access host files, processes, environment values, credentials, the network, and syscalls.
+
+### 4. Complete the story
 
 ```
 /complete-story
@@ -110,6 +122,7 @@ Validates the story checklist and issues, checks completion readiness, and optio
 ## Common Next Steps
 
 - **`/help`** — Open the same interactive help experience as Pi's `Ctrl+?` shortcut.
+- **`/test-sandbox [request]`** — Ask the agent to design, preview, and run a purpose-specific test in a disposable workspace.
 - **`/fix <description>`** — Log an issue to the active story and attempt a fix.
 - **`/idea [description]`** — Capture or browse ideas without interrupting the active story.
 - **`/review [scope]`** — Run a structured code review scoped to the active story or the whole codebase.
@@ -127,6 +140,7 @@ Validates the story checklist and issues, checks completion readiness, and optio
 | `/plan [topic]` | Review intake, ask delta questions, and generate stories |
 | `/story [file]` | Pick a plan or story file and open it in a scrollable view |
 | `/implement` | Implement the active in-progress story |
+| `/test-sandbox [request]` | Ask the agent to preview and run a natural-language test in a disposable workspace |
 | `/fix <description>` | Log an issue to the active story, then attempt a fix |
 | `/idea [description]` | Capture or browse ideas without interrupting the active story |
 | `/complete-story` | Check readiness, optionally review, and close a story |

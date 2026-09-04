@@ -47,6 +47,19 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - Clean up dead duplicate condition in `resolvePreferredVcsKind`.
 - Preserve Fossil commit path, JJ install/setup flow, footer display, and checkpoint/undo behavior.
 
+## E2E workspace sandbox replan addendum
+### Problem summary
+Feature testing needs a repeatable disposable application workspace so generated files, test mutations, ports, and background services do not interfere with the real project. Users should describe the behavior they want tested rather than manually configure commands. This first version is workspace isolation only: same-user test processes remain able to access host files, processes, environment values, credentials, and the network.
+
+### Proposed behavior/spec
+- Add an explicit `/test-sandbox [request]` workflow and agent-callable tool; do not invoke it automatically from review, implementation, fix, or story-closeout flows.
+- Let the agent inspect the project, active story, and relevant changes, decide whether sandboxing is appropriate, and derive a purpose-specific plan from the user's natural-language request.
+- Keep every generated phase as a structured executable-and-argument array rather than a shell string, show the complete plan, and require explicit user approval before execution.
+- Copy the project into a unique temporary workspace while excluding `.context/` and protected Git, Fossil, and legacy JJ metadata.
+- Reuse deterministic loopback port allocation, bound every phase, terminate spawned process trees, and return phase-specific logs and outcomes for the agent's final report.
+- Recommend sandbox testing before `/complete-story` without making it automatic or a completion gate; clean successful workspaces by default, preserve failures when requested, and never export changes into the source project automatically.
+- Defer Playwright-specific Visual QA and OS/container-level security isolation to later planning.
+
 ## Story queue
 | Story | Title | Status | Blocks |
 |---|---|---|---|
@@ -112,6 +125,10 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 | story-082 | Remove Fallow from Vazir reviews and closeout | not-started | - |
 | story-083 | Remove JJ from Vazir VCS integration | in-progress | - |
 | story-084 | Add a `/help` command as a terminal-safe alias for `Ctrl+?` | not-started | - |
+| story-085 | Add stack-neutral test-sandbox settings | not-started | - |
+| story-086 | Create disposable E2E workspaces | not-started | story-085 |
+| story-087 | Run stack-neutral E2E lifecycles in the sandbox | not-started | story-085, story-086 |
+| story-088 | Add agent-directed natural-language sandbox testing | in-progress | story-085, story-086, story-087 |
 
 ## Replanning log
 - **2026-05-05** — Initial plan generated from Addenda C and D. No prior story files existed; this is the first scoped plan for the design-system and enhanced-consolidation work.
@@ -144,3 +161,5 @@ In colocated git+jj repos, when `vcs_preference` is `"jj"`, the `commitStoryClos
 - **2026-08-08** — Started story-068 and registered the deterministic port validation in the aggregate runner with documented test-only assumptions.
 - **2026-09-02** — Replanned idea-007 on branch `remove-fallow-jj`. Preserved all existing story files and added story-082 for removal of active Fallow review/closeout integration and story-083 for removal of active JJ VCS integration. New reviews are LLM-only; Git file-snapshot checkpoints remain unchanged; Fossil receives no checkpoint path; all historical data and user-owned metadata remain untouched.
 - **2026-09-03** — Replanned idea-008 on branch `help-command-for-terminal-shortcuts`. Preserved existing story files and appended story-084 for a `/help` command that delegates to the exact existing `Ctrl+?` help experience, providing a terminal-safe alternative without new help UI or content.
+- **2026-09-03** — Replanned idea-003 as a stack-neutral E2E workspace sandbox. Preserved all existing queue rows and story files, then appended story-085 through story-088 for persisted structured command settings, disposable workspace staging, bounded subprocess and port lifecycle management, and the explicit `/test-sandbox` workflow. V1 does not claim host security isolation, does not include Playwright-specific Visual QA, and does not run automatically during review or story closeout.
+- **2026-09-03** — Replanned story-088 after clarifying the intended UX. Stories 085–087 remain as reusable workspace and subprocess infrastructure; story-088 now accepts a natural-language testing request, lets the agent derive a purpose-specific structured plan, previews it for explicit approval, and returns evidence for an agent-written report. Sandbox testing is recommended before `/complete-story` but remains opt-in and non-gating.

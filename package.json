@@ -15,6 +15,7 @@
   "pi": {
     "extensions": [
       ".pi/extensions/vazir-context/index.ts",
+      ".pi/extensions/vazir-sandbox/index.ts",
       ".pi/extensions/vazir-review/index.ts",
       ".pi/extensions/vazir-story/index.ts",
       ".pi/extensions/vazir-tracker/index.ts",

@@ -33,11 +33,30 @@ export type VcsMirrorMode = "none" | "git-mirror-of-fossil";
 
 export type PortSettingsMap = Record<string, number>;
 
+export type TestSandboxCommand = [string, ...string[]];
+
+export interface TestSandboxSettings {
+  [key: string]: unknown;
+  setup: TestSandboxCommand | null;
+  start: TestSandboxCommand | null;
+  readiness: TestSandboxCommand | null;
+  test: TestSandboxCommand | null;
+  timeout_ms: number;
+  port_role: string;
+  preserve_on_failure: boolean;
+}
+
+export const TEST_SANDBOX_DEFAULT_TIMEOUT_MS = 120_000;
+export const TEST_SANDBOX_MIN_TIMEOUT_MS = 1_000;
+export const TEST_SANDBOX_MAX_TIMEOUT_MS = 900_000;
+export const TEST_SANDBOX_DEFAULT_PORT_ROLE = "app";
+
 export interface ProjectSettings {
   [key: string]: unknown;
   ports: PortSettingsMap;
   previous_ports: PortSettingsMap;
   ports_override: PortSettingsMap;
+  test_sandbox: TestSandboxSettings;
 }
 
 export interface PortSettings {
@@ -376,7 +395,73 @@ function normalizeProjectSettings(raw: unknown): ProjectSettings {
     ports: normalizePortSettingsMap(record.ports),
     previous_ports: normalizePortSettingsMap(record.previous_ports),
     ports_override: normalizePortSettingsMap(record.ports_override),
+    test_sandbox: normalizeTestSandboxSettings(record.test_sandbox),
   };
+}
+
+function commandFromUnknown(raw: unknown): TestSandboxCommand | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.some(part => typeof part !== "string")) return null;
+  const command = raw.map(part => part as string) as TestSandboxCommand;
+  return command[0].trim() ? command : null;
+}
+
+function normalizeTimeout(raw: unknown): number {
+  return typeof raw === "number" && Number.isInteger(raw) && Number.isFinite(raw) && raw >= TEST_SANDBOX_MIN_TIMEOUT_MS && raw <= TEST_SANDBOX_MAX_TIMEOUT_MS
+    ? raw
+    : TEST_SANDBOX_DEFAULT_TIMEOUT_MS;
+}
+
+function normalizePortRole(raw: unknown): string {
+  return typeof raw === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(raw.trim()) ? raw.trim() : TEST_SANDBOX_DEFAULT_PORT_ROLE;
+}
+
+export function normalizeTestSandboxSettings(raw: unknown): TestSandboxSettings {
+  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  return {
+    ...record,
+    setup: commandFromUnknown(record.setup),
+    start: commandFromUnknown(record.start),
+    readiness: commandFromUnknown(record.readiness),
+    test: commandFromUnknown(record.test),
+    timeout_ms: normalizeTimeout(record.timeout_ms),
+    port_role: normalizePortRole(record.port_role),
+    preserve_on_failure: typeof record.preserve_on_failure === "boolean" ? record.preserve_on_failure : true,
+  };
+}
+
+function commandValidationIssue(label: string, raw: unknown, required: boolean): string | null {
+  if (raw === undefined || raw === null) return required ? `${label} is required and must be an executable-and-argument array.` : null;
+  if (!Array.isArray(raw)) return `${label} must be an executable-and-argument array, not a shell string.`;
+  if (raw.length === 0 || raw.some(part => typeof part !== "string")) return `${label} must contain a non-empty executable followed only by string arguments.`;
+  if (!(raw[0] as string).trim()) return `${label} must start with a non-empty executable.`;
+  return null;
+}
+
+export function validateTestSandboxSettings(raw: unknown): string[] {
+  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const issues = [
+    commandValidationIssue("test_sandbox.setup", record.setup, false),
+    commandValidationIssue("test_sandbox.start", record.start, false),
+    commandValidationIssue("test_sandbox.readiness", record.readiness, false),
+    commandValidationIssue("test_sandbox.test", record.test, true),
+  ].filter((issue): issue is string => Boolean(issue));
+
+  if (record.timeout_ms !== undefined && (typeof record.timeout_ms !== "number" || !Number.isInteger(record.timeout_ms) || record.timeout_ms < TEST_SANDBOX_MIN_TIMEOUT_MS || record.timeout_ms > TEST_SANDBOX_MAX_TIMEOUT_MS)) {
+    issues.push(`test_sandbox.timeout_ms must be an integer from ${TEST_SANDBOX_MIN_TIMEOUT_MS} through ${TEST_SANDBOX_MAX_TIMEOUT_MS}.`);
+  }
+  if (record.port_role !== undefined && (typeof record.port_role !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(record.port_role.trim()))) {
+    issues.push("test_sandbox.port_role must be 1–64 letters, numbers, '_' or '-'.");
+  }
+  if (record.preserve_on_failure !== undefined && typeof record.preserve_on_failure !== "boolean") {
+    issues.push("test_sandbox.preserve_on_failure must be a boolean.");
+  }
+  return issues;
+}
+
+export function assertValidTestSandboxSettings(raw: unknown): TestSandboxSettings {
+  const issues = validateTestSandboxSettings(raw);
+  if (issues.length > 0) throw new Error(`Invalid test_sandbox settings: ${issues.join(" ")}`);
+  return normalizeTestSandboxSettings(raw);
 }
 
 export function readRawProjectSettings(cwd: string): Record<string, unknown> {
@@ -592,8 +677,9 @@ export function runAutoMirrorExportAtCloseout(cwd: string): { ran: boolean; ok: 
 
 export function writeProjectSettings(cwd: string, updates: Record<string, unknown>): ProjectSettings {
   const filePath = projectSettingsPath(cwd);
-  const current = readProjectSettings(cwd);
-  const next: ProjectSettings = { ...current, ...updates };
+  const rawCurrent = readRawProjectSettings(cwd);
+  const current = normalizeProjectSettings(rawCurrent);
+  const next: Record<string, unknown> = { ...rawCurrent, ...updates };
 
   for (const key of ["ports", "previous_ports", "ports_override"] as const) {
     if (key in updates) {
@@ -611,9 +697,20 @@ export function writeProjectSettings(cwd: string, updates: Record<string, unknow
     };
   }
 
+  if ("test_sandbox" in updates) {
+    const requested = updates.test_sandbox;
+    const rawSandbox = rawCurrent.test_sandbox && typeof rawCurrent.test_sandbox === "object" && !Array.isArray(rawCurrent.test_sandbox)
+      ? rawCurrent.test_sandbox as Record<string, unknown>
+      : {};
+    const merged = requested && typeof requested === "object" && !Array.isArray(requested)
+      ? { ...rawSandbox, ...(requested as Record<string, unknown>) }
+      : requested;
+    next.test_sandbox = assertValidTestSandboxSettings(merged);
+  }
+
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(next, null, 2));
-  return next;
+  return normalizeProjectSettings(next);
 }
 
 export function readActiveVcsMode(cwd: string): ActiveVcsMode {
